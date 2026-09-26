@@ -1,0 +1,17 @@
+erDiagram
+    token_sets ||--o{ design_documents : token_set_id
+    users ||--o{ design_documents : user_id
+    design_documents ||--o{ design_versions : document_id
+    generation_jobs ||--o{ design_versions : job_id
+    design_versions ||--o{ exports : version_id
+    intents ||--o{ generation_jobs : intent_id
+    sessions ||--o{ generation_jobs : session_id
+    utterances ||--o{ intents : utterance_id
+    generation_jobs ||--o{ latency_events : job_id
+    utterances ||--o{ latency_events : utterance_id
+    generation_jobs ||--o{ patch_ops : job_id
+    primitives ||--o{ patch_ops : primitive
+    design_documents ||--o{ sessions : document_id
+    users ||--o{ sessions : user_id
+    utterances ||--o{ transcript_segments : utterance_id
+    sessions ||--o{ utterances : session_id

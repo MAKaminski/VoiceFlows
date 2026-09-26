@@ -1,0 +1,53 @@
+flowchart TB
+  subgraph frontend["Front-end · user interface"]
+    direction LR
+    _livecanvas_web["@livecanvas/web"]
+    client_lexicon["Client lexicon — TTFV-0 provisional nodes<br/><small>ARD 0001</small><br/><small>TTFV-0 target ≤ 400 ms p50</small>"]
+  end
+  subgraph middleware["Middleware · APIs"]
+    direction LR
+    _livecanvas_dsl["@livecanvas/dsl"]
+    _livecanvas_gateway["@livecanvas/gateway<br/><small>TypeScript; Rust hot path only if self-time > 20 ms p95 (ADR 0005)</small>"]
+    _livecanvas_prompts["@livecanvas/prompts"]
+    anthropic["Anthropic Messages API (Haiku 4.5 · Sonnet 5)<br/><small>ARD 0000</small>"]
+    compact_expander["Compact op expander → RFC 6902 (packages/dsl)<br/><small>ARD 0002</small>"]
+    deepgram["Deepgram Nova-3 streaming STT<br/><small>ARD 0003</small>"]
+    fused_engine["Fused intent+patch engine — header-first, single in-flight<br/><small>ARD 0001</small><br/><small>TTFV-1 target ≤ 1,000 ms p50</small>"]
+    stripe["Stripe metered billing (M5, planned)<br/><small>ARD 0004</small><br/><small>$20 incl. 200 speaking min · BYOK $10</small>"]
+  end
+  subgraph backend["Back-end · database"]
+    direction LR
+    postgres["Postgres 16 — system of record<br/><small>ARD 0000</small>"]
+    redis["Redis 7 — live doc · active job · pub/sub<br/><small>ARD 0000</small>"]
+  end
+  subgraph infrastructure["Infrastructure · container"]
+    direction LR
+    railway["Railway US-East — gateway · Postgres · Redis<br/><small>ARD 0000</small>"]
+    vercel["Vercel — hosts web<br/><small>ARD 0000</small>"]
+  end
+  _livecanvas_web -.->|"WS: partials · provisional ops · first_render · ARD 0000"| _livecanvas_gateway
+  _livecanvas_gateway -.->|"WS: ops · rollback · status · ARD 0000"| _livecanvas_web
+  _livecanvas_gateway -.->|"streamed generation · ARD 0000"| anthropic
+  _livecanvas_gateway -.->|"apply op to live doc · ARD 0000"| redis
+  _livecanvas_gateway -.->|"batched persistence (off hot path) · ARD 0000"| postgres
+  vercel -.->|"serves · ARD 0000"| _livecanvas_web
+  railway -.->|"runs (min 1 replica) · ARD 0000"| _livecanvas_gateway
+  client_lexicon -.->|"provisional ops (≤ 5 ms) · ARD 0001"| _livecanvas_web
+  _livecanvas_gateway -.->|"partial (≥ 150 ms gap, new content word) · ARD 0001"| fused_engine
+  fused_engine -.->|"1 call in flight · ARD 0001"| anthropic
+  anthropic -.->|"compact lines (~3× fewer tokens) · ARD 0002"| compact_expander
+  compact_expander -.->|"validated RFC 6902 ops · ARD 0002"| _livecanvas_gateway
+  _livecanvas_gateway -.->|"short-lived STT token · ARD 0003"| _livecanvas_web
+  _livecanvas_web -.->|"16 kHz PCM, 20 ms frames · ARD 0003"| deepgram
+  deepgram -.->|"interim partials · ARD 0003"| client_lexicon
+  _livecanvas_gateway -.->|"overage usage (M5) · ARD 0004"| stripe
+  classDef declared stroke-dasharray:5 4,stroke-width:2px;
+  classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
+  classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;
+  classDef be fill:#eaf1ec,stroke:#2C6249,color:#12191B;
+  classDef inf fill:#f4efe6,stroke:#8A6210,color:#12191B;
+  class _livecanvas_web,client_lexicon fe;
+  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,fused_engine,compact_expander,deepgram,stripe mw;
+  class postgres,redis be;
+  class vercel,railway inf;
+  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe declared;

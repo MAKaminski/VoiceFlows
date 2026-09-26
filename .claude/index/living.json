@@ -1,0 +1,53 @@
+{
+  "ards": 6,
+  "ards_contributing": 6,
+  "components_from_code": 4,
+  "components_from_ards": 10,
+  "flows_from_ards": 16,
+  "features": 7,
+  "notes": 4,
+  "index": [
+    {
+      "num": "0000",
+      "file": "0000-baseline-package.md",
+      "title": "ADR 0000 \u2014 Baseline: adopt the LiveCanvas package decisions D1\u2013D14",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0001",
+      "file": "0001-two-tier-latency.md",
+      "title": "ADR 0001 \u2014 Two-tier response (lexicon + model)",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0002",
+      "file": "0002-compact-op-format.md",
+      "title": "ADR 0002 \u2014 Compact op wire format",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0003",
+      "file": "0003-browser-direct-stt.md",
+      "title": "ADR 0003 \u2014 Browser connects directly to Deepgram",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0004",
+      "file": "0004-cost-model.md",
+      "title": "ADR 0004 \u2014 Cost model and plan limits",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0005",
+      "file": "0005-typescript-not-rust.md",
+      "title": "ADR 0005 \u2014 Keep TypeScript; Rust only behind a measured trigger",
+      "status": "accepted",
+      "contributes": true
+    }
+  ]
+}

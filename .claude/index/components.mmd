@@ -1,0 +1,9 @@
+flowchart TB
+    subgraph frontend["Front-end · user interface"]
+        _livecanvas_web["@livecanvas/web"]
+    end
+    subgraph middleware["Middleware · APIs"]
+        _livecanvas_dsl["@livecanvas/dsl"]
+        _livecanvas_gateway["@livecanvas/gateway"]
+        _livecanvas_prompts["@livecanvas/prompts"]
+    end

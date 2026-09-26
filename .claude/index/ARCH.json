@@ -1,0 +1,8 @@
+{
+  "tables": 13,
+  "foreign_keys": 16,
+  "components": 4,
+  "orphan_tables": 0,
+  "error_types": 1,
+  "duplicate_names": 0
+}

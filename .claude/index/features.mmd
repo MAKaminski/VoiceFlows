@@ -1,0 +1,79 @@
+flowchart LR
+  subgraph features["Products &amp; features"]
+    direction TB
+    F_voice_design["Live voice design session<br/><small>ARD 0000</small>"]
+    F_documents["Design documents · versions · undo<br/><small>ARD 0000</small>"]
+    F_vocabulary["Component vocabulary &amp; themes<br/><small>ARD 0000</small>"]
+    F_accounts["Accounts (magic link)<br/><small>ARD 0000</small>"]
+    F_export["Export — React · HTML · PNG · URL (M6)<br/><small>ARD 0000</small>"]
+    F_latency["Latency telemetry &amp; HUD<br/><small>ARD 0001</small>"]
+    F_billing["Plans · quota · BYOK (M5, planned)<br/><small>ARD 0004</small>"]
+  end
+  subgraph uses["Components"]
+    direction TB
+    C__livecanvas_dsl["@livecanvas/dsl"]
+    C__livecanvas_gateway["@livecanvas/gateway"]
+    C__livecanvas_web["@livecanvas/web"]
+    C_anthropic["Anthropic Messages API (Haiku 4.5 · Sonnet 5)"]
+    C_postgres["Postgres 16 — system of record"]
+    C_redis["Redis 7 — live doc · active job · pub/sub"]
+    C_stripe["Stripe metered billing (M5, planned)"]
+  end
+  subgraph owned["Tables owned"]
+    direction TB
+    T_design_documents[("design_documents")]
+    T_design_versions[("design_versions")]
+    T_exports[("exports")]
+    T_generation_jobs[("generation_jobs")]
+    T_intents[("intents")]
+    T_latency_events[("latency_events")]
+    T_patch_ops[("patch_ops")]
+    T_plans[("plans")]
+    T_primitives[("primitives")]
+    T_provider_keys[("provider_keys")]
+    T_sessions[("sessions")]
+    T_token_sets[("token_sets")]
+    T_transcript_segments[("transcript_segments")]
+    T_usage_periods[("usage_periods")]
+    T_users[("users")]
+    T_utterances[("utterances")]
+  end
+  F_voice_design --> C__livecanvas_web
+  F_voice_design --> C__livecanvas_gateway
+  F_voice_design --> C_anthropic
+  F_voice_design --> C_redis
+  F_voice_design ==>|owns| T_sessions
+  F_voice_design ==>|owns| T_utterances
+  F_voice_design ==>|owns| T_transcript_segments
+  F_voice_design ==>|owns| T_intents
+  F_voice_design ==>|owns| T_generation_jobs
+  F_voice_design ==>|owns| T_patch_ops
+  F_documents --> C__livecanvas_gateway
+  F_documents --> C_postgres
+  F_documents ==>|owns| T_design_documents
+  F_documents ==>|owns| T_design_versions
+  F_vocabulary --> C__livecanvas_dsl
+  F_vocabulary ==>|owns| T_primitives
+  F_vocabulary ==>|owns| T_token_sets
+  F_accounts --> C__livecanvas_gateway
+  F_accounts --> C_redis
+  F_accounts --> C_postgres
+  F_accounts ==>|owns| T_users
+  F_export --> C__livecanvas_gateway
+  F_export ==>|owns| T_exports
+  F_latency --> C__livecanvas_web
+  F_latency --> C__livecanvas_gateway
+  F_latency ==>|owns| T_latency_events
+  F_billing --> C__livecanvas_web
+  F_billing --> C__livecanvas_gateway
+  F_billing --> C_stripe
+  F_billing --> C_postgres
+  F_billing ==>|owns| T_plans
+  F_billing ==>|owns| T_usage_periods
+  F_billing ==>|owns| T_provider_keys
+  classDef feat fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
+  classDef comp fill:#eef1ef,stroke:#5A686C,color:#12191B;
+  classDef tab fill:#eaf1ec,stroke:#2C6249,color:#12191B;
+  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing feat;
+  class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_postgres,C_redis,C_stripe comp;
+  class T_design_documents,T_design_versions,T_exports,T_generation_jobs,T_intents,T_latency_events,T_patch_ops,T_plans,T_primitives,T_provider_keys,T_sessions,T_token_sets,T_transcript_segments,T_usage_periods,T_users,T_utterances tab;

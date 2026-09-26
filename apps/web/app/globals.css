@@ -1,0 +1,15 @@
+:root {
+  --lc-chrome-bg: #f6f7f9;
+  --lc-chrome-fg: #1f2937;
+  --lc-chrome-border: #e5e7eb;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --lc-chrome-bg: #0b0f17; --lc-chrome-fg: #e5e7eb; --lc-chrome-border: #1f2937; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--lc-chrome-bg); color: var(--lc-chrome-fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+/* Provisional nodes (lexicon tier, D15) shimmer until the model tier touches them. */
+@keyframes lc-shimmer { 0%, 100% { opacity: 1 } 50% { opacity: .55 } }
+.lc-provisional { animation: lc-shimmer 1.2s ease-in-out infinite; outline: 1px dashed var(--lc-color-primary); outline-offset: 2px; }

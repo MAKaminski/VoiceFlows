@@ -1,0 +1,124 @@
+erDiagram
+    token_sets ||--o{ design_documents : token_set_id
+    users ||--o{ design_documents : user_id
+    design_documents ||--o{ design_versions : document_id
+    generation_jobs ||--o{ design_versions : job_id
+    design_versions ||--o{ exports : version_id
+    intents ||--o{ generation_jobs : intent_id
+    sessions ||--o{ generation_jobs : session_id
+    utterances ||--o{ intents : utterance_id
+    generation_jobs ||--o{ latency_events : job_id
+    utterances ||--o{ latency_events : utterance_id
+    generation_jobs ||--o{ patch_ops : job_id
+    primitives ||--o{ patch_ops : primitive
+    design_documents ||--o{ sessions : document_id
+    users ||--o{ sessions : user_id
+    utterances ||--o{ transcript_segments : utterance_id
+    sessions ||--o{ utterances : session_id
+    design_documents {
+        uuid id PK
+        uuid user_id FK
+        uuid token_set_id FK
+        text title
+        jsonb current_doc
+        int current_version
+        timestamptz created_at
+    }
+    design_versions {
+        uuid id PK
+        uuid document_id FK
+        uuid job_id FK
+        int version
+        jsonb doc
+        timestamptz created_at
+    }
+    exports {
+        uuid id PK
+        uuid version_id FK
+        text format
+        text uri
+        timestamptz created_at
+    }
+    generation_jobs {
+        uuid id PK
+        uuid intent_id FK
+        uuid session_id FK
+        text model
+        text status
+        int input_tokens
+        int output_tokens
+        timestamptz started_at
+    }
+    intents {
+        uuid id PK
+        uuid utterance_id FK
+        jsonb intent
+        real delta_score
+        boolean committed
+        text path
+        int t_ms
+        timestamptz created_at
+    }
+    latency_events {
+        uuid id PK
+        uuid job_id FK
+        uuid utterance_id FK
+        text stage
+        int t_ms
+        timestamptz created_at
+    }
+    patch_ops {
+        uuid id PK
+        uuid job_id FK
+        text primitive FK
+        int seq
+        text op
+        text path
+        jsonb value
+        boolean applied
+    }
+    primitives {
+        text name PK
+        jsonb prop_schema
+        int schema_version
+        timestamptz created_at
+    }
+    sessions {
+        uuid id PK
+        uuid user_id FK
+        uuid document_id FK
+        text stt_provider
+        text status
+        timestamptz started_at
+        timestamptz ended_at
+        timestamptz created_at
+    }
+    token_sets {
+        uuid id PK
+        text name
+        jsonb tokens
+        timestamptz created_at
+    }
+    transcript_segments {
+        uuid id PK
+        uuid utterance_id FK
+        boolean is_final
+        text text
+        real confidence
+        int t_ms
+        timestamptz created_at
+    }
+    users {
+        uuid id PK
+        text email
+        timestamptz created_at
+    }
+    utterances {
+        uuid id PK
+        uuid session_id FK
+        int seq
+        timestamptz started_at
+        timestamptz finalized_at
+        text final_text
+        timestamptz created_at
+    }

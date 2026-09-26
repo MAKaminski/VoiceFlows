@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16
+    environment: { POSTGRES_USER: livecanvas, POSTGRES_PASSWORD: livecanvas, POSTGRES_DB: livecanvas }
+    volumes: [ "../db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro", "pgdata:/var/lib/postgresql/data" ]
+    ports: [ "5432:5432" ]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U livecanvas"], interval: 2s, retries: 30 }
+  redis:
+    image: redis:7
+    ports: [ "6379:6379" ]
+  gateway:
+    build: { context: .., dockerfile: apps/gateway/Dockerfile }
+    # Secrets come from the shell or `--env-file .env` (never baked into the image).
+    environment:
+      DATABASE_URL: "postgres://livecanvas:livecanvas@postgres:5432/livecanvas"
+      REDIS_URL: "redis://redis:6379"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
+    depends_on: { postgres: { condition: service_healthy }, redis: { condition: service_started } }
+    ports: [ "8787:8787" ]
+  web:
+    build: { context: .., dockerfile: apps/web/Dockerfile, args: { NEXT_PUBLIC_GATEWAY_WS: "ws://localhost:8787/ws" } }
+    depends_on: [ gateway ]
+    ports: [ "3000:3000" ]
+volumes: { pgdata: {} }

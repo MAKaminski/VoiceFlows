@@ -1,0 +1,22 @@
+{
+  "name": "livecanvas",
+  "private": true,
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:web": "pnpm --filter @livecanvas/web dev",
+    "dev:gateway": "pnpm --filter @livecanvas/gateway dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test:dsl": "pnpm --filter @livecanvas/dsl test",
+    "codemap": "tsx scripts/gen-codemap.ts",
+    "arch:check": "pnpm codemap --check && python3 ~/.claude/bin/arch-sync.py . --check"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0"
+  }
+}
