@@ -4,9 +4,9 @@ _Generated from the TypeScript AST by `pnpm codemap` — do not edit by hand; CI
 
 | Measure | Count |
 |---|---|
-| Modules | 21 |
-| Lines | 852 |
-| Top-level symbols | 85 |
+| Modules | 22 |
+| Lines | 886 |
+| Top-level symbols | 86 |
 | Exported symbols | 60 |
 | Exported names defined in 2+ modules | 0 |
 
@@ -26,7 +26,7 @@ flowchart LR
 |---|---|
 | @livecanvas/dsl | `zod` |
 | @livecanvas/prompts | — |
-| @livecanvas/gateway | `@fastify/websocket`, `fastify`, `zod` |
+| @livecanvas/gateway | `@fastify/websocket`, `fastify`, `postgres`, `zod` |
 | @livecanvas/web | `lucide-react`, `next`, `react`, `zustand` |
 
 ## Modules and exported symbols
@@ -56,6 +56,7 @@ flowchart LR
 | Module | LOC | Exports (kind) |
 |---|---|---|
 | [config.ts](../apps/gateway/src/config.ts) | 26 | `Config` type · `loadConfig` const |
+| [migrate.ts](../apps/gateway/src/migrate.ts) | 34 | — |
 | [server.ts](../apps/gateway/src/server.ts) | 50 | `buildServer` function |
 
 ### @livecanvas/web — Front-end

@@ -393,8 +393,10 @@ Generated. Every item here is a candidate for consolidation — the goal is **fe
 - **Duplicated symbol names:** 0 across modules (codemap). Same-module zod const + type pairs
   are P1, not duplicates.
 - **Components nothing depends on:** `@livecanvas/web` and `@livecanvas/gateway` are entry
-  points (fine). `@livecanvas/prompts` has no dependant yet — it is wired into the gateway in
-  M3; if it still has one caller then, fold it into `apps/gateway/src/prompts.ts`.
+  points (fine). `@livecanvas/prompts` is declared in `apps/gateway/package.json` but not
+  imported anywhere yet, so the generator counts a dependant that doesn't exist in code. It
+  gets wired in at M3; if the gateway is still its only caller then, fold it into
+  `apps/gateway/src/prompts.ts`.
 - **Error types:** one (`CompactParseError`). The gateway returns raw zod messages over WS —
   M3 must route every failure through one `toServerError()` so call sites don't invent handling.
 - **F1 — memo never hits.** `applyOp` deep-clones the whole doc, so every node gets a new
@@ -403,10 +405,10 @@ Generated. Every item here is a candidate for consolidation — the goal is **fe
 - **F2 — two sources of truth for the vocabulary.** `primitives.prop_schema` and
   `token_sets.tokens` duplicate `propSchemas` and `defaultTokens` in `packages/dsl`. Fix: code
   wins; seed both tables from `z.toJSONSchema(propSchemas[...])` and `defaultTokens` at migrate time.
-- **F3 — `/arch` layer classifier misfiles npm workspaces.** `~/.claude/bin/arch-living.py`
-  `layer_of` treats any path containing "app" (incl. `apps/gateway`) as front-end and defaults
-  unknown npm packages to front-end. Global-tool fix, tracked outside this repo; §3 above has
-  the correct layers.
+- **F3 — `/arch` layer classifier misfiled npm workspaces. Resolved 2026-09-26.** The shared
+  `~/.claude/bin/arch_layers.py` now matches whole path segments, detects UI frameworks from
+  dependencies, honours a package.json `"layer"` override and skips workspace roots. §4 now
+  places web in Front-end and gateway, dsl and prompts in Middleware.
 
 | Finding | Consolidate into | Effort |
 |---|---|---|
@@ -414,7 +416,7 @@ Generated. Every item here is a candidate for consolidation — the goal is **fe
 | F2 vocabulary duplicated in DB and code | Seed `primitives` + `token_sets` from `packages/dsl` | S (M5) |
 | Ad-hoc WS error strings | One `toServerError()` in gateway | XS (M3) |
 | `@livecanvas/prompts` single caller | Fold into gateway if still one caller after M3 | XS |
-| F3 layer misclassification | Fix `layer_of` in global `/arch` tooling | XS (outside repo) |
+| ~~F3 layer misclassification~~ | Fixed in global `/arch` tooling (2026-09-26) | done |
 
 ## 8. Change protocol
 

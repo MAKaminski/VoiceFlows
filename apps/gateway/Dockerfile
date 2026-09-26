@@ -10,9 +10,10 @@ RUN pnpm --filter @livecanvas/gateway build
 
 FROM node:22-slim
 WORKDIR /app
-ENV NODE_ENV=production PROMPTS_DIR=/app/prompts
+ENV NODE_ENV=production PROMPTS_DIR=/app/prompts SCHEMA_PATH=/app/db/schema.sql
 COPY --from=build /repo/apps/gateway/dist ./dist
 COPY prompts ./prompts
+COPY db/schema.sql ./db/schema.sql
 EXPOSE 8787
 HEALTHCHECK CMD node -e "fetch('http://localhost:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/server.js"]
