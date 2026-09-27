@@ -20,7 +20,7 @@
 - Visual check: /playground?kind=architecture|erd|sequence.
 - Live (Railway): diagram prompts 6/6; screen regression 10/10, TTFV-1 817 ms adj., $0.0113/min. ADR 0011 §Result.
 
-## M5b — Feature flags, admin screen, user vocabulary (2026-09-27) — built; live after deploy
+## M5b — Feature flags, admin screen, user vocabulary (2026-09-27) — DONE (admin needs ADMIN_TOKEN)
 - ADR 0012 / D24. 7 flags (registry → `feature_flags`), gateway-enforced; usage in `feature_events`;
   `/admin` page + bearer API; `vocabulary_terms` per document; keyword rail with rule tooltips;
   "+ Add word" and spoken "define X as Y" → "confirm".
@@ -28,3 +28,7 @@
   scoped to admin origins with PUT + Authorization.
 - Tests: dsl 40/40; gateway 37/37 incl. Postgres (migration twice on a fresh DB + once on existing:
   16 tables, 20 FKs). Browser (local): UI add word → chip + tooltip; admin flip hides ERD live.
+- Live (Railway, 2026-09-27): `vocab-live.mts` 5/5 (spoken define drew nothing, no model job; confirm; next
+  "ledger" drew in Database lane); diagrams 3/3; screen regression batches 7/10 then 10/10 (27/30 across
+  the three post-M5 batches; the screen path is unchanged — the miss is model-latency variance).
+  Watch: TTFV-1 adj. p50 trending 817 → 835 → 859 ms against the 870 ms bar.
