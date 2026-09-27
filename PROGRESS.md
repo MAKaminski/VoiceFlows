@@ -77,3 +77,14 @@
 - 2026-09-27 · Screen prompt trim tried and **reverted**. A/B on Railway, 10 runs each: trimmed 7/10 and 10/10,
   settle p50 920 / 891 ms, $0.0119 / $0.0116; original 9/10, settle p50 750 ms, $0.0119. No measurable cost
   win and a consistent ~150 ms settle loss, so the original stays. (Trimmed draft kept out of the repo.)
+
+## Jev bake-off (2026-09-27) — PASS
+- TypeSafe Jev (typed-decision "System One" model) vs Haiku on the SAME structural questions (24 cases, 390
+  decisions: connections, direction, style, lane, kind, owner, ERD relation + cardinality, sequence
+  messages, screen position/size/colour, view routing, actionable gate). 10 rounds from Railway sfo
+  (`apps/gateway/src/bench/jev.ts`, raw: `docs/m6/2026-09-27-jev-bakeoff-railway-sfo.json`).
+- Jev p50 **90 ms** / p95 146 ms, 97.9 % correct, $0.00004 per call. Haiku p50 722 ms / p95 910 ms, 95.1 %,
+  $0.00067 per call. Jev answers with confidence ≥ 0.8: 85 % of decisions, **100 % correct**.
+- Misses: "postgres is read by shaw" (both engines, reversed grammar); "the web app calls the api" gated
+  as not-actionable 2/10 (Haiku 7/10) — both low-confidence, i.e. would fall back.
+- Bar was p50 ≤ 300 ms and ≥ 90 % correct: passed on both.
