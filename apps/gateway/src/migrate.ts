@@ -1,10 +1,16 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { defaultTokens, propSchemas } from "@livecanvas/dsl";
 import postgres from "postgres";
+import { z } from "zod";
+import { ANON_EMAIL } from "./persist.js";
 
 /**
  * Pre-deploy step (Railway preDeployCommand): applies db/schema.sql once, over the private
- * network, if the schema is absent. Idempotent: an existing `users` table means "already applied".
+ * network, if the schema is absent (an existing `users` table means "already applied"), then
+ * upserts seed rows every deploy: the `default` token set and the 12 primitives, both generated
+ * from packages/dsl so code stays the source of truth (ARCHITECTURE.md F2), and the anonymous
+ * user that sessions belong to until magic-link auth (M5).
  * Real versioned migrations arrive with M5 (ASSUMPTIONS.md, 2026-09-26).
  */
 async function main() {
@@ -19,12 +25,26 @@ async function main() {
       await sql.begin((tx) => tx.unsafe(readFileSync(file, "utf8")));
       console.log("migrate: applied", file);
     }
+    await seed(sql);
     const { tables } = (await sql<{ tables: number }[]>`select count(*)::int as tables from information_schema.tables where table_schema = 'public'`)[0]!;
     const { fks } = (await sql<{ fks: number }[]>`select count(*)::int as fks from information_schema.table_constraints where constraint_type = 'FOREIGN KEY' and table_schema = 'public'`)[0]!;
     console.log(`migrate: tables=${tables} fks=${fks}`);
   } finally {
     await sql.end();
   }
+}
+
+async function seed(sql: postgres.Sql) {
+  await sql`insert into users (email) values (${ANON_EMAIL}) on conflict (email) do nothing`;
+  const tokens = sql.json(defaultTokens as never);
+  const updated = await sql`update token_sets set tokens = ${tokens} where name = 'default'`;
+  if (updated.count === 0) await sql`insert into token_sets (name, tokens) values ('default', ${tokens})`;
+  for (const [name, schema] of Object.entries(propSchemas)) {
+    const json = sql.json(z.toJSONSchema(schema) as never);
+    await sql`insert into primitives (name, prop_schema) values (${name}, ${json})
+              on conflict (name) do update set prop_schema = excluded.prop_schema`;
+  }
+  console.log(`migrate: seeded anonymous user, default token set, ${Object.keys(propSchemas).length} primitives`);
 }
 
 main().catch((err) => {

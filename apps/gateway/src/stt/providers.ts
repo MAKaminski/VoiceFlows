@@ -1,5 +1,5 @@
 /**
- * STT provider adapters for the bake-off — and the seed of the production STT adapter (D6).
+ * STT provider adapters (D6): used by the gateway relay (ADR 0008) and the bake-off harness.
  * Each adapter opens a streaming session, accepts 20 ms 16 kHz int16 frames, and reports the
  * provider's current hypothesis text (interim or final). Nothing provider-specific leaks out.
  */
@@ -81,13 +81,14 @@ export const PROVIDERS: Record<string, SttProvider> = {
     needs: "DEEPGRAM_API_KEY",
     ready: () => !!env("DEEPGRAM_API_KEY"),
     connect: async () => {
-      let pending: Buffer[] = [];
+      // Batch to ≥ 80 ms (2,560 bytes); frames that are already 80 ms (browser relay) pass straight through.
+      let pending: Buffer[] = [], bytes = 0;
       return wsSession("wss://api.deepgram.com/v2/listen?model=flux-general-en&encoding=linear16&sample_rate=16000", {
         headers: { authorization: `Token ${env("DEEPGRAM_API_KEY")}` },
         encode: (frame) => {
-          pending.push(frame);
-          if (pending.length < 4) return Buffer.alloc(0);
-          const out = Buffer.concat(pending); pending = []; return out;
+          pending.push(frame); bytes += frame.length;
+          if (bytes < 2560) return Buffer.alloc(0);
+          const out = Buffer.concat(pending); pending = []; bytes = 0; return out;
         },
         parse: (m, emit) => { if (m.type === "TurnInfo") emit(m.transcript ?? "", m.event === "EndOfTurn"); },
         close: (send) => send(JSON.stringify({ type: "CloseStream" })),

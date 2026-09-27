@@ -146,7 +146,7 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Tables with no FK either way | 0 |
 | Distinct error types | 1 |
 | Symbol names defined 3+ times | 0 |
-| ARDs on record | 8 (8 contributing to the diagram) |
+| ARDs on record | 9 (9 contributing to the diagram) |
 | Components declared by ARDs | 10 |
 | Features declared by ARDs | 7 |
 <!-- arch:end:counts -->
@@ -214,6 +214,8 @@ flowchart TB
   _livecanvas_web -.->|"16 kHz PCM, 20 ms frames · ARD 0003"| deepgram
   deepgram -.->|"interim partials · ARD 0003"| client_lexicon
   _livecanvas_gateway -.->|"overage usage (M5) · ARD 0004"| stripe
+  _livecanvas_web -.->|"relay: 80 ms PCM frames (binary WS) · ARD 0008"| _livecanvas_gateway
+  _livecanvas_gateway -.->|"relay stream · ARD 0008"| deepgram
   classDef declared stroke-dasharray:5 4,stroke-width:2px;
   classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;

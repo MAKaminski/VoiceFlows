@@ -19,6 +19,9 @@ const Env = z.object({
   FUSED_FAST_PATH: bool.default(true),
   LEXICON_TIER: bool.default(true),
   STT_DIRECT: bool.default(true),
+  // Browser origins allowed to call POST /stt/token (comma list) plus an optional regex for preview deploys.
+  CORS_ORIGINS: z.string().default("http://localhost:3000"),
+  CORS_ORIGIN_PATTERN: z.string().optional(),
 });
 
 export type Config = z.infer<typeof Env>;

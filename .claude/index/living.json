@@ -1,11 +1,11 @@
 {
-  "ards": 8,
-  "ards_contributing": 8,
+  "ards": 9,
+  "ards_contributing": 9,
   "components_from_code": 4,
   "components_from_ards": 10,
-  "flows_from_ards": 16,
+  "flows_from_ards": 18,
   "features": 7,
-  "notes": 6,
+  "notes": 7,
   "index": [
     {
       "num": "0000",
@@ -60,6 +60,13 @@
       "num": "0007",
       "file": "0007-stt-deepgram-flux.md",
       "title": "ADR 0007 \u2014 Speech-to-text: Deepgram Flux (flux-general-en)",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0008",
+      "file": "0008-stt-transport-modes.md",
+      "title": "ADR 0008 \u2014 STT transport: direct, relay, or Web Speech, chosen by the gateway",
       "status": "accepted",
       "contributes": true
     }

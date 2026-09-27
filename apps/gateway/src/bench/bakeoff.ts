@@ -8,7 +8,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { PROVIDERS, type SttProvider } from "./providers.js";
+import { PROVIDERS, type SttProvider } from "../stt/providers.js";
 
 const RUNS = Number(process.env.BAKEOFF_RUNS ?? 10);
 const WAV = process.env.SPIKE_WAV ?? resolve(process.cwd(), "scripts/fixtures/dod.wav");
