@@ -134,6 +134,15 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
   // How this browser gets speech-to-text (ADR 0008). Never returns the API key itself.
   app.post("/stt/token", async () => deps.sttGrant());
 
+  /**
+   * Live documents (ADR 0014): exactly one DocSession per document, owned by exactly one tab — the single
+   * writer (ADR 0009) holds per document. Opening the document in another tab takes it over; the old tab
+   * is told and goes idle. One gateway replica is assumed (ADR 0012).
+   */
+  interface LiveDoc { doc: DocSession; owner: ((m: ServerMsg) => void) | null; release: (() => void) | null; shareLinks: Array<{ token: string; version: number }> }
+  const live = new Map<string, LiveDoc>();
+  const toOwner = (e: LiveDoc) => (m: ServerMsg) => e.owner?.(m);
+
   app.register(async (scoped) => {
     scoped.get("/ws", { websocket: true }, (socket) => {
       const send = (msg: ServerMsg) => { if (socket.readyState === 1) socket.send(JSON.stringify(msg)); };
@@ -147,6 +156,9 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
       };
       const fail = (message: string, e?: unknown) => { if (e) app.log.error(e); send({ type: "error", message }); };
       let doc: DocSession | null = null;
+      let entry: LiveDoc | null = null;
+      let closed = false;
+      let closedByTakeover = false; // another tab took this document over (ADR 0014)
       let relay: SttSession | null = null;
       // Frames that arrive while Flux is still connecting are queued, not dropped — dropping them
       // shifted Flux's clock and lost the first words (browser run, 2026-09-27). Cap: 10 s of audio.
@@ -157,7 +169,6 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
       let relaySeq = 0;
       let lastMarks = ""; // only send word marks when they change
       let highlightUsed = false; // one "used" event per session
-      let shareLinks: Array<{ token: string; version: number }> = []; // this document's live links (ADR 0013)
       const voiceSeq = (clientSeq: number) => {
         if (!seqMap.has(clientSeq)) seqMap.set(clientSeq, doc!.allocSeq());
         return seqMap.get(clientSeq)!;
@@ -195,20 +206,48 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
         const parsed = ClientMsg.safeParse(json);
         if (!parsed.success) return fail(parsed.error.message);
         const msg = parsed.data;
-        if (msg.type !== "hello" && !doc) return fail("say hello first");
+        if (msg.type !== "hello" && !doc) return fail(entry === null && closedByTakeover ? "This document is open in another tab" : "say hello first");
         switch (msg.type) {
           case "hello": {
             try {
+              if (entry) return; // one hello per socket
               const t0 = performance.now();
-              const opened = (msg.sessionId && (await deps.persistence.resumeSession(msg.sessionId))) || (await deps.persistence.openSession());
-              app.log.info({ sessionId: opened.sessionId, ms: Math.round(performance.now() - t0), resumed: opened.sessionId === msg.sessionId }, "session: opened");
-              doc = new DocSession(opened, { persistence: deps.persistence, model: deps.model, engine: deps.engine, engines: deps.engines, flags: () => flags.all(), send, log: (m) => app.log.warn(m) });
-              doc.terms = await deps.persistence.listVocab(opened.documentId).catch(() => []);
-              send({ type: "welcome", sessionId: doc.sessionId, version: doc.versionInfo().version, resumed: opened.sessionId === msg.sessionId, flags: flags.all() });
+              const remember = flags.on("remember_document");
+              if (!remember && msg.documentId) deps.persistence.featureEvent(null, "remember_document", "blocked");
+              // Which document: this tab's own (reload) or, with the flag, this browser's last one.
+              const prior = msg.sessionId ? await deps.persistence.resumeSession(msg.sessionId) : null;
+              const target = prior?.documentId ?? (remember ? msg.documentId : undefined);
+              let e = target ? live.get(target) : undefined;
+              let resumed = !!e;
+              if (!e) {
+                // Queued writes of a tab that just closed must land before we read the document back.
+                await deps.persistence.flush();
+                const opened = (target ? await deps.persistence.openOnDocument(target) : null) ?? (await deps.persistence.openSession());
+                resumed = opened.documentId === target;
+                const created: LiveDoc = { doc: null as unknown as DocSession, owner: null, release: null, shareLinks: [] };
+                created.doc = new DocSession(opened, { persistence: deps.persistence, model: deps.model, engine: deps.engine, engines: deps.engines, flags: () => flags.all(), send: toOwner(created), log: (m) => app.log.warn(m) });
+                created.doc.terms = await deps.persistence.listVocab(opened.documentId).catch(() => []);
+                created.shareLinks = await deps.persistence.listShares(opened.documentId).catch(() => []);
+                e = live.get(opened.documentId); // another tab may have opened it while we awaited
+                if (e) deps.persistence.endSession(opened.sessionId); // keep the one that won
+                else live.set(opened.documentId, (e = created));
+                if (resumed && !prior) deps.persistence.featureEvent(opened.sessionId, "remember_document", "used");
+              }
+              if (closed) { // the tab went away while we were loading: don't pin the document
+                if (!e.owner && live.get(e.doc.documentId) === e) { live.delete(e.doc.documentId); deps.persistence.endSession(e.doc.sessionId); }
+                return;
+              }
+              // Take over: the previous owner is told and released (its mic and messages stop).
+              if (e.owner) { e.owner({ type: "taken_over" }); e.release?.(); }
+              e.owner = send;
+              e.release = () => { entry = null; doc = null; closedByTakeover = true; void stopRelay(); };
+              entry = e;
+              doc = e.doc;
+              app.log.info({ sessionId: doc.sessionId, ms: Math.round(performance.now() - t0), resumed }, "session: opened");
+              send({ type: "welcome", sessionId: doc.sessionId, documentId: doc.documentId, version: doc.versionInfo().version, resumed, flags: flags.all() });
               send(doc.snapshot());
               send({ type: "vocab", terms: doc.terms });
-              shareLinks = await deps.persistence.listShares(opened.documentId).catch(() => []);
-              if (flags.on("share_links")) send({ type: "shares", links: shareLinks });
+              if (flags.on("share_links")) send({ type: "shares", links: e.shareLinks });
               for (const [k, on] of Object.entries(flags.all())) if (on) deps.persistence.featureEvent(doc.sessionId, k as FeatureKey, "exposed");
             } catch (e) { fail("could not open session", e); }
             return;
@@ -262,21 +301,22 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
             if (!permit("share_links")) return;
             // One live link per version: sharing the same version again returns its link (ADR 0013).
             const version = doc!.versionInfo().version;
-            if (!shareLinks.some((l) => l.version === version)) {
+            const e = entry!;
+            if (!e.shareLinks.some((l) => l.version === version)) {
               const token = randomBytes(16).toString("base64url");
               deps.persistence.createShare(doc!.sessionId, { documentId: doc!.documentId, version, token });
-              shareLinks = [...shareLinks, { token, version }];
+              e.shareLinks = [...e.shareLinks, { token, version }];
               deps.persistence.featureEvent(doc!.sessionId, "share_links", "used");
             }
-            return send({ type: "shares", links: shareLinks });
+            return send({ type: "shares", links: e.shareLinks });
           }
           case "share_revoke":
             if (!permit("share_links")) return;
             try {
               await deps.persistence.flush(); // a just-created link must exist before it can be revoked
               await deps.persistence.revokeShare(doc!.documentId, msg.token);
-              shareLinks = shareLinks.filter((l) => l.token !== msg.token);
-              return send({ type: "shares", links: shareLinks });
+              entry!.shareLinks = entry!.shareLinks.filter((l) => l.token !== msg.token);
+              return send({ type: "shares", links: entry!.shareLinks });
             } catch (e) { return fail("could not revoke the link", e); }
           case "vocab_delete":
             if (!permit("custom_vocabulary")) return;
@@ -294,9 +334,15 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
         }
       });
       socket.on("close", () => {
+        closed = true;
         sockets.delete(send);
         void stopRelay();
-        if (doc) { doc.abortActive("disconnected"); deps.persistence.endSession(doc.sessionId); }
+        if (entry && doc && entry.owner === send) { // the owning tab closed: settle and release the document
+          doc.abortActive("disconnected");
+          deps.persistence.endSession(doc.sessionId);
+          entry.owner = null;
+          if (live.get(doc.documentId) === entry) live.delete(doc.documentId);
+        }
       });
     });
   });

@@ -7,6 +7,8 @@ import { useVoice } from "@/store/voice";
 export const WS_URL = process.env.NEXT_PUBLIC_GATEWAY_WS ?? "ws://localhost:8787/ws";
 export const HTTP_BASE = WS_URL.replace(/^ws/, "http").replace(/\/ws$/, "");
 const SESSION_KEY = "lc.sessionId";
+/** Per browser, not per tab: a new tab reopens the last document (ADR 0014). */
+const DOCUMENT_KEY = "lc.documentId";
 
 type Listener = (m: ServerMsg) => void;
 
@@ -27,9 +29,10 @@ class Gateway {
       ws.binaryType = "arraybuffer";
       this.ws = ws;
       ws.onopen = () => {
-        let sessionId: string | undefined;
+        let sessionId: string | undefined, documentId: string | undefined;
         try { sessionId = sessionStorage.getItem(SESSION_KEY) ?? undefined; } catch {}
-        this.send({ type: "hello", sessionId });
+        try { documentId = localStorage.getItem(DOCUMENT_KEY) ?? undefined; } catch {}
+        this.send({ type: "hello", sessionId, documentId });
       };
       ws.onerror = () => reject(new Error("gateway unreachable"));
       ws.onclose = () => { this.ready = null; this.ws = null; useDoc.getState().setConnected(false); };
@@ -40,6 +43,7 @@ class Gateway {
         const m = parsed.data;
         if (m.type === "welcome") {
           try { sessionStorage.setItem(SESSION_KEY, m.sessionId); } catch {}
+          try { if (m.documentId) localStorage.setItem(DOCUMENT_KEY, m.documentId); } catch {}
           useDoc.getState().setConnected(true);
           resolve();
         }
@@ -54,6 +58,12 @@ class Gateway {
       };
     });
     return this.ready;
+  }
+
+  /** Start a blank document: forget this browser's document and reconnect (ADR 0014). */
+  newDocument() {
+    try { sessionStorage.removeItem(SESSION_KEY); localStorage.removeItem(DOCUMENT_KEY); } catch {}
+    location.reload();
   }
 
   send(m: ClientMsg) { if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(m)); }

@@ -13,6 +13,7 @@ export const FEATURES = {
   vocabulary_rail: { default: true, description: "Keyword rail: the words each diagram kind draws instantly, with tooltips" },
   custom_vocabulary: { default: true, description: "Users define and confirm their own words" },
   transcript_highlight: { default: true, description: "Highlight words in the live transcript: drawn instantly, sent to the model, or your own" },
+  remember_document: { default: true, description: "Remember the document: a new tab reopens this browser's last document" },
   share_links: { default: true, description: "Share links: a public read-only link to the version on screen" },
   diagram_metrics: { default: false, description: "Teaser: duration / throughput annotations on edges (not built yet)" },
 } as const;

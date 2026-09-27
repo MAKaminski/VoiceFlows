@@ -18,6 +18,8 @@ export interface OpenedSession { sessionId: string; documentId: string; versions
 export interface Persistence {
   openSession(): Promise<OpenedSession>;
   resumeSession(sessionId: string): Promise<OpenedSession | null>;
+  /** A new session on an existing document (another tab, or a later visit) — null if it doesn't exist. */
+  openOnDocument(documentId: string): Promise<OpenedSession | null>;
   setProvider(sessionId: string, provider: string): void;
   /** Utterance row (created once per seq); returns its id immediately. */
   utterance(sessionId: string, seq: number, source: "voice" | "typed", finalText?: string): string;
@@ -73,6 +75,13 @@ export function memoryPersistence(): Persistence & { rows: Array<Segment & { ses
       return structuredClone(s);
     },
     resumeSession: async (id) => (sessions.has(id) ? structuredClone(sessions.get(id)!) : null),
+    openOnDocument: async (documentId) => {
+      const prev = [...sessions.values()].find((x) => x.documentId === documentId);
+      if (!prev) return null;
+      const s = { ...structuredClone(prev), sessionId: randomUUID() };
+      sessions.set(s.sessionId, s);
+      return structuredClone(s);
+    },
     setProvider: log("setProvider"),
     utterance: (sessionId, seq, source, finalText) => {
       const key = `${sessionId}:${seq}`;
@@ -163,6 +172,12 @@ export function pgPersistence(sql: postgres.Sql, log: (e: unknown) => void = con
       return { sessionId: row.session_id, documentId: row.document_id, versions: [{ version: 0, parent: null, doc }], current: 0 };
     },
     resumeSession: (sessionId) => load(sessionId).catch((e) => { log(e); return null; }),
+    async openOnDocument(documentId) {
+      const [row] = await sql<{ id: string }[]>`
+        insert into sessions (user_id, document_id, stt_provider)
+        select user_id, id, 'pending' from design_documents where id = ${documentId} returning id`;
+      return row ? load(row.id) : null;
+    },
     setProvider(sessionId, provider) {
       enqueue(sessionId, () => sql`update sessions set stt_provider = ${provider} where id = ${sessionId}`);
     },

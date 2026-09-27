@@ -46,3 +46,9 @@
   links listed at welcome, bounded view counting. Declined: server-side fetch (client fetch + existing CORS is simpler).
 - Tests: gateway 42/42 incl. Postgres (pinning survives a new diagram; one link per version; cross-document
   revoke refused; flag off → 404); web production build passes.
+
+## M5e — Remember the document across tabs (2026-09-27)
+- ADR 0014 / D26: flag `remember_document`; one owning tab per document with takeover; fresh session row
+  per open (fixes seq reuse on resume); flush-before-load closes the reload race; "New" button.
+- Plan-critic replan taken: single owner instead of multi-tab fan-out.
+- Tests: gateway 47/47 incl. Postgres reload race (v0,v1,v2 all persisted); web build passes.

@@ -77,7 +77,8 @@ export default function Studio() {
 
   const listening = status === "listening" || status === "connecting";
   const kind = docKind(doc);
-  const { flags, notice } = useFeatures();
+  const { flags, notice, takenOver } = useFeatures();
+  useEffect(() => { if (takenOver) stop(); }, [takenOver, stop]);
   const canCreate = flags.speak_to_create;
   const jobLabel = !job ? null
     : job.state === "running" ? `Building: “${job.text}”…`
@@ -107,6 +108,10 @@ export default function Studio() {
           ))}
         </div>
         <SharePopover />
+        {flags.remember_document && (
+          <button type="button" data-testid="new-document" title="Start a blank document (this one stays reachable from its share links)"
+            onClick={() => { stop(); gateway.newDocument(); }} style={pill("transparent", "inherit")}>New</button>
+        )}
         <button type="button" data-testid="undo" onClick={() => gateway.send({ type: "undo" })} disabled={!canUndo} title="Undo (⌘Z)" style={{ ...pill("transparent", "inherit"), opacity: canUndo ? 1 : 0.4 }}>Undo</button>
         <button type="button" data-testid="redo" onClick={() => gateway.send({ type: "redo" })} disabled={!canRedo} title="Redo (⇧⌘Z)" style={{ ...pill("transparent", "inherit"), opacity: canRedo ? 1 : 0.4 }}>Redo</button>
       </header>
@@ -117,6 +122,12 @@ export default function Studio() {
         {notice ? <span data-testid="notice" style={{ color: "#b45309", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{notice}</span>
           : jobLabel && <span data-testid="job" style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{jobLabel}</span>}
       </div>
+      {takenOver && (
+        <div role="alert" data-testid="taken-over" style={{ padding: "10px 24px", background: "#fef3c7", color: "#92400e", display: "flex", gap: 12, alignItems: "center", fontSize: 14 }}>
+          This document is open in another tab — edits there are the live ones.
+          <button type="button" onClick={() => location.reload()} style={{ font: "inherit", fontWeight: 600, padding: "4px 12px", borderRadius: 999, border: "1px solid #d97706", background: "#fff", color: "#92400e", cursor: "pointer" }}>Use it here</button>
+        </div>
+      )}
       {kind !== "screen" && <KeywordRail kind={kind} />}
       <div style={{ flex: 1 }}><Canvas doc={doc} /></div>
       <TranscriptStrip />

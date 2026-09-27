@@ -316,7 +316,7 @@ describe("patch engine, versions, undo (M3)", () => {
     c.ws.close(); await app.close();
   });
 
-  it("hello with a previous sessionId resumes the same doc and version", async () => {
+  it("hello with a previous sessionId resumes the same doc and version (as a fresh session row, ADR 0014)", async () => {
     const { app, c, port, sessionId } = await session();
     c.ws.send(JSON.stringify({ type: "prompt", text: "add a login form" }));
     await c.next((m) => m.type === "version");
@@ -324,7 +324,9 @@ describe("patch engine, versions, undo (M3)", () => {
     c.ws.close();
     const c2 = client(port); await c2.open;
     c2.ws.send(JSON.stringify({ type: "hello", sessionId }));
-    expect(await c2.next((m) => m.type === "welcome")).toMatchObject({ sessionId, resumed: true, version: 1 });
+    const w2 = await c2.next((m) => m.type === "welcome") as Extract<ServerMsg, { type: "welcome" }>;
+    expect(w2).toMatchObject({ resumed: true, version: 1 });
+    expect(w2.sessionId).not.toBe(sessionId); // utterance seqs restart safely in the new session
     await c2.next((m) => m.type === "doc");
     expect(c2.replica.doc).toEqual(last);
     c2.ws.close(); await app.close();
@@ -550,5 +552,94 @@ describe.skipIf(!DB)("share links in Postgres (ADR 0013)", () => {
     await p.revokeShare(did, token);
     expect(await p.readShare(token)).toBeNull();
     expect(await p.listShares(did)).toEqual([]);
+  });
+});
+
+describe("remember the document across tabs (ADR 0014)", () => {
+  const hello = async (port: number, ids: { sessionId?: string; documentId?: string } = {}) => {
+    const c = client(port); await c.open;
+    c.ws.send(JSON.stringify({ type: "hello", ...ids }));
+    const w = await c.next((m) => m.type === "welcome") as Extract<ServerMsg, { type: "welcome" }>;
+    await c.next((m) => m.type === "doc");
+    return { c, w };
+  };
+
+  it("a new tab with the browser's documentId reopens the document — after the first tab closed", async () => {
+    const { app, port } = await start();
+    const a = await hello(port);
+    a.c.ws.send(JSON.stringify({ type: "prompt", text: "a login screen" }));
+    await a.c.next((m) => m.type === "version" && m.version === 1);
+    a.c.ws.close();
+    await new Promise((r) => setTimeout(r, 50));
+    const b = await hello(port, { documentId: a.w.documentId });
+    expect(b.w).toMatchObject({ documentId: a.w.documentId, version: 1, resumed: true });
+    expect(b.w.sessionId).not.toBe(a.w.sessionId); // every open is a fresh session row
+    expect(b.c.replica.doc!.root.children!.some((n) => n.type === "Button")).toBe(true);
+    b.c.ws.close(); await app.close();
+  });
+
+  it("opening it in a second tab takes it over; the first tab is told and can no longer edit", async () => {
+    const { app, port } = await start();
+    const a = await hello(port);
+    const b = await hello(port, { documentId: a.w.documentId });
+    expect(b.w.version).toBe(0);
+    await a.c.next((m) => m.type === "taken_over");
+    a.c.ws.send(JSON.stringify({ type: "prompt", text: "a login screen" }));
+    expect(((await a.c.next((m) => m.type === "error")) as any).message).toMatch(/another tab/);
+    b.c.ws.send(JSON.stringify({ type: "prompt", text: "a login screen" }));
+    await b.c.next((m) => m.type === "version" && m.version === 1);
+    expect(a.c.count((m) => m.type === "ops")).toBe(0); // the old tab gets nothing after takeover
+    a.c.ws.close(); // closing the old tab must not release the new owner's document
+    await new Promise((r) => setTimeout(r, 50));
+    b.c.ws.send(JSON.stringify({ type: "undo" }));
+    await b.c.next((m) => m.type === "version" && m.version === 0);
+    b.c.ws.close(); await app.close();
+  });
+
+  it("flag off: documentId is ignored — a new tab gets a new document", async () => {
+    const TOKEN = "t".repeat(32);
+    const { app, port, persistence } = await start({ ADMIN_TOKEN: TOKEN });
+    await fetch(`http://127.0.0.1:${port}/admin/flags/remember_document`, { method: "PUT", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ enabled: false }) });
+    const a = await hello(port);
+    const b = await hello(port, { documentId: a.w.documentId });
+    expect(b.w.documentId).not.toBe(a.w.documentId);
+    expect(persistence.events.some((e) => e.key === "remember_document" && e.action === "blocked")).toBe(true);
+    a.c.ws.close(); b.c.ws.close(); await app.close();
+  });
+
+  it("an unknown documentId falls back to a new document (the client overwrites its stored id)", async () => {
+    const { app, port } = await start();
+    const a = await hello(port, { documentId: "00000000-0000-4000-8000-000000000000" });
+    expect(a.w.resumed).toBe(false);
+    expect(a.w.documentId).not.toBe("00000000-0000-4000-8000-000000000000");
+    a.c.ws.close(); await app.close();
+  });
+});
+
+describe.skipIf(!DB)("reload race against Postgres (ADR 0014)", () => {
+  const sql = postgres(DB ?? "", { max: 4, onnotice: () => {} });
+  afterAll(() => sql.end());
+  it("close then reopen at once: the reopened tab sees v1 and its next version persists as v2", async () => {
+    const persistence = pgPersistence(sql, (e) => { throw e; });
+    const config = loadConfig({ CORS_ORIGINS: "https://app.example" } as NodeJS.ProcessEnv);
+    const engine = { model: "fake-haiku", system: "sys", render: (v: Record<string, string>) => `${v.doc_compact}\n---\n${v.partial_text}` };
+    const app = buildServer(config, { persistence, sttGrant: async () => ({ mode: "relay", provider: "deepgram-flux" }), relayProvider: fakeProvider(), model: fakeModel(LOGIN), engine });
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const port = (app.server.address() as AddressInfo).port;
+    const a = client(port); await a.open; a.ws.send(JSON.stringify({ type: "hello" }));
+    const w = await a.next((m) => m.type === "welcome") as Extract<ServerMsg, { type: "welcome" }>;
+    a.ws.send(JSON.stringify({ type: "prompt", text: "a login screen" }));
+    await a.next((m) => m.type === "version" && m.version === 1);
+    a.ws.close(); // no wait: the version rows may still be queued
+    const b = client(port); await b.open; b.ws.send(JSON.stringify({ type: "hello", documentId: w.documentId }));
+    const w2 = await b.next((m) => m.type === "welcome") as Extract<ServerMsg, { type: "welcome" }>;
+    expect(w2.version).toBe(1);
+    b.ws.send(JSON.stringify({ type: "new_doc", kind: "erd" }));
+    await b.next((m) => m.type === "version" && m.version === 2);
+    b.ws.close();
+    await persistence.flush();
+    const rows = await sql`select version from design_versions where document_id = ${w.documentId!} order by version`;
+    expect(rows.map((r) => r.version)).toEqual([0, 1, 2]);
+    await app.close();
   });
 });

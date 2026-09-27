@@ -12,6 +12,8 @@ interface FeatureState {
   /** This document's live share links, each pinned to a version (ADR 0013). */
   shares: Array<{ token: string; version: number }>;
   notice: string | null;
+  /** Another tab took this document over (ADR 0014): this tab is idle until the user takes it back. */
+  takenOver: boolean;
   applyServer(m: ServerMsg): void;
 }
 
@@ -22,7 +24,9 @@ export const useFeatures = create<FeatureState>((set) => ({
   terms: [],
   shares: [],
   notice: null,
+  takenOver: false,
   applyServer: (m) => {
+    if (m.type === "taken_over") set({ takenOver: true });
     if (m.type === "welcome" && m.flags) set({ flags: m.flags });
     if (m.type === "flags") set({ flags: m.flags });
     if (m.type === "shares") set({ shares: m.links });

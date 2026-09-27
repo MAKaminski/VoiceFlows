@@ -33,7 +33,8 @@ export type SharedDoc = z.infer<typeof SharedDoc>;
 
 // Client → gateway (JSON text frames; relay-mode audio travels as binary frames alongside)
 export const ClientMsg = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("hello"), sessionId: z.string().optional() }),
+  // documentId: reopen this browser's last document in a new tab (flag remember_document, ADR 0014).
+  z.object({ type: z.literal("hello"), sessionId: z.string().optional(), documentId: z.string().uuid().optional() }),
   z.object({ type: z.literal("stt_start"), mode: z.enum(["direct", "relay", "webspeech"]) }),
   z.object({ type: z.literal("stt_stop") }),
   z.object({ type: z.literal("partial"), ...Transcript }),
@@ -69,8 +70,10 @@ const VersionInfo = { version: z.number().int().nonnegative(), canUndo: z.boolea
 
 // Gateway → client. The gateway is the only writer of the doc (ADR 0009); the browser applies ops in order.
 export const ServerMsg = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("welcome"), sessionId: z.string(), version: z.number().int(), resumed: z.boolean().optional(), flags: Flags.optional() }),
+  z.object({ type: z.literal("welcome"), sessionId: z.string(), documentId: z.string().optional(), version: z.number().int(), resumed: z.boolean().optional(), flags: Flags.optional() }),
   z.object({ type: z.literal("flags"), flags: Flags }), // an admin flipped a flag (ADR 0012)
+  // This tab no longer owns the document: it was opened in another tab (ADR 0014). The socket stays open, idle.
+  z.object({ type: z.literal("taken_over") }),
   z.object({ type: z.literal("vocab"), terms: z.array(VocabTerm) }), // this document's words, after any change
   z.object({ type: z.literal("vocab_proposed"), term: VocabTerm }), // a spoken "define … as …" awaiting confirm
   // Transcript highlighting: which words of the client's utterance did what (occurrence keys, `word#k`).

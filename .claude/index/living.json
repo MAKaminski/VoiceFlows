@@ -1,10 +1,10 @@
 {
-  "ards": 14,
-  "ards_contributing": 14,
+  "ards": 15,
+  "ards_contributing": 15,
   "components_from_code": 4,
-  "components_from_ards": 20,
-  "flows_from_ards": 27,
-  "features": 12,
+  "components_from_ards": 21,
+  "flows_from_ards": 28,
+  "features": 13,
   "notes": 10,
   "index": [
     {
@@ -102,6 +102,13 @@
       "num": "0013",
       "file": "0013-share-links.md",
       "title": "ADR 0013 \u2014 Share links: read-only, pinned to a version, stored as `exports`",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0014",
+      "file": "0014-remember-document.md",
+      "title": "ADR 0014 \u2014 Remember the document across tabs: one owning tab per document",
       "status": "accepted",
       "contributes": true
     }
