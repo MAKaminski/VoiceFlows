@@ -159,3 +159,11 @@ describe("layout", () => {
     }
   });
 });
+
+describe("live-run regressions (2026-09-27)", () => {
+  it("ignores ?provisional echoed back on a + line", () => {
+    const doc = emptyDoc({ kind: "sequence" });
+    const [op] = expandCompact(`+Node n_p_user >root k=user "User" ?provisional`, ctxFor(() => doc));
+    expect(valid(applyOp(doc, op!)).success).toBe(true);
+  });
+});

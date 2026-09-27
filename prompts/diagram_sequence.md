@@ -42,6 +42,8 @@ add .9
 Rules:
 - A participant or message that exists (any n_… id) is referenced by id — never add it again.
 - Messages are appended in the order they happen. Emit the fewest ops.
+- "?provisional" is a marker in the Document, never write it. On an empty document, add each Node
+  with + before any Edge uses it.
 <!-- END STATIC PREFIX -->
 
 Document:

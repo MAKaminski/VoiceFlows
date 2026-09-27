@@ -41,6 +41,8 @@ add .9
 Rules:
 - A table that exists (any n_… id) is referenced by id — never add it again.
 - Emit the fewest ops. Never touch tables the user didn't mention.
+- "?provisional" is a marker in the Document, never write it. On an empty document, add each Node
+  with + before any Edge uses it.
 <!-- END STATIC PREFIX -->
 
 Document:

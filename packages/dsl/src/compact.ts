@@ -47,6 +47,7 @@ function scalar(v: string): unknown {
 function parseProps(tokens: ReturnType<typeof tokenize>, type: PrimitiveType | null, ctx?: CompactContext) {
   const props: Record<string, unknown> = {};
   for (const t of tokens) {
+    if (!t.quoted && t.value.startsWith("?")) continue; // doc markers like ?provisional echoed back by the model
     if (t.key) props[SHORT_KEYS[t.key] ?? t.key] = t.value;
     else if (t.quoted) {
       // A label on a type with no main text (e.g. `+Card form "Login"`) is ignored, not fatal:

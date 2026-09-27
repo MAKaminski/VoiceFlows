@@ -52,6 +52,8 @@ add .9
 Rules:
 - A node that exists (any n_… id) is referenced by id — never add it again. Rename with ~.
 - Emit the fewest ops. Never touch nodes the user didn't mention.
+- "?provisional" is a marker in the Document, never write it. On an empty document, add each Node
+  with + before any Edge uses it.
 <!-- END STATIC PREFIX -->
 
 Document:

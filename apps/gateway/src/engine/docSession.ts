@@ -265,7 +265,7 @@ export class DocSession {
     const ctx: CompactContext = {
       resolve: (ref) => (ref === "root" ? "/root" : findNode(this.doc.root, aliases.get(ref) ?? ref)?.path ?? null),
       assignId: (alias) => {
-        const base = `n_${alias.toLowerCase().replace(/[^a-z0-9_]/g, "") || "node"}`;
+        const base = `n_${alias.toLowerCase().replace(/^n_/, "").replace(/[^a-z0-9_]/g, "") || "node"}`;
         let id = base, n = 2;
         while (findNode(this.doc.root, id) || [...aliases.values()].includes(id)) id = `${base}_${n++}`;
         aliases.set(alias, id);
@@ -378,7 +378,7 @@ export class DocSession {
         }
       }
       // Removing a Node takes its edges with it (undo restores both via the version).
-      for (const op of pruneDanglingEdges(candidate)) { candidate = applyOp(candidate, op); extra.push(op); }
+      for (const op of pruneDanglingEdges(candidate, edgeIds(this.doc))) { candidate = applyOp(candidate, op); extra.push(op); }
     } catch (e) { this.deps.log?.(`engine: dropped ops (${(e as Error).message})`); return false; }
     if (!DesignDocSchema.safeParse(candidate).success) { this.deps.log?.("engine: dropped ops (doc failed validation)"); return false; }
     this.doc = candidate;
@@ -458,13 +458,16 @@ export class DocSession {
   }
 }
 
-/** Remove ops (highest index first) for Edges whose endpoint no longer exists. */
-function pruneDanglingEdges(doc: DesignDoc): PatchOp[] {
+const edgeIds = (doc: DesignDoc) => new Set((doc.root.children ?? []).filter((c) => c.type === "Edge").map((c) => c.id));
+
+/** Remove ops (highest index first) for pre-existing Edges whose endpoint was just removed. A NEW edge
+ *  to a missing node is not pruned — it fails validation and the line is dropped (live run 2026-09-27). */
+function pruneDanglingEdges(doc: DesignDoc, before: Set<string>): PatchOp[] {
   if (doc.root.type !== "Diagram") return [];
   const ids = new Set<string>();
   const walk = (n: DesignNode) => { if (n.type === "Node") ids.add(n.id); n.children?.forEach(walk); };
   walk(doc.root);
-  return (doc.root.children ?? []).flatMap((c, i) => (c.type === "Edge" && (!ids.has(String(c.props.from)) || !ids.has(String(c.props.to))) ? [i] : []))
+  return (doc.root.children ?? []).flatMap((c, i) => (c.type === "Edge" && before.has(c.id) && (!ids.has(String(c.props.from)) || !ids.has(String(c.props.to))) ? [i] : []))
     .reverse().map((i) => ({ op: "remove" as const, path: `/root/children/${i}` }));
 }
 
