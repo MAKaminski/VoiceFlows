@@ -278,7 +278,7 @@ describe("diagrams (ADR 0011)", () => {
     const prompts: string[] = [];
     const model: ModelClient = (req) => {
       prompts.push(req.user);
-      const lines = req.system === "NOTES" ? ["Contact-center platform: Genesys bot hands off to agents; Shaw is the backend."] : ["none 0"];
+      const lines = req.system === "NOTES" ? ["**Contact center:** Genesys bot hands off to agents; Shaw is the backend."] : ["none 0"];
       async function* gen() { for (const line of lines) { await sleep(2); yield { line, atMs: 0 }; } }
       return { lines: gen(), usage: Promise.resolve({ inputTokens: 600, outputTokens: 20 }) };
     };
@@ -291,6 +291,7 @@ describe("diagrams (ADR 0011)", () => {
     d.setView("architecture"); // a view switch rewrites the notes (background)
     await sleep(40);
     expect(d.project.root.props.notes).toContain("Shaw is the backend");
+    expect(d.project.root.props.notes).not.toContain("**"); // markdown stripped
     for (let i = 0; i < 18; i++) await d.run(`tweak ${i}`, "typed", d.allocSeq());
     expect(prompts.at(-1)).toContain("Shaw is the backend"); // utterance 20 still sees utterance 1
   });

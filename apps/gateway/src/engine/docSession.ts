@@ -684,7 +684,8 @@ export class DocSession {
       try {
         for await (const { line } of stream.lines) text += (text ? " " : "") + line;
         const usage = await stream.usage;
-        const notes = text.replace(/\s+/g, " ").trim().slice(0, 560);
+        // Plain text only: Haiku sometimes adds markdown (**Architecture:**) despite the prompt (live run 2026-09-27).
+        const notes = text.replace(/[*#_`>]+/g, "").replace(/^\s*[-•]\s*/gm, "").replace(/\s+/g, " ").trim().slice(0, 560);
         if (notes && notes !== this.project.root.props.notes) {
           const op: PatchOp = { op: "add", path: "/root/props/notes", value: notes };
           this.project = applyOp(this.project, op);
