@@ -118,6 +118,8 @@ CREATE TABLE exports (
   version_id uuid NOT NULL REFERENCES design_versions(id),
   format text NOT NULL CHECK (format IN ('react','html','png','url')),
   uri text NOT NULL,
+  token text UNIQUE,
+  revoked_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 

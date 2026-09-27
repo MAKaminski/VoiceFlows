@@ -1,10 +1,10 @@
 {
-  "ards": 13,
-  "ards_contributing": 13,
+  "ards": 14,
+  "ards_contributing": 14,
   "components_from_code": 4,
-  "components_from_ards": 17,
-  "flows_from_ards": 25,
-  "features": 11,
+  "components_from_ards": 20,
+  "flows_from_ards": 27,
+  "features": 12,
   "notes": 10,
   "index": [
     {
@@ -95,6 +95,13 @@
       "num": "0012",
       "file": "0012-flags-and-vocabulary.md",
       "title": "ADR 0012 \u2014 Feature flags, usage measurement, admin screen, user vocabulary",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0013",
+      "file": "0013-share-links.md",
+      "title": "ADR 0013 \u2014 Share links: read-only, pinned to a version, stored as `exports`",
       "status": "accepted",
       "contributes": true
     }

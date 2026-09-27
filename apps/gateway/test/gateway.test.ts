@@ -472,3 +472,83 @@ describe("transcript highlighting (ADR 0012)", () => {
     c.ws.close(); await app.close();
   });
 });
+
+describe("share links (ADR 0013)", () => {
+  const TOKEN = "t".repeat(32);
+  it("pins a link to the version on screen, one per version; revoke → 404 on the next view; unknown tokens 404", async () => {
+    const { app, port } = await start({}, fakeModel(LOGIN));
+    const c = client(port); await c.open;
+    c.ws.send(JSON.stringify({ type: "hello" }));
+    await c.next((m) => m.type === "shares");
+    c.ws.send(JSON.stringify({ type: "prompt", text: "a login screen" }));
+    await c.next((m) => m.type === "version" && m.version === 1);
+    c.ws.send(JSON.stringify({ type: "share_create" }));
+    const s1 = await c.nth((m) => m.type === "shares", 2) as Extract<ServerMsg, { type: "shares" }>;
+    expect(s1.links).toHaveLength(1);
+    const { token, version } = s1.links[0]!;
+    expect(version).toBe(1);
+    c.ws.send(JSON.stringify({ type: "share_create" })); // same version → same link
+    const s2 = await c.nth((m) => m.type === "shares", 3) as Extract<ServerMsg, { type: "shares" }>;
+    expect(s2.links.map((l) => l.token)).toEqual([token]);
+
+    c.ws.send(JSON.stringify({ type: "new_doc", kind: "erd" })); // the author moves on …
+    await c.next((m) => m.type === "version" && m.version === 2);
+    const view = await fetch(`http://127.0.0.1:${port}/share/${token}`);
+    expect(view.status).toBe(200);
+    expect(view.headers.get("cache-control")).toBe("no-store");
+    const body = await view.json() as any;
+    expect(body.version).toBe(1); // … but the link still shows what was shared
+    expect(body.doc.root.children.some((n: any) => n.type === "Button")).toBe(true);
+
+    c.ws.send(JSON.stringify({ type: "share_revoke", token }));
+    await c.nth((m) => m.type === "shares", 4);
+    expect((await fetch(`http://127.0.0.1:${port}/share/${token}`)).status).toBe(404);
+    expect((await fetch(`http://127.0.0.1:${port}/share/AAAAAAAAAAAAAAAAAAAAAA`)).status).toBe(404);
+    expect((await fetch(`http://127.0.0.1:${port}/share/not-a-token`)).status).toBe(404);
+    c.ws.close(); await app.close();
+  });
+
+  it("a socket can only revoke its own document's links", async () => {
+    const { app, port } = await start();
+    const a = client(port); await a.open; a.ws.send(JSON.stringify({ type: "hello" })); await a.next((m) => m.type === "shares");
+    a.ws.send(JSON.stringify({ type: "share_create" }));
+    const { token } = ((await a.nth((m) => m.type === "shares", 2)) as Extract<ServerMsg, { type: "shares" }>).links[0]!;
+    const b = client(port); await b.open; b.ws.send(JSON.stringify({ type: "hello" })); await b.next((m) => m.type === "shares");
+    b.ws.send(JSON.stringify({ type: "share_revoke", token }));
+    await b.nth((m) => m.type === "shares", 2);
+    expect((await fetch(`http://127.0.0.1:${port}/share/${token}`)).status).toBe(200);
+    a.ws.close(); b.ws.close(); await app.close();
+  });
+
+  it("flag off: create is refused and existing links stop resolving", async () => {
+    const { app, port } = await start({ ADMIN_TOKEN: TOKEN });
+    const c = client(port); await c.open; c.ws.send(JSON.stringify({ type: "hello" })); await c.next((m) => m.type === "shares");
+    c.ws.send(JSON.stringify({ type: "share_create" }));
+    const { token } = ((await c.nth((m) => m.type === "shares", 2)) as Extract<ServerMsg, { type: "shares" }>).links[0]!;
+    await fetch(`http://127.0.0.1:${port}/admin/flags/share_links`, { method: "PUT", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ enabled: false }) });
+    expect((await fetch(`http://127.0.0.1:${port}/share/${token}`)).status).toBe(404);
+    c.ws.send(JSON.stringify({ type: "share_create" }));
+    expect(((await c.next((m) => m.type === "error")) as any).message).toMatch(/turned off/);
+    c.ws.close(); await app.close();
+  });
+});
+
+describe.skipIf(!DB)("share links in Postgres (ADR 0013)", () => {
+  const sql = postgres(DB ?? "", { max: 2, onnotice: () => {} });
+  afterAll(() => sql.end());
+  it("stores the link as an exports row pinned to the version; revoke hides it", async () => {
+    const p = pgPersistence(sql, (e) => { throw e; });
+    const { sessionId: sid, documentId: did } = await p.openSession();
+    const token = "B".repeat(22);
+    await sql`delete from exports where token = ${token}`;
+    p.createShare(sid, { documentId: did, version: 0, token });
+    await p.flush();
+    expect(await p.listShares(did)).toEqual([{ token, version: 0 }]);
+    expect((await p.readShare(token))?.version).toBe(0);
+    const [row] = await sql`select format, uri from exports where token = ${token}`;
+    expect(row).toEqual({ format: "url", uri: `/s/${token}` });
+    await p.revokeShare(did, token);
+    expect(await p.readShare(token)).toBeNull();
+    expect(await p.listShares(did)).toEqual([]);
+  });
+});

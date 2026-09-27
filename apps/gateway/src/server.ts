@@ -1,7 +1,7 @@
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
-import { ClientMsg, FEATURES, FeatureKey, kindFeature, type DocKind, type ServerMsg } from "@livecanvas/dsl";
-import { createHash, timingSafeEqual } from "node:crypto";
+import { ClientMsg, FEATURES, FeatureKey, kindFeature, ShareToken, type DocKind, type ServerMsg } from "@livecanvas/dsl";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FlagService } from "./flags.js";
 import Fastify from "fastify";
 import { loadConfig, type Config } from "./config.js";
@@ -51,7 +51,10 @@ function engineFor(name: PromptName, config: Config): EngineConfig {
 }
 
 export function buildServer(config: Config = loadConfig(), deps: Deps = defaultDeps(config)) {
-  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
+  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info", serializers: {
+    // Share tokens are credentials: never write them to logs (plan-critic M5d #4).
+    req: (req: { method: string; url: string; ip?: string }) => ({ method: req.method, url: req.url.replace(/\/share\/[^/?#]+/, "/share/[token]"), remoteAddress: req.ip }),
+  } } });
   const allowed = new Set(config.CORS_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean));
   const pattern = config.CORS_ORIGIN_PATTERN ? new RegExp(config.CORS_ORIGIN_PATTERN) : null;
   const adminOrigins = new Set(config.ADMIN_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean));
@@ -61,7 +64,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
     if (req.url?.startsWith("/admin")) {
       return cb(null, { origin: (o: string | undefined, c: (e: Error | null, ok: boolean) => void) => c(null, !o || adminOrigins.has(o)), methods: ["GET", "PUT"], allowedHeaders: ["authorization", "content-type"] });
     }
-    cb(null, { origin: (o: string | undefined, c: (e: Error | null, ok: boolean) => void) => c(null, !o || allowed.has(o) || !!pattern?.test(o)), methods: ["POST"] });
+    cb(null, { origin: (o: string | undefined, c: (e: Error | null, ok: boolean) => void) => c(null, !o || allowed.has(o) || !!pattern?.test(o)), methods: ["GET", "POST"] });
   });
   app.register(websocket);
 
@@ -69,6 +72,27 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
   app.addHook("onReady", () => flags.load());
   const sockets = new Set<(m: ServerMsg) => void>();
   flags.subscribe((f) => { for (const s of sockets) s({ type: "flags", flags: f }); });
+
+  // ── Share links (ADR 0013): public, read-only, the token is the only credential ──────────────
+  const misses = new Map<string, { n: number; since: number }>(); // 404s per IP — token guessing
+  const viewed = new Set<string>(); // token:ip seen this hour — one "exposed" event each, not one per load
+  setInterval(() => viewed.clear(), 60 * 60_000).unref();
+  app.get<{ Params: { token: string } }>("/share/:token", async (req, reply) => {
+    reply.header("cache-control", "no-store"); // revoking must take effect on the next load
+    reply.header("x-robots-tag", "noindex");
+    const m = misses.get(req.ip);
+    if (m && Date.now() - m.since < 10 * 60_000 && m.n >= 30) return reply.code(429).send({ error: "too many requests" });
+    if (!flags.on("share_links")) { deps.persistence.featureEvent(null, "share_links", "blocked"); return reply.code(404).send({ error: "not found" }); }
+    const token = ShareToken.safeParse(req.params.token);
+    const shared = token.success ? await deps.persistence.readShare(token.data) : null;
+    if (!shared) { // unknown and revoked look the same
+      misses.set(req.ip, m && Date.now() - m.since < 10 * 60_000 ? { n: m.n + 1, since: m.since } : { n: 1, since: Date.now() });
+      return reply.code(404).send({ error: "not found" });
+    }
+    const seen = `${token.data}:${req.ip}`;
+    if (!viewed.has(seen) && viewed.size < 50_000) { viewed.add(seen); deps.persistence.featureEvent(null, "share_links", "exposed"); }
+    return shared;
+  });
 
   // ── Admin API (ADR 0012) ───────────────────────────────────────────────────────────────────
   const digest = (s: string) => createHash("sha256").update(s).digest();
@@ -133,6 +157,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
       let relaySeq = 0;
       let lastMarks = ""; // only send word marks when they change
       let highlightUsed = false; // one "used" event per session
+      let shareLinks: Array<{ token: string; version: number }> = []; // this document's live links (ADR 0013)
       const voiceSeq = (clientSeq: number) => {
         if (!seqMap.has(clientSeq)) seqMap.set(clientSeq, doc!.allocSeq());
         return seqMap.get(clientSeq)!;
@@ -182,6 +207,8 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
               send({ type: "welcome", sessionId: doc.sessionId, version: doc.versionInfo().version, resumed: opened.sessionId === msg.sessionId, flags: flags.all() });
               send(doc.snapshot());
               send({ type: "vocab", terms: doc.terms });
+              shareLinks = await deps.persistence.listShares(opened.documentId).catch(() => []);
+              if (flags.on("share_links")) send({ type: "shares", links: shareLinks });
               for (const [k, on] of Object.entries(flags.all())) if (on) deps.persistence.featureEvent(doc.sessionId, k as FeatureKey, "exposed");
             } catch (e) { fail("could not open session", e); }
             return;
@@ -231,6 +258,26 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
           case "vocab_confirm":
             if (!permit("custom_vocabulary")) return;
             return doc!.confirmTerm(msg.id);
+          case "share_create": {
+            if (!permit("share_links")) return;
+            // One live link per version: sharing the same version again returns its link (ADR 0013).
+            const version = doc!.versionInfo().version;
+            if (!shareLinks.some((l) => l.version === version)) {
+              const token = randomBytes(16).toString("base64url");
+              deps.persistence.createShare(doc!.sessionId, { documentId: doc!.documentId, version, token });
+              shareLinks = [...shareLinks, { token, version }];
+              deps.persistence.featureEvent(doc!.sessionId, "share_links", "used");
+            }
+            return send({ type: "shares", links: shareLinks });
+          }
+          case "share_revoke":
+            if (!permit("share_links")) return;
+            try {
+              await deps.persistence.flush(); // a just-created link must exist before it can be revoked
+              await deps.persistence.revokeShare(doc!.documentId, msg.token);
+              shareLinks = shareLinks.filter((l) => l.token !== msg.token);
+              return send({ type: "shares", links: shareLinks });
+            } catch (e) { return fail("could not revoke the link", e); }
           case "vocab_delete":
             if (!permit("custom_vocabulary")) return;
             return doc!.deleteTerm(msg.id);

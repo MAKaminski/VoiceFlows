@@ -25,6 +25,12 @@ const Transcript = {
   eager: z.boolean().optional(), // Flux EagerEndOfTurn: probably finished speaking (settle early)
 };
 
+/** 128-bit random, base64url — unguessable; the link is the only credential (ADR 0013). */
+export const ShareToken = z.string().regex(/^[A-Za-z0-9_-]{22}$/);
+/** Public payload of GET /share/:token. */
+export const SharedDoc = z.object({ doc: DesignDocSchema, version: z.number().int().nonnegative(), updatedAt: z.string() });
+export type SharedDoc = z.infer<typeof SharedDoc>;
+
 // Client → gateway (JSON text frames; relay-mode audio travels as binary frames alongside)
 export const ClientMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("hello"), sessionId: z.string().optional() }),
@@ -45,6 +51,9 @@ export const ClientMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("vocab_define"), kind: DiagramKind, phrase: z.string().min(1).max(40), node: VocabNode, confirm: z.boolean().optional() }),
   z.object({ type: z.literal("vocab_confirm"), id: z.string() }),
   z.object({ type: z.literal("vocab_delete"), id: z.string() }),
+  // Share links (ADR 0013): a read-only public link to the version on screen; one live link per version.
+  z.object({ type: z.literal("share_create") }),
+  z.object({ type: z.literal("share_revoke"), token: ShareToken }),
 ]);
 export type ClientMsg = z.infer<typeof ClientMsg>;
 
@@ -65,6 +74,8 @@ export const ServerMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("vocab"), terms: z.array(VocabTerm) }), // this document's words, after any change
   z.object({ type: z.literal("vocab_proposed"), term: VocabTerm }), // a spoken "define … as …" awaiting confirm
   // Transcript highlighting: which words of the client's utterance did what (occurrence keys, `word#k`).
+  // This document's live share links, each pinned to the version it was created from (ADR 0013).
+  z.object({ type: z.literal("shares"), links: z.array(z.object({ token: ShareToken, version: z.number().int().nonnegative() })) }),
   z.object({ type: z.literal("words"), utteranceSeq: z.number().int().nonnegative(), marks: z.array(WordMark) }),
   z.object({ type: z.literal("doc"), doc: DesignDocSchema, ...VersionInfo }), // full snapshot on welcome/resume
   z.object({ type: z.literal("transcript"), ...Transcript }), // relay mode

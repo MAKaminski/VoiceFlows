@@ -39,6 +39,7 @@ flowchart LR
     F_diagrams["Spoken diagrams: Architecture · ERD · Sequence<br/><small>ARD 0011</small>"]
     F_feature_flags["Feature flags &amp; usage<br/><small>ARD 0012</small>"]
     F_vocabulary["Vocabulary: keywords + user words<br/><small>ARD 0012</small>"]
+    F_share_links["Share links (read-only, pinned)<br/><small>ARD 0013</small>"]
   end
   subgraph uses["Components"]
     direction TB
@@ -110,7 +111,7 @@ flowchart LR
   classDef feat fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef comp fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef tab fill:#eaf1ec,stroke:#2C6249,color:#12191B;
-  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary feat;
+  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary,F_share_links feat;
   class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_doc_session,C_postgres,C_redis,C_stripe comp;
   class T_design_documents,T_design_versions,T_exports,T_generation_jobs,T_intents,T_latency_events,T_patch_ops,T_plans,T_primitives,T_provider_keys,T_sessions,T_token_sets,T_transcript_segments,T_usage_periods,T_users,T_utterances tab;
 ```
@@ -155,7 +156,9 @@ Uses web (client-measured TTFV, reflow observer) + gateway (stage events). **Own
 Magic-link auth. **Owns** `users`. Link tokens live in Redis (15-min TTL), not a table.
 
 ### 2.6 Export (M6) — ADR 0000
-**Owns** `exports`. Reads `design_versions`.
+**Owns** `exports`. Reads `design_versions`. Share links (ADR 0013) are `exports` rows with
+`format='url'`, a `token` and `revoked_at`, pinned to a version; served by `GET /share/:token` and
+the `/s/[token]` page, created and revoked from `SharePopover`.
 
 ### 2.7 Plans · quota · BYOK (M5, planned) — ADR 0004
 Will **own** `plans`, `usage_periods` (FK → users, plans), `provider_keys` (FK → users,
@@ -172,9 +175,9 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Tables with no FK either way | 0 |
 | Distinct error types | 1 |
 | Symbol names defined 3+ times | 0 |
-| ARDs on record | 13 (13 contributing to the diagram) |
-| Components declared by ARDs | 17 |
-| Features declared by ARDs | 11 |
+| ARDs on record | 14 (14 contributing to the diagram) |
+| Components declared by ARDs | 20 |
+| Features declared by ARDs | 12 |
 <!-- arch:end:counts -->
 
 | Component | Layer | Owns | Pattern (§6) |
@@ -202,10 +205,12 @@ flowchart TB
   subgraph frontend["Front-end · user interface"]
     direction LR
     admin_page["/admin page<br/><small>ARD 0012</small>"]
+    share_view["/s/[token] page<br/><small>ARD 0013</small>"]
     _livecanvas_web["@livecanvas/web"]
     diagram_canvas["DiagramCanvas<br/><small>ARD 0011</small>"]
     keyword_rail["KeywordRail<br/><small>ARD 0012</small>"]
     diagram_layout["layoutDiagram<br/><small>ARD 0011</small>"]
+    share_popover["SharePopover<br/><small>ARD 0013</small>"]
   end
   subgraph middleware["Middleware · APIs"]
     direction LR
@@ -219,6 +224,7 @@ flowchart TB
     doc_session["DocSession — single writer: doc, job controller, versions/undo<br/><small>ARD 0009</small><br/><small>M4: 9/10 · 1 model call/utterance · TTFV-1 756 ms · settle 697 ms · $0.0111/min</small>"]
     flag_service["FlagService<br/><small>ARD 0012</small>"]
     fused_engine["Fused intent+patch engine — header-first, single in-flight<br/><small>ARD 0001</small><br/><small>TTFV-1 target ≤ 1,000 ms p50</small>"]
+    share_api["GET /share/:token<br/><small>ARD 0013</small>"]
     client_lexicon["Lexicon — provisional nodes (gateway, M4)<br/><small>ARD 0009</small><br/><small>TTFV-0 target ≤ 400 ms p50</small>"]
     stripe["Stripe metered billing (M5, planned)<br/><small>ARD 0004</small><br/><small>$20 incl. 200 speaking min · BYOK $10</small>"]
   end
@@ -257,16 +263,18 @@ flowchart TB
   admin_page -.->|"GET/PUT flags · ARD 0012"| admin_api
   admin_api -.->|"set → broadcast · ARD 0012"| flag_service
   keyword_rail -.->|"vocab_define / confirm · ARD 0012"| doc_session
+  share_view -.->|"GET pinned version · ARD 0013"| share_api
+  share_popover -.->|"share_create / share_revoke · ARD 0013"| doc_session
   classDef declared stroke-dasharray:5 4,stroke-width:2px;
   classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef be fill:#eaf1ec,stroke:#2C6249,color:#12191B;
   classDef inf fill:#f4efe6,stroke:#8A6210,color:#12191B;
-  class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail fe;
-  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,flag_service,admin_api mw;
+  class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail,share_view,share_popover fe;
+  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,flag_service,admin_api,share_api mw;
   class postgres,redis be;
   class vercel,railway inf;
-  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail declared;
+  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover declared;
 ```
 <!-- arch:end:components -->
 

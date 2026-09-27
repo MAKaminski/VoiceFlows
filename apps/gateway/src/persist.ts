@@ -41,6 +41,14 @@ export interface Persistence {
   listVocab(documentId: string): Promise<VocabTerm[]>;
   putVocab(sessionId: string, documentId: string, t: VocabTerm): void;
   deleteVocab(sessionId: string, documentId: string, id: string): void;
+  // ── Share links (ADR 0013): `exports` rows (format 'url') pinned to a version.
+  /** Queued on the session chain, after the version row it references (FK order). */
+  createShare(sessionId: string, r: { documentId: string; version: number; token: string }): void;
+  /** Awaited: revoking must take effect on the very next view. */
+  revokeShare(documentId: string, token: string): Promise<void>;
+  listShares(documentId: string): Promise<Array<{ token: string; version: number }>>;
+  /** The pinned version behind a live (unrevoked) token, or null. */
+  readShare(token: string): Promise<{ doc: DesignDoc; version: number; updatedAt: string } | null>;
 }
 export type FeatureAction = "exposed" | "used" | "blocked";
 
@@ -56,6 +64,7 @@ export function memoryPersistence(): Persistence & { rows: Array<Segment & { ses
   const flags: Partial<Flags> = {};
   const events: Array<{ sessionId: string | null; key: FeatureKey; action: FeatureAction }> = [];
   const vocab = new Map<string, VocabTerm[]>();
+  const shares = new Map<string, { documentId: string; version: number; revoked: boolean }>();
   return {
     rows, calls, events,
     openSession: async () => {
@@ -102,6 +111,14 @@ export function memoryPersistence(): Persistence & { rows: Array<Segment & { ses
       vocab.set(documentId, [...list, structuredClone(t)]);
     },
     deleteVocab: (_s, documentId, id) => void vocab.set(documentId, (vocab.get(documentId) ?? []).filter((x) => x.id !== id)),
+    createShare: (_s, r) => void shares.set(r.token, { documentId: r.documentId, version: r.version, revoked: false }),
+    revokeShare: async (documentId, token) => { const x = shares.get(token); if (x?.documentId === documentId) x.revoked = true; },
+    listShares: async (documentId) => [...shares].filter(([, x]) => x.documentId === documentId && !x.revoked).map(([token, x]) => ({ token, version: x.version })),
+    readShare: async (token) => {
+      const x = shares.get(token);
+      const doc = x && !x.revoked ? [...sessions.values()].find((y) => y.documentId === x.documentId)?.versions.find((v) => v.version === x.version)?.doc : undefined;
+      return doc ? { doc: structuredClone(doc), version: x!.version, updatedAt: new Date().toISOString() } : null;
+    },
   };
 }
 
@@ -246,6 +263,26 @@ export function pgPersistence(sql: postgres.Sql, log: (e: unknown) => void = con
     },
     deleteVocab(sessionId, documentId, id) {
       enqueue(sessionId, () => sql`delete from vocabulary_terms where id = ${id} and document_id = ${documentId}`);
+    },
+    createShare(sessionId, r) {
+      enqueue(sessionId, () => sql`
+        insert into exports (version_id, format, uri, token)
+        select id, 'url', ${`/s/${r.token}`}, ${r.token} from design_versions where document_id = ${r.documentId} and version = ${r.version}`);
+    },
+    async revokeShare(documentId, token) {
+      await sql`update exports e set revoked_at = now() from design_versions v
+                where e.token = ${token} and e.version_id = v.id and v.document_id = ${documentId} and e.revoked_at is null`;
+    },
+    async listShares(documentId) {
+      return sql<{ token: string; version: number }[]>`
+        select e.token, v.version from exports e join design_versions v on v.id = e.version_id
+        where v.document_id = ${documentId} and e.format = 'url' and e.token is not null and e.revoked_at is null order by e.created_at`.then((rows) => rows.map((r) => ({ token: r.token, version: r.version })));
+    },
+    async readShare(token) {
+      const [r] = await sql<{ doc: DesignDoc; version: number; created_at: Date }[]>`
+        select v.doc, v.version, v.created_at from exports e join design_versions v on v.id = e.version_id
+        where e.token = ${token} and e.format = 'url' and e.revoked_at is null`;
+      return r ? { doc: r.doc, version: r.version, updatedAt: new Date(r.created_at).toISOString() } : null;
     },
   };
 }

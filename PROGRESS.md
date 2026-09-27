@@ -38,3 +38,11 @@
   strip styles words with tooltips ("Drew “Postgres” instantly", "Sent to the model …"). ADR 0012 §7.
 - Fixed a lexicon bug found by its test: a definite article from the previous noun suppressed the next one.
 - Tests: dsl 41/41, gateway 38/38 incl. Postgres.
+
+## M5d — Share links (2026-09-27)
+- ADR 0013 / D25: flag `share_links`; links are `exports` rows pinned to the version on screen; revoke → 404
+  next view; tokens redacted from logs; lookups rate-limited; `/s/[token]` read-only page (noindex, no-referrer).
+- Plan-critic fixes taken: reuse `exports` (no second table), pin to version, revoke scoped to own document,
+  links listed at welcome, bounded view counting. Declined: server-side fetch (client fetch + existing CORS is simpler).
+- Tests: gateway 42/42 incl. Postgres (pinning survives a new diagram; one link per version; cross-document
+  revoke refused; flag off → 404); web production build passes.

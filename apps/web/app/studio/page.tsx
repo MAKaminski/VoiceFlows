@@ -9,6 +9,7 @@ import { startVoice } from "@/lib/voice/session";
 import { useDoc } from "@/store/doc";
 import { useVoice } from "@/store/voice";
 import { KeywordRail } from "@/components/KeywordRail";
+import { SharePopover } from "@/components/SharePopover";
 import { useFeatures } from "@/store/features";
 import { docKind, kindFeature, type DocKind } from "@livecanvas/dsl";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
@@ -105,6 +106,7 @@ export default function Studio() {
                 background: kind === k.kind ? "#0f172a" : "transparent", color: kind === k.kind ? "#fff" : "inherit" }}>{k.label}</button>
           ))}
         </div>
+        <SharePopover />
         <button type="button" data-testid="undo" onClick={() => gateway.send({ type: "undo" })} disabled={!canUndo} title="Undo (⌘Z)" style={{ ...pill("transparent", "inherit"), opacity: canUndo ? 1 : 0.4 }}>Undo</button>
         <button type="button" data-testid="redo" onClick={() => gateway.send({ type: "redo" })} disabled={!canRedo} title="Redo (⇧⌘Z)" style={{ ...pill("transparent", "inherit"), opacity: canRedo ? 1 : 0.4 }}>Redo</button>
       </header>
