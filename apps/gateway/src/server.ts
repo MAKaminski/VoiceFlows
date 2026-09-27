@@ -247,6 +247,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
               send({ type: "welcome", sessionId: doc.sessionId, documentId: doc.documentId, version: doc.versionInfo().version, resumed, flags: flags.all() });
               send(doc.snapshot());
               send({ type: "vocab", terms: doc.terms });
+              if (flags.on("version_timeline")) send(doc.timelineMsg());
               if (flags.on("share_links")) send({ type: "shares", links: e.shareLinks });
               for (const [k, on] of Object.entries(flags.all())) if (on) deps.persistence.featureEvent(doc.sessionId, k as FeatureKey, "exposed");
             } catch (e) { fail("could not open session", e); }
@@ -297,6 +298,9 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
           case "vocab_confirm":
             if (!permit("custom_vocabulary")) return;
             return doc!.confirmTerm(msg.id);
+          case "goto_version":
+            if (!permit("version_timeline")) return;
+            return doc!.gotoVersion(msg.version);
           case "share_create": {
             if (!permit("share_links")) return;
             // One live link per version: sharing the same version again returns its link (ADR 0013).

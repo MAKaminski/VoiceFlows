@@ -1,5 +1,5 @@
 "use client";
-import { defaultFlags, type Flags, type ServerMsg, type VocabTerm } from "@livecanvas/dsl";
+import { defaultFlags, type Flags, type ServerMsg, type VersionSummary, type VocabTerm } from "@livecanvas/dsl";
 import { create } from "zustand";
 
 /**
@@ -14,6 +14,8 @@ interface FeatureState {
   notice: string | null;
   /** Another tab took this document over (ADR 0014): this tab is idle until the user takes it back. */
   takenOver: boolean;
+  /** Version timeline (ADR 0015): summaries of every version and which one is on screen. */
+  timeline: { current: number; path: number[]; items: VersionSummary[] };
   applyServer(m: ServerMsg): void;
 }
 
@@ -25,8 +27,10 @@ export const useFeatures = create<FeatureState>((set) => ({
   shares: [],
   notice: null,
   takenOver: false,
+  timeline: { current: 0, path: [], items: [] },
   applyServer: (m) => {
     if (m.type === "taken_over") set({ takenOver: true });
+    if (m.type === "versions") set({ timeline: { current: m.current, path: m.path, items: m.items } });
     if (m.type === "welcome" && m.flags) set({ flags: m.flags });
     if (m.type === "flags") set({ flags: m.flags });
     if (m.type === "shares") set({ shares: m.links });

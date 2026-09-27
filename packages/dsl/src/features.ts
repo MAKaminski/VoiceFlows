@@ -14,6 +14,7 @@ export const FEATURES = {
   custom_vocabulary: { default: true, description: "Users define and confirm their own words" },
   transcript_highlight: { default: true, description: "Highlight words in the live transcript: drawn instantly, sent to the model, or your own" },
   remember_document: { default: true, description: "Remember the document: a new tab reopens this browser's last document" },
+  version_timeline: { default: true, description: "Version timeline: see every version of the document and jump to any of them" },
   share_links: { default: true, description: "Share links: a public read-only link to the version on screen" },
   diagram_metrics: { default: false, description: "Teaser: duration / throughput annotations on edges (not built yet)" },
 } as const;

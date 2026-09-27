@@ -1,7 +1,7 @@
 import {
   applyOp, DesignDocSchema, docKind, emptyDoc, emptyRoot, expandCompact, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
   lexTokens, occurrenceKeys, parseDefine, parseHeader, serializeCompact, type CompactContext, type DesignDoc, type DesignNode, type DocKind, type FeatureKey,
-  type Flags, type IntentHeader, type WordMark, type OpOrigin, type PatchOp, type ServerMsg, type VocabNode, type VocabTerm,
+  type Flags, type IntentHeader, type VersionSummary, type WordMark, type OpOrigin, type PatchOp, type ServerMsg, type VocabNode, type VocabTerm,
 } from "@livecanvas/dsl";
 import { randomUUID } from "node:crypto";
 import type { OpenedSession, Persistence, VersionRow } from "../persist.js";
@@ -259,7 +259,7 @@ export class DocSession {
     if (JSON.stringify(this.doc) !== JSON.stringify(u.baseDoc)) { this.writeVersion(null); this.feature("speak_to_create", "used"); }
     const uid = this.deps.persistence.utterance(this.sessionId, u.seq, "voice");
     this.deps.persistence.latency(this.sessionId, { utteranceId: uid, stage: "settled", tMs: u.lastWordEndMs ?? 0 });
-    this.deps.send({ type: "version", ...this.versionInfo() });
+    this.announceVersion();
   }
 
   // ── Typed prompts (M3 semantics) ─────────────────────────────────────────────────────────
@@ -434,9 +434,10 @@ export class DocSession {
 
   private writeVersion(jobId: string | null) {
     const version = Math.max(0, ...this.versions.keys()) + 1;
-    const row: VersionRow = { version, parent: this.current, doc: structuredClone(this.doc) };
+    const row: VersionRow = { version, parent: this.current, doc: structuredClone(this.doc), at: new Date().toISOString() };
     this.versions.set(version, row);
     this.current = version;
+    this.redoHint = null; // a new edit starts a new branch
     this.deps.persistence.version(this.sessionId, { documentId: this.opened.documentId, version, parent: row.parent, doc: row.doc, jobId });
     this.deps.persistence.setCurrent(this.sessionId, { documentId: this.opened.documentId, version, doc: row.doc });
   }
@@ -446,25 +447,83 @@ export class DocSession {
     // Typed prompts version per job (M3); voice versions once per utterance at commit.
     if (state === "done" && job.kind === "typed" && job.applied > 0) {
       this.writeVersion(job.id);
-      this.deps.send({ type: "version", ...this.versionInfo() });
+      this.announceVersion();
     }
     this.deps.persistence.jobEnd(this.sessionId, { id: job.id, status: state, ...usage });
     this.deps.send({ type: "job", jobId: job.id, state, kind: job.kind, firstOpMs, opCount: job.applied, detail, ...usage });
   }
 
-  private redoTarget(): number | null {
-    let best: number | null = null;
-    for (const v of this.versions.values()) if (v.parent === this.current && (best == null || v.version > best)) best = v.version;
-    return best;
+  /** `version` + (with the flag) the timeline — every place the pointer moves calls this. */
+  private announceVersion() {
+    this.deps.send({ type: "version", ...this.versionInfo() });
+    if (this.flagOn("version_timeline")) this.deps.send(this.timelineMsg());
   }
 
-  private moveTo(version: number, origin: "undo" | "redo") {
+  private summaries = new Map<number, VersionSummary>(); // versions are immutable: summarise each once
+  /** Summaries of every version (ADR 0015) — counts only, never docs, so the message stays small. */
+  timelineMsg(): Extract<ServerMsg, { type: "versions" }> {
+    const ids = (d: DesignDoc) => {
+      const m = new Map<string, string>();
+      const walk = (n: DesignNode) => { if (n.id !== "n_root" && n.type !== "Layer") m.set(n.id, JSON.stringify(n.props)); n.children?.forEach(walk); };
+      walk(d.root);
+      return m;
+    };
+    const items = [...this.versions.values()].sort((a, b) => a.version - b.version).map((v) => {
+      let s = this.summaries.get(v.version);
+      if (!s) {
+        const cur = ids(v.doc);
+        const par = v.parent != null && this.versions.has(v.parent) ? ids(this.versions.get(v.parent)!.doc) : new Map<string, string>();
+        let added = 0, removed = 0, changed = 0;
+        for (const [id, p] of cur) { if (!par.has(id)) added++; else if (par.get(id) !== p) changed++; }
+        for (const id of par.keys()) if (!cur.has(id)) removed++;
+        s = { version: v.version, parent: v.parent, ...(v.at ? { at: v.at } : {}), kind: docKind(v.doc), nodes: cur.size, added, removed, changed };
+        this.summaries.set(v.version, s);
+      }
+      return s;
+    });
+    const path = new Set<number>();
+    for (let v: number | null | undefined = this.current; v != null; v = this.versions.get(v)?.parent) path.add(v);
+    for (let v = this.redoTarget(this.current); v != null && !path.has(v); v = this.redoTarget(v)) path.add(v);
+    return { type: "versions", current: this.current, path: [...path].sort((a, b) => a - b), items: items.slice(-200) };
+  }
+
+  /** Jump to any version (ADR 0015) — the undo/redo path; the next edit branches from it. */
+  gotoVersion(version: number) {
+    if (!this.versions.has(version)) return;
+    this.abortActive("goto");
+    if (this.utt && !this.utt.settled) this.utt.settled = true; // an uncommitted utterance is discarded, as with undo
+    // Redo retraces the jump: from an ancestor, redo walks back toward where we came from (plan-critic #3).
+    if (this.isAncestor(version, this.current)) this.redoHint = this.current;
+    this.moveTo(version, "goto");
+    this.feature("version_timeline", "used");
+  }
+
+  /** Version redo moves to from `from`: toward the jump origin if we jumped back, else the newest child. */
+  private redoTarget(from: number = this.current): number | null {
+    const hint = this.redoHint;
+    if (hint != null && hint !== from && this.isAncestor(from, hint)) {
+      let v: number | null | undefined = hint;
+      while (v != null && this.versions.get(v)?.parent !== from) v = this.versions.get(v)?.parent;
+      if (v != null) return v;
+    }
+    let best: number | null = null;
+    for (const v of this.versions.values()) if (v.parent === from && (best == null || v.version > best)) best = v.version;
+    return best;
+  }
+  private redoHint: number | null = null;
+  private isAncestor(a: number, b: number): boolean {
+    for (let v: number | null | undefined = this.versions.get(b)?.parent; v != null; v = this.versions.get(v)?.parent) if (v === a) return true;
+    return false;
+  }
+
+  private moveTo(version: number, origin: "undo" | "redo" | "goto") {
     const row = this.versions.get(version);
     if (!row) return;
     this.current = version;
+    this.lexOrigin.clear(); // stale lexicon ids from another version must not become fold targets
     this.restore(row.doc, randomUUID(), origin);
     this.deps.persistence.setCurrent(this.sessionId, { documentId: this.opened.documentId, version, doc: row.doc });
-    this.deps.send({ type: "version", ...this.versionInfo() });
+    this.announceVersion();
   }
 
   /** Undo: abort the running job; an uncommitted utterance is discarded alone (pointer unchanged). */
@@ -473,11 +532,11 @@ export class DocSession {
     if (this.utt && !this.utt.settled) this.utt.settled = true;
     if (this.dirty()) {
       this.restore(this.versions.get(this.current)!.doc, randomUUID(), "undo");
-      this.deps.send({ type: "version", ...this.versionInfo() });
+      this.announceVersion();
       return;
     }
     const parent = this.versions.get(this.current)?.parent;
-    if (parent != null) this.moveTo(parent, "undo");
+    if (parent != null) { this.redoHint ??= this.current; this.moveTo(parent, "undo"); }
   }
   redo() {
     this.abortActive("redo");
@@ -494,7 +553,7 @@ export class DocSession {
     this.lexOrigin.clear();
     this.emitOps(randomUUID(), "model", [{ op: "replace", path: "/root", value: this.doc.root }]);
     this.writeVersion(null);
-    this.deps.send({ type: "version", ...this.versionInfo() });
+    this.announceVersion();
     if (kind !== "screen") this.feature(kindFeature(kind), "used");
   }
 

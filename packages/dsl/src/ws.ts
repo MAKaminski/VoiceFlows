@@ -53,18 +53,31 @@ export const ClientMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("vocab_confirm"), id: z.string() }),
   z.object({ type: z.literal("vocab_delete"), id: z.string() }),
   // Share links (ADR 0013): a read-only public link to the version on screen; one live link per version.
+  z.object({ type: z.literal("goto_version"), version: z.number().int().nonnegative() }), // version timeline (ADR 0015)
   z.object({ type: z.literal("share_create") }),
   z.object({ type: z.literal("share_revoke"), token: ShareToken }),
 ]);
 export type ClientMsg = z.infer<typeof ClientMsg>;
 
 /** Who produced an op batch — M4's "keep ops that still validate" rule needs origin + jobId. */
-export const OpOrigin = z.enum(["model", "lexicon", "undo", "redo", "rollback"]);
+export const OpOrigin = z.enum(["model", "lexicon", "undo", "redo", "rollback", "goto"]);
 export type OpOrigin = z.infer<typeof OpOrigin>;
 
 /** drawn = the lexicon drew it (0 ms) · yours = drawn from the user's own word · model = sent to the model. */
 export const WordMark = z.object({ key: z.string(), as: z.enum(["drawn", "yours", "model"]), label: z.string().optional() });
 export type WordMark = z.infer<typeof WordMark>;
+
+export const VersionSummary = z.object({
+  version: z.number().int().nonnegative(),
+  parent: z.number().int().nonnegative().nullable(),
+  at: z.string().optional(), // ISO time the version was written
+  kind: DocKind,
+  nodes: z.number().int().nonnegative(), // elements in the doc (Nodes, Edges, screen elements)
+  added: z.number().int().nonnegative(), // vs its parent version, by node id
+  removed: z.number().int().nonnegative(),
+  changed: z.number().int().nonnegative(),
+});
+export type VersionSummary = z.infer<typeof VersionSummary>;
 
 const VersionInfo = { version: z.number().int().nonnegative(), canUndo: z.boolean(), canRedo: z.boolean() };
 
@@ -90,6 +103,9 @@ export const ServerMsg = z.discriminatedUnion("type", [
     opCount: z.number().int().optional(), detail: z.string().optional(), inputTokens: z.number().int().optional(), outputTokens: z.number().int().optional(),
   }),
   z.object({ type: z.literal("version"), ...VersionInfo }),
+  // Version timeline (ADR 0015): summaries only — never the docs themselves.
+  // path = ancestors of `current` plus the redo chain ahead of it (drawn solid); `items` are the last 200.
+  z.object({ type: z.literal("versions"), current: z.number().int().nonnegative(), path: z.array(z.number().int().nonnegative()), items: z.array(VersionSummary) }),
   z.object({ type: z.literal("status"), pending: z.string().nullable() }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);

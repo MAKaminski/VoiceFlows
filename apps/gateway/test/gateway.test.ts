@@ -643,3 +643,18 @@ describe.skipIf(!DB)("reload race against Postgres (ADR 0014)", () => {
     await app.close();
   });
 });
+
+describe("version timeline over the socket (ADR 0015)", () => {
+  it("welcome carries the timeline; goto_version is refused when the flag is off", async () => {
+    const TOKEN = "t".repeat(32);
+    const { app, port } = await start({ ADMIN_TOKEN: TOKEN });
+    const c = client(port); await c.open;
+    c.ws.send(JSON.stringify({ type: "hello" }));
+    const v = await c.next((m) => m.type === "versions") as Extract<ServerMsg, { type: "versions" }>;
+    expect(v).toMatchObject({ current: 0, path: [0] });
+    await fetch(`http://127.0.0.1:${port}/admin/flags/version_timeline`, { method: "PUT", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ enabled: false }) });
+    c.ws.send(JSON.stringify({ type: "goto_version", version: 0 }));
+    expect(((await c.next((m) => m.type === "error")) as any).message).toMatch(/turned off/);
+    c.ws.close(); await app.close();
+  });
+});

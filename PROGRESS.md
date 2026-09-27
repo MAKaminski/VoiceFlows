@@ -52,3 +52,9 @@
   per open (fixes seq reuse on resume); flush-before-load closes the reload race; "New" button.
 - Plan-critic replan taken: single owner instead of multi-tab fan-out.
 - Tests: gateway 47/47 incl. Postgres reload race (v0,v1,v2 all persisted); web build passes.
+
+## M5f — Version timeline (2026-09-27)
+- ADR 0015 / D27: History strip (v#, kind, +/−/~, time), jump to any version, branch on edit, redo retraces
+  the jump, other branches faded; flag `version_timeline`.
+- Plan-critic fixes taken: goto op origin, redo toward the jump origin, clear lexicon fold targets, cap 200.
+- Tests: gateway 50/50 incl. Postgres; dsl 41/41; web build passes.

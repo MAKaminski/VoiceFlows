@@ -254,3 +254,47 @@ describe("diagrams (ADR 0011)", () => {
     expect(labels(d.doc.root)).toEqual(["User", "API"]);
   });
 });
+
+describe("version timeline (ADR 0015)", () => {
+  const last = (sent: ServerMsg[]) => sent.filter((m) => m.type === "versions").at(-1) as Extract<ServerMsg, { type: "versions" }>;
+
+  it("summarises every version, jumps anywhere, branches on edit, and redo retraces the jump", async () => {
+    const { d, sent } = await session((t) => t.includes("button") ? ["add .9", '+Button b >root "Go"'] : ["add .9", '+Text t >root v=title "Hi"']);
+    await d.run("a title", "typed", d.allocSeq());          // v1: +Text
+    await d.run("a button", "typed", d.allocSeq());         // v2: +Button
+    d.newDoc("architecture");                               // v3: new diagram
+    let tl = last(sent);
+    expect(tl.items.map((v) => [v.version, v.parent, v.kind])).toEqual([[0, null, "screen"], [1, 0, "screen"], [2, 1, "screen"], [3, 2, "architecture"]]);
+    expect(tl.items[2]).toMatchObject({ added: 1, removed: 0, nodes: 2 });
+    expect(tl.items[3]).toMatchObject({ removed: 2, nodes: 0 }); // the lanes don't count as elements
+
+    d.gotoVersion(1);
+    tl = last(sent);
+    expect(tl.current).toBe(1);
+    expect(tl.path).toEqual([0, 1, 2, 3]); // ancestors + the redo chain back to v3
+    expect(d.doc.root.type).toBe("Frame");
+
+    await d.run("a button", "typed", d.allocSeq());         // v4 branches from v1
+    tl = last(sent);
+    expect(tl.items.at(-1)).toMatchObject({ version: 4, parent: 1 });
+    expect(tl.path).toEqual([0, 1, 4]);                     // v2, v3 are now another branch (faded)
+
+    d.gotoVersion(3);
+    d.gotoVersion(1);
+    d.redo();
+    expect(last(sent).current).toBe(2);                     // toward v3 (where we jumped from), not the newer v4
+    d.redo();
+    expect(last(sent).current).toBe(3);
+  });
+
+  it("a jump discards an uncommitted utterance, like undo", async () => {
+    const { d } = await session(() => ["none 0"]);
+    d.newDoc("architecture");
+    d.onTranscript(0, "the api writes to postgres", false, 300);
+    expect(JSON.stringify(d.doc)).toContain("Postgres");
+    d.gotoVersion(0);
+    expect(d.doc.root.type).toBe("Frame");
+    d.gotoVersion(1);
+    expect(JSON.stringify(d.doc)).not.toContain("Postgres");
+  });
+});

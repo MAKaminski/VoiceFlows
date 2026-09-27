@@ -10,6 +10,7 @@ import { useDoc } from "@/store/doc";
 import { useVoice } from "@/store/voice";
 import { KeywordRail } from "@/components/KeywordRail";
 import { SharePopover } from "@/components/SharePopover";
+import { VersionTimeline } from "@/components/VersionTimeline";
 import { useFeatures } from "@/store/features";
 import { docKind, kindFeature, type DocKind } from "@livecanvas/dsl";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
@@ -128,6 +129,7 @@ export default function Studio() {
           <button type="button" onClick={() => location.reload()} style={{ font: "inherit", fontWeight: 600, padding: "4px 12px", borderRadius: 999, border: "1px solid #d97706", background: "#fff", color: "#92400e", cursor: "pointer" }}>Use it here</button>
         </div>
       )}
+      <VersionTimeline />
       {kind !== "screen" && <KeywordRail kind={kind} />}
       <div style={{ flex: 1 }}><Canvas doc={doc} /></div>
       <TranscriptStrip />

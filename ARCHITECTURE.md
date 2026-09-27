@@ -41,6 +41,7 @@ flowchart LR
     F_vocabulary["Vocabulary: keywords + user words<br/><small>ARD 0012</small>"]
     F_share_links["Share links (read-only, pinned)<br/><small>ARD 0013</small>"]
     F_remember_document["Remember the document across tabs<br/><small>ARD 0014</small>"]
+    F_version_timeline_feature["Version timeline<br/><small>ARD 0015</small>"]
   end
   subgraph uses["Components"]
     direction TB
@@ -112,7 +113,7 @@ flowchart LR
   classDef feat fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef comp fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef tab fill:#eaf1ec,stroke:#2C6249,color:#12191B;
-  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary,F_share_links,F_remember_document feat;
+  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary,F_share_links,F_remember_document,F_version_timeline_feature feat;
   class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_doc_session,C_postgres,C_redis,C_stripe comp;
   class T_design_documents,T_design_versions,T_exports,T_generation_jobs,T_intents,T_latency_events,T_patch_ops,T_plans,T_primitives,T_provider_keys,T_sessions,T_token_sets,T_transcript_segments,T_usage_periods,T_users,T_utterances tab;
 ```
@@ -138,6 +139,10 @@ Uses `@livecanvas/dsl` (`Diagram`/`Layer`/`Node`/`Edge`, `layoutDiagram`, diagra
 `@livecanvas/web` (`DiagramCanvas`, kind switcher, vocabulary rail). **Owns no table**: a diagram is
 a `design_versions.doc` whose root is a `Diagram` — it reads and writes through 2.1/2.2 like a screen.
 New primitive rows arrive through the `primitives` seed (2.3).
+
+### 2.2b Version timeline — ADR 0015
+Uses `DocSession` (`timelineMsg`, `gotoVersion`, redo hint) and `VersionTimeline` in the studio.
+**Owns no table**: reads `design_versions` (2.2) — summaries are computed in the gateway, never stored.
 
 ### 2.2a Remember the document across tabs — ADR 0014
 Uses `@livecanvas/gateway` (live-document registry in `server.ts`: one `DocSession` and one owning tab
@@ -181,9 +186,9 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Tables with no FK either way | 0 |
 | Distinct error types | 1 |
 | Symbol names defined 3+ times | 0 |
-| ARDs on record | 15 (15 contributing to the diagram) |
-| Components declared by ARDs | 21 |
-| Features declared by ARDs | 13 |
+| ARDs on record | 16 (16 contributing to the diagram) |
+| Components declared by ARDs | 22 |
+| Features declared by ARDs | 14 |
 <!-- arch:end:counts -->
 
 | Component | Layer | Owns | Pattern (§6) |
@@ -217,6 +222,7 @@ flowchart TB
     keyword_rail["KeywordRail<br/><small>ARD 0012</small>"]
     diagram_layout["layoutDiagram<br/><small>ARD 0011</small>"]
     share_popover["SharePopover<br/><small>ARD 0013</small>"]
+    version_timeline["VersionTimeline<br/><small>ARD 0015</small>"]
   end
   subgraph middleware["Middleware · APIs"]
     direction LR
@@ -273,16 +279,17 @@ flowchart TB
   share_view -.->|"GET pinned version · ARD 0013"| share_api
   share_popover -.->|"share_create / share_revoke · ARD 0013"| doc_session
   live_docs -.->|"one owner per document; takeover · ARD 0014"| doc_session
+  version_timeline -.->|"goto_version · ARD 0015"| doc_session
   classDef declared stroke-dasharray:5 4,stroke-width:2px;
   classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef be fill:#eaf1ec,stroke:#2C6249,color:#12191B;
   classDef inf fill:#f4efe6,stroke:#8A6210,color:#12191B;
-  class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail,share_view,share_popover fe;
+  class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail,share_view,share_popover,version_timeline fe;
   class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,flag_service,admin_api,share_api,live_docs mw;
   class postgres,redis be;
   class vercel,railway inf;
-  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover,live_docs declared;
+  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover,live_docs,version_timeline declared;
 ```
 <!-- arch:end:components -->
 

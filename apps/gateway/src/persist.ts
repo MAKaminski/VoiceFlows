@@ -6,7 +6,7 @@ import type postgres from "postgres";
 export const ANON_EMAIL = "anonymous@livecanvas.local";
 
 export interface Segment { utteranceSeq: number; text: string; isFinal: boolean; tMs: number }
-export interface VersionRow { version: number; parent: number | null; doc: DesignDoc }
+export interface VersionRow { version: number; parent: number | null; doc: DesignDoc; at?: string }
 export interface OpenedSession { sessionId: string; documentId: string; versions: VersionRow[]; current: number }
 
 /**
@@ -96,7 +96,7 @@ export function memoryPersistence(): Persistence & { rows: Array<Segment & { ses
     version: (sessionId, r) => {
       calls.push({ method: "version", args: [sessionId, r] });
       const s = [...sessions.values()].find((x) => x.documentId === r.documentId);
-      s?.versions.push({ version: r.version, parent: r.parent, doc: structuredClone(r.doc) });
+      s?.versions.push({ version: r.version, parent: r.parent, doc: structuredClone(r.doc), at: new Date().toISOString() });
     },
     setCurrent: (sessionId, r) => {
       calls.push({ method: "setCurrent", args: [sessionId, r] });
@@ -144,8 +144,8 @@ export function pgPersistence(sql: postgres.Sql, log: (e: unknown) => void = con
     const [s] = await sql<{ document_id: string; current_version: number }[]>`
       select s.document_id, d.current_version from sessions s join design_documents d on d.id = s.document_id where s.id = ${sessionId}`;
     if (!s) return null;
-    let rows = await sql<{ version: number; parent_version: number | null; doc: DesignDoc }[]>`
-      select version, parent_version, doc from design_versions where document_id = ${s.document_id} order by version`;
+    let rows = await sql<{ version: number; parent_version: number | null; doc: DesignDoc; created_at?: Date }[]>`
+      select version, parent_version, doc, created_at from design_versions where document_id = ${s.document_id} order by version`;
     if (rows.length === 0) {
       // Documents created before M3 have no version rows: their current doc becomes v0.
       rows = await sql<{ version: number; parent_version: number | null; doc: DesignDoc }[]>`
@@ -154,7 +154,7 @@ export function pgPersistence(sql: postgres.Sql, log: (e: unknown) => void = con
         returning version, parent_version, doc`;
       return { sessionId, documentId: s.document_id, current: 0, versions: rows.map((r) => ({ version: r.version, parent: r.parent_version, doc: r.doc })) };
     }
-    return { sessionId, documentId: s.document_id, current: s.current_version, versions: rows.map((r) => ({ version: r.version, parent: r.parent_version, doc: r.doc })) };
+    return { sessionId, documentId: s.document_id, current: s.current_version, versions: rows.map((r) => ({ version: r.version, parent: r.parent_version, doc: r.doc, ...(r.created_at ? { at: new Date(r.created_at).toISOString() } : {}) })) };
   };
 
   return {
