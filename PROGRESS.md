@@ -68,3 +68,6 @@
   and errors if missing, the kind switch can no longer wipe a view.
 - Tests: dsl 46/46; gateway 53/53 incl. Postgres (cross-view speech, brief carries other views' names,
   a fact at utterance 1 reaches utterance 20 via notes, start-over clears only its view).
+- 2026-09-27 · Architecture prompt trimmed 4,044 → 2,510 chars; the four standard lanes are no longer re-sent
+  in the document. Live: input tokens per architecture call ~1,272 → 779 (−39%, under the 1,100 guideline);
+  projects-live 2/2 all checks pass; diagram-live 3/3.
