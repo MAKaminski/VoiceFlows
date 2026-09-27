@@ -431,9 +431,12 @@ export class DocSession {
   private async jevPhase(job: ActiveJob, text: string, seq: number, utteranceId: string, apply: (line: string, atMs: number) => void): Promise<"covered" | "partial" | "skipped"> {
     const plan = this.within(job.view, () => planDecisions(this.doc, job.view, text));
     if (!plan) return "skipped";
-    let res;
-    try { res = await this.deps.jev!({ state: plan.state, questions: plan.questions, signal: job.abort.signal }); }
-    catch (e) { this.deps.log?.(`jev: fell back to the model (${(e as Error).message})`); return "skipped"; }
+    let res: { answers: Record<string, never>; ms: number } | Awaited<ReturnType<JevClient>>;
+    if (!Object.keys(plan.questions).length) res = { answers: {}, ms: 0 }; // decided by grammar alone ("logo on top")
+    else {
+      try { res = await this.deps.jev!({ state: plan.state, questions: plan.questions, signal: job.abort.signal }); }
+      catch (e) { this.deps.log?.(`jev: fell back to the model (${(e as Error).message})`); return "skipped"; }
+    }
     if (this.active !== job) return "skipped";
     const cols = (id: string) => (findNode(this.doc.root, id)?.node.props.cols as string[] | undefined) ?? [];
     const d = this.within(job.view, () => decisionsToLines(plan, res.answers, cols));

@@ -5,9 +5,9 @@ _Generated from the TypeScript AST by `pnpm codemap` — do not edit by hand; CI
 | Measure | Count |
 |---|---|
 | Modules | 57 |
-| Lines | 6196 |
-| Top-level symbols | 461 |
-| Exported symbols | 215 |
+| Lines | 6218 |
+| Top-level symbols | 462 |
+| Exported symbols | 216 |
 | Exported names defined in 2+ modules | 1 |
 
 ## Package dependency graph
@@ -65,8 +65,8 @@ flowchart LR
 | [bench/jev.ts](../apps/gateway/src/bench/jev.ts) | 202 | — |
 | [config.ts](../apps/gateway/src/config.ts) | 38 | `Config` type · `loadConfig` const |
 | [db.ts](../apps/gateway/src/db.ts) | 11 | `getSql` function |
-| [engine/decisions.ts](../apps/gateway/src/engine/decisions.ts) | 174 | `CHOICE_MIN` const · `NOUL_YES` const · `NOUL_NO` const · `Mention` interface · `mentions` function · `Plan` interface · `planDecisions` function · `Decided` interface · `decisionsToLines` function |
-| [engine/docSession.ts](../apps/gateway/src/engine/docSession.ts) | 866 | `EngineConfig` interface · `Tunables` interface · `DEFAULT_TUNABLES` const · `DocSession` class |
+| [engine/decisions.ts](../apps/gateway/src/engine/decisions.ts) | 193 | `CHOICE_MIN` const · `NOUL_YES` const · `NOUL_NO` const · `Mention` interface · `mentions` function · `Plan` interface · `readable` const · `planDecisions` function · `Decided` interface · `decisionsToLines` function |
+| [engine/docSession.ts](../apps/gateway/src/engine/docSession.ts) | 869 | `EngineConfig` interface · `Tunables` interface · `DEFAULT_TUNABLES` const · `DocSession` class |
 | [engine/jev.ts](../apps/gateway/src/engine/jev.ts) | 39 | `JevQuestion` type · `JevAnswer` type · `JevResult` interface · `JevClient` type · `typesafeJev` function |
 | [engine/model.ts](../apps/gateway/src/engine/model.ts) | 113 | `ModelLine` interface · `ModelStream` interface · `ModelClient` type · `anthropicClient` function · `hedgedClient` function |
 | [flags.ts](../apps/gateway/src/flags.ts) | 28 | `FlagService` class |

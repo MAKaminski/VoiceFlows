@@ -43,7 +43,7 @@ export interface Plan {
   state: string;
   questions: Record<string, JevQuestion>;
   pairs: Array<{ key: string; from: Mention; to: Mention }>;
-  screen?: { targets: Mention[] };
+  screen?: { targets: Mention[]; where: "first" | "last"; direct?: Mention };
   words: string[];
 }
 
@@ -57,6 +57,8 @@ const STYLE: Record<string, { key: string; q: (t: string) => JevQuestion }> = {
   erd: { key: "card", q: (t) => ({ type: "choice", instructions: `Cardinality from the first table to the second? Transcript: "${t}"`, criteria: { "1:n": "one to many", "1:1": "one to one" } }) },
   sequence: { key: "kind", q: (t) => ({ type: "choice", instructions: `What kind of message is it? Transcript: "${t}"`, criteria: { sync: "A request or call", return: "A reply that returns something to the caller", async: "Fire-and-forget (enqueue, notify)" } }) },
 };
+/** Option key Jev can read: "Observe.AI" → "observe_ai", "Sign in" → "sign_in". */
+export const readable = (label: string) => label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "item";
 const labelOf = (n: DesignNode): string => {
   const p = n.props as Record<string, unknown>;
   return String(p.label ?? p.content ?? p.alt ?? p.name ?? "");
@@ -73,15 +75,28 @@ export function planDecisions(view: DesignDoc, kind: DocKind, text: string): Pla
   let state: string;
 
   if (kind === "screen") {
-    const pos = words.some((w) => ["top", "first", "bottom", "last", "above", "below"].includes(w));
-    if (!pos) return null;
+    const POS = ["top", "first", "bottom", "last", "above", "below"];
+    const at = words.map((w, i) => (POS.includes(w) ? i : -1)).filter((i) => i >= 0).at(-1);
+    if (at == null) return null;
+    // Live tuning (2026-09-27, real Jev): the position word needs no model ("top" = first); Jev only
+    // picks WHICH element, from those named just before it, with readable option keys and the whole
+    // sentence — ids as keys and a split question left it unsure on 10/10 DoD sentences.
+    const lo = Math.max(0, at - 5);
     const els = kids.map((c) => ({ id: c.id, label: labelOf(c) || c.type })).filter((c) => c.label);
-    const targets = mentions(els, words);
+    const targets = mentions(els, words.slice(lo, at)).map((m) => ({ ...m, start: m.start + lo, end: m.end + lo }));
     if (!targets.length) return null;
-    state = `Phone screen, top to bottom: ${els.map((e) => `${e.id} (${e.label})`).join(", ")}. Transcript: "${text}"`;
-    questions.target = { type: "choice", instructions: "Which element does the transcript move?", criteria: Object.fromEntries([...targets.map((m) => [m.id, `the ${m.label}`]), ["none", "nothing is moved"]]) };
-    questions.position = { type: "choice", instructions: "Where does it go?", criteria: { first: "To the top / first", last: "To the bottom / last", unchanged: "No move" } };
-    screen = { targets };
+    const where = ["bottom", "last", "below"].includes(words[at]!) ? "last" : "first";
+    // "…logo on top": the element named directly before the position words IS the target — grammar,
+    // not a judgement; no network call (live: Jev picked it right every time but only at 0.59).
+    const nearest = targets.at(-1)!;
+    if (words.slice(nearest.end, at).every((w) => ["on", "at", "to", "the", "very", "of", "it"].includes(w))) {
+      return { view: kind, state: "", questions: {}, pairs: [], screen: { targets, where, direct: nearest }, words };
+    }
+    const phrase = words.slice(lo, at + 1).join(" ");
+    state = `Phone screen, top to bottom: ${els.map((e) => `${readable(e.label)} (${e.label})`).join(", ")}.`;
+    questions.target = { type: "choice", instructions: `Which element is being moved ${where === "first" ? "to the top" : "to the bottom"}? They said "${phrase}". Transcript: "${text}"`,
+      criteria: Object.fromEntries([...targets.map((m) => [readable(m.label), `the ${m.label}`]), ["none", "nothing is moved"]]) };
+    screen = { targets, where };
   } else {
     const nodes: Array<{ id: string; label: string }> = [];
     const walk = (n: DesignNode) => { if (n.type === "Node") nodes.push({ id: n.id, label: labelOf(n) }); n.children?.forEach(walk); };
@@ -95,8 +110,9 @@ export function planDecisions(view: DesignDoc, kind: DocKind, text: string): Pla
       const a = ms[i]!, b = ms[i + 1]!;
       const key = `${i}`;
       pairs.push({ key, from: a, to: b });
+      const [ra, rb] = [readable(a.label), readable(b.label)]; // readable keys: ids halved Jev's confidence
       questions[`rel:${key}`] = { type: "choice", instructions: `Does the transcript connect ${a.label} and ${b.label}, and in which direction?`,
-        criteria: { [`${a.id}->${b.id}`]: REL[kind]!(a.label, b.label), [`${b.id}->${a.id}`]: REL[kind]!(b.label, a.label), none: `No connection between ${a.label} and ${b.label} is described` } };
+        criteria: { [`${ra}->${rb}`]: REL[kind]!(a.label, b.label), [`${rb}->${ra}`]: REL[kind]!(b.label, a.label), none: `No connection between ${a.label} and ${b.label} is described` } };
       const s = STYLE[kind]!;
       questions[`${s.key}:${key}`] = s.q(text);
     }
@@ -129,9 +145,10 @@ export function decisionsToLines(plan: Plan, answers: Record<string, JevAnswer>,
   const choice = (k: string) => { const a = answers[k]; return a?.type === "choice" && a.confidence >= CHOICE_MIN ? a.choice : null; };
 
   if (plan.screen) {
-    const target = choice("target"), position = choice("position");
-    if (target && target !== "none" && position && position !== "unchanged") {
-      lines.push(position === "first" ? `^${target} >root @0` : `^${target} >root`);
+    const picked = choice("target");
+    const target = plan.screen.direct ?? plan.screen.targets.find((m) => readable(m.label) === picked);
+    if (target) {
+      lines.push(plan.screen.where === "first" ? `^${target.id} >root @0` : `^${target.id} >root`);
       plan.words.forEach((w, i) => { if (["top", "first", "bottom", "last", "above", "below", "on", "put", "move"].includes(w)) coveredIdx.add(i); });
       accepted++;
     } else unsure++;
@@ -143,7 +160,8 @@ export function decisionsToLines(plan: Plan, answers: Record<string, JevAnswer>,
     if (rel?.type !== "choice" || rel.confidence < CHOICE_MIN) { unsure++; continue; }
     const [lo, hi] = p.from.start < p.to.start ? [p.from.end, p.to.start] : [p.to.end, p.from.start];
     if (rel.choice === "none") { accepted++; continue; } // confidently not a connection: nothing to draw
-    const from = rel.choice === `${p.from.id}->${p.to.id}` ? p.from : rel.choice === `${p.to.id}->${p.from.id}` ? p.to : null;
+    const [ra, rb] = [readable(p.from.label), readable(p.to.label)];
+    const from = rel.choice === `${ra}->${rb}` ? p.from : rel.choice === `${rb}->${ra}` ? p.to : null;
     if (!from) { unsure++; continue; }
     const to = from === p.from ? p.to : p.from;
     const label = verbPhrase(plan.words, from, to);
@@ -154,7 +172,8 @@ export function decisionsToLines(plan: Plan, answers: Record<string, JevAnswer>,
       lines.push(`+Edge jev${n} >root from=${from.id} to=${to.id}${style === "async" ? " style=async" : ""}${label ? ` "${label}"` : ""}`);
     } else if (plan.view === "sequence") {
       const kind = choice(`kind:${p.key}`);
-      lines.push(`+Edge jev${n} >root from=${from.id} to=${to.id}${kind && kind !== "sync" ? ` style=${kind}` : ""} "${sentence(label) || "Message"}"`);
+      const msg = label.replace(/\s+(to|from|on|in|at)$/, ""); // "returns token to" → "Returns token"
+      lines.push(`+Edge jev${n} >root from=${from.id} to=${to.id}${kind && kind !== "sync" ? ` style=${kind}` : ""} "${sentence(msg) || "Message"}"`);
     } else {
       const card = choice(`card:${p.key}`) ?? "1:n";
       const fk = `${singular(from.label.toLowerCase()).replace(/[^a-z0-9]+/g, "_")}_id:uuid:fk`;
