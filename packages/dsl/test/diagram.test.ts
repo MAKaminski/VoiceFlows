@@ -267,3 +267,10 @@ describe("projects (ADR 0016)", () => {
     expect(labelsIn(d, "n_api")).toEqual(["MuleSoft", "Salesforce", "Genesys", "Genesys bot", "Observe.AI"]);
   });
 });
+
+describe("STT mishearings (2026-09-27)", () => {
+  it("'sign and button' is a sign-in button", () => {
+    const r = lexicon("a big blue sign and button", emptyDoc());
+    expect((r.ops[0] as { value: { props: { label: string } } }).value.props.label).toBe("Sign in");
+  });
+});

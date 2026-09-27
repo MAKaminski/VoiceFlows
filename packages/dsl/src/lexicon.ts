@@ -45,6 +45,8 @@ const SCREEN_TITLES: Array<[string[], string]> = [
   [["search"], "Search"], [["cart"], "Your cart"],
 ];
 const BUTTON_LABELS: Array<[string[], string]> = [
+  // Known STT mishearings (Flux, M2 ground truth and the 2026-09-27 run: "sign and button" never revised).
+  [["sign", "and"], "Sign in"], [["log", "and"], "Log in"],
   [["sign", "in"], "Sign in"], [["log", "in"], "Log in"], [["login"], "Log in"], [["sign", "up"], "Sign up"],
   [["signup"], "Sign up"], [["get", "started"], "Get started"], [["submit"], "Submit"], [["continue"], "Continue"],
   [["next"], "Next"], [["save"], "Save"], [["send"], "Send"], [["buy"], "Buy"], [["checkout"], "Checkout"],
