@@ -112,6 +112,7 @@ async function run(i: number) {
   const kids = (root?.type === "Project" ? root.children![0]!.children : root?.children) ?? []; // the screen view
   const has = (f: (n: DesignNode) => boolean) => { let ok = false; const w = (n: DesignNode) => { if (f(n)) ok = true; n.children?.forEach(w); }; kids.forEach(w); return ok; };
   const anyProvisional = (() => { let p = false; const w = (n: DesignNode) => { if (n.provisional) p = true; n.children?.forEach(w); }; kids.forEach(w); return p; })();
+  if (process.env.SHOW_LAYOUT) console.log("LAYOUT", JSON.stringify(kids.map((n) => [n.id, n.type, n.props.label ?? n.props.alt ?? n.props.content, n.props.size, !!n.provisional])));
   const layoutOk = kids[0]?.type === "Image" && has(KEYWORD_KIND.email!) && has(KEYWORD_KIND.password!)
     && has((n) => n.type === "Button" && /sign/i.test(String(n.props.label)) && n.props.size === "lg") && !anyProvisional;
   const formBeforeButtonEnds = lexArrival.email != null && lexArrival.password != null && Math.max(lexArrival.email, lexArrival.password) < wallOf(endOf("button"));

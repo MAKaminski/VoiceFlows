@@ -5,9 +5,9 @@ _Generated from the TypeScript AST by `pnpm codemap` — do not edit by hand; CI
 | Measure | Count |
 |---|---|
 | Modules | 57 |
-| Lines | 6218 |
-| Top-level symbols | 462 |
-| Exported symbols | 216 |
+| Lines | 6247 |
+| Top-level symbols | 463 |
+| Exported symbols | 217 |
 | Exported names defined in 2+ modules | 1 |
 
 ## Package dependency graph
@@ -43,7 +43,7 @@ flowchart LR
 | [index.ts](../packages/dsl/src/index.ts) | 13 | — |
 | [intent.ts](../packages/dsl/src/intent.ts) | 68 | `IntentAction` const · `Intent` const · `Intent` type · `IntentHeader` const · `IntentHeader` type · `DELTA_WEIGHTS` const · `deltaScore` function · `parseHeader` function |
 | [layout.ts](../packages/dsl/src/layout.ts) | 331 | `Rect` interface · `EdgeStyle` type · `EndMark` type · `EdgeRoute` interface · `LaneBox` interface · `Lifeline` interface · `DiagramLayout` interface · `ARCH` const · `ERD` const · `SEQ` const · `layoutDiagram` function · `simplify` function · `labelPoint` function · `roundedPath` function |
-| [lexicon.ts](../packages/dsl/src/lexicon.ts) | 394 | `LexiconResult` interface · `occurrenceKeys` function · `isModifier` const · `lexTokens` const · `kindKey` function · `lexicon` function · `requestedKind` function · `VocabEntry` interface · `diagramVocabulary` function |
+| [lexicon.ts](../packages/dsl/src/lexicon.ts) | 419 | `LexiconResult` interface · `occurrenceKeys` function · `isModifier` const · `lexTokens` const · `kindKey` function · `lexicon` function · `requestedKind` function · `VocabEntry` interface · `diagramVocabulary` function · `refreshProvisional` function |
 | [ops.ts](../packages/dsl/src/ops.ts) | 116 | `PatchOp` const · `PatchOp` type · `applyOp` function · `invertOp` function · `mapOpPaths` function |
 | [primitives.ts](../packages/dsl/src/primitives.ts) | 133 | `SCREEN_TYPES` const · `DIAGRAM_TYPES` const · `PRIMITIVE_TYPES` const · `PrimitiveType` const · `PrimitiveType` type · `DiagramKind` const · `DiagramKind` type · `Tier` const · `Tier` type · `NodeKind` const · `NodeKind` type · `ColumnSpec` const · `propSchemas` const · `CONTAINER_TYPES` const · `PARENTS` const · `PRIMARY_TEXT_PROP` const · `ARRAY_PROPS` const |
 | [tokens.ts](../packages/dsl/src/tokens.ts) | 30 | `ColorToken` const · `SpaceToken` const · `RadiusToken` const · `ColorToken` type · `SpaceToken` type · `RadiusToken` type · `TokenSet` const · `TokenSet` type · `defaultTokens` const |
@@ -66,7 +66,7 @@ flowchart LR
 | [config.ts](../apps/gateway/src/config.ts) | 38 | `Config` type · `loadConfig` const |
 | [db.ts](../apps/gateway/src/db.ts) | 11 | `getSql` function |
 | [engine/decisions.ts](../apps/gateway/src/engine/decisions.ts) | 193 | `CHOICE_MIN` const · `NOUL_YES` const · `NOUL_NO` const · `Mention` interface · `mentions` function · `Plan` interface · `readable` const · `planDecisions` function · `Decided` interface · `decisionsToLines` function |
-| [engine/docSession.ts](../apps/gateway/src/engine/docSession.ts) | 869 | `EngineConfig` interface · `Tunables` interface · `DEFAULT_TUNABLES` const · `DocSession` class |
+| [engine/docSession.ts](../apps/gateway/src/engine/docSession.ts) | 873 | `EngineConfig` interface · `Tunables` interface · `DEFAULT_TUNABLES` const · `DocSession` class |
 | [engine/jev.ts](../apps/gateway/src/engine/jev.ts) | 39 | `JevQuestion` type · `JevAnswer` type · `JevResult` interface · `JevClient` type · `typesafeJev` function |
 | [engine/model.ts](../apps/gateway/src/engine/model.ts) | 113 | `ModelLine` interface · `ModelStream` interface · `ModelClient` type · `anthropicClient` function · `hedgedClient` function |
 | [flags.ts](../apps/gateway/src/flags.ts) | 28 | `FlagService` class |

@@ -391,3 +391,28 @@ export function diagramVocabulary(kind: Exclude<DocKind, "screen">): { terms: Vo
       example: "the user logs in on the web app, the app posts credentials to the API, the API checks Postgres and returns a token" },
   }[kind];
 }
+
+/**
+ * Re-reads the main text of screen elements the lexicon drew this utterance while they're still
+ * provisional: STT revises words ("sign and button" → "sign in button"), and before the Jev tier the
+ * model quietly fixed the label. `drawnAt` maps the noun's occurrence key → the node it drew.
+ */
+export function refreshProvisional(runningText: string, doc: DesignDoc, drawnAt: ReadonlyMap<string, string>): PatchOp[] {
+  if (doc.root.type !== "Frame") return [];
+  const words = lexTokens(runningText);
+  const occ = occurrenceKeys(words);
+  const ops: PatchOp[] = [];
+  for (const [key, id] of drawnAt) {
+    const i = occ.indexOf(key);
+    const spec = i >= 0 ? NOUNS[words[i]!] : undefined;
+    if (!spec) continue;
+    const at = (doc.root.children ?? []).findIndex((c) => c.id === id);
+    const node = doc.root.children?.[at];
+    if (!node?.provisional) continue; // the model (or the user) owns it now
+    const prop = spec.type === "Button" ? "label" : spec.type === "Text" ? "content" : null;
+    if (!prop) continue;
+    const value = spec.props({}, words, i)[prop];
+    if (typeof value === "string" && value && value !== node.props[prop]) ops.push({ op: "replace", path: `/root/children/${at}/props/${prop}`, value });
+  }
+  return ops;
+}

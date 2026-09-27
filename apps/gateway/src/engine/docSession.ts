@@ -1,5 +1,5 @@
 import {
-  applyOp, DesignDocSchema, docKind, emptyProject, emptyView, expandCompact, mapOpPaths, toProject, toProjectPath, viewDoc, VIEWS, viewCount, withView, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
+  applyOp, DesignDocSchema, docKind, refreshProvisional, emptyProject, emptyView, expandCompact, mapOpPaths, toProject, toProjectPath, viewDoc, VIEWS, viewCount, withView, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
   lexTokens, occurrenceKeys, parseDefine, parseHeader, serializeCompact, type CompactContext, type DesignDoc, type DesignNode, type DocKind, type FeatureKey,
   type Flags, type IntentHeader, type VersionSummary, type WordMark, type OpOrigin, type PatchOp, type ServerMsg, type VocabNode, type VocabTerm,
 } from "@livecanvas/dsl";
@@ -29,6 +29,7 @@ interface Utterance {
   lexIds: Set<string>; // nodes the lexicon drew this utterance (fold targets even after commit clears provisional)
   calledFor: Set<string>; // uncovered content words already sent to the model
   labels: Map<string, { label: string; mine: boolean }>; // noun occurrence key → what it drew (transcript highlighting)
+  drawnAt: Map<string, string>; // noun occurrence key → the node the lexicon drew for it (label refresh, ADR 0017)
   lastCallAt: number; ending: boolean; settled: boolean;
 }
 
@@ -196,12 +197,12 @@ export class DocSession {
     if (!text) return;
     if (!this.flagOn("speak_to_create")) {
       if (this.utt?.seq !== seq) { this.utt = null; this.feature("speak_to_create", "blocked"); this.deps.send({ type: "error", message: "Speaking to create is turned off" }); }
-      this.utt = { seq, baseDoc: this.project, text, handled: new Set(), lexIds: new Set(), calledFor: new Set(), labels: new Map(), lastCallAt: -Infinity, ending: true, settled: true };
+      this.utt = { seq, baseDoc: this.project, text, handled: new Set(), lexIds: new Set(), calledFor: new Set(), labels: new Map(), drawnAt: new Map(), lastCallAt: -Infinity, ending: true, settled: true };
       return;
     }
     if (!this.utt || this.utt.seq !== seq) {
       if (this.utt && !this.utt.settled) this.commitUtterance();
-      this.utt = { seq, baseDoc: this.project, text: "", handled: new Set(), lexIds: new Set(), calledFor: new Set(), labels: new Map(), lastCallAt: -Infinity, ending: false, settled: false };
+      this.utt = { seq, baseDoc: this.project, text: "", handled: new Set(), lexIds: new Set(), calledFor: new Set(), labels: new Map(), drawnAt: new Map(), lastCallAt: -Infinity, ending: false, settled: false };
     }
     const u = this.utt;
     // Speech resumed after an eager settle (Flux TurnResumed): reopen the utterance as a new part.
@@ -225,7 +226,10 @@ export class DocSession {
     if (lex.view) { this.setView(lex.view); lex = lexicon(text, this.doc, u.handled, this.terms, allowed, this.projectIds()); }
     for (const k of lex.consumed) u.handled.add(k);
     for (const c of lex.created) u.labels.set(c.key, { label: labelOf(lex.ops, c.id), mine: !!c.mine });
-    if (lex.ops.length) { this.applyLexicon(lex.ops, seq, lastWordEndMs, lex.created.map((c) => c.id)); lex.created.forEach((c) => { u.lexIds.add(c.id); this.lexOrigin.add(c.id); }); }
+    if (lex.ops.length) { this.applyLexicon(lex.ops, seq, lastWordEndMs, lex.created.map((c) => c.id)); lex.created.forEach((c) => { u.lexIds.add(c.id); this.lexOrigin.add(c.id); u.drawnAt.set(c.key, c.id); }); }
+    // STT revised a word ("sign and" → "sign in"): fix the label of what the lexicon already drew.
+    const fixes = refreshProvisional(text, this.doc, u.drawnAt);
+    if (fixes.length) this.applyLexicon(fixes, seq, lastWordEndMs, []);
 
     // Final or Flux EagerEndOfTurn: the speaker (probably) stopped — settle as soon as nothing is pending.
     if (isFinal || eager) { u.ending = true; this.settleIfReady(); return; }
