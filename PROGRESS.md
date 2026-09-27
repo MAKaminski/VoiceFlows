@@ -98,3 +98,12 @@
   (`docs/m6/2026-09-27-jev-bakeoff-adjacent-railway-sfo.json`). Shared blind spot: "X belongs to Y" direction
   (both engines 0/10; Jev unsure → falls back).
 - Tests: gateway 64/64 incl. Postgres (11 new), dsl 46/46.
+- Live tuning after first deploy (2026-09-27): Jev answered in 76–139 ms but was "unsure" on 10/10 screen moves
+  (ids as option keys; every element offered). Fixed: readable option keys (relationships then confident and
+  correct on every run), "X on top" with X named right before decided by grammar (no call), labels without
+  dangling prepositions, the lexicon re-reads provisional labels, and "sign and"/"log and" before "button" are the
+  known Flux mishearings of sign in/log in (Haiku had been silently fixing them).
+- **Screen acceptance with Jev (Railway, 10 runs): 10/10 · TTFV-1 p50 116 ms (172 ms adj., was 775–901) ·
+  settle 754 ms · 1 reflow · $0/min on the DoD sentence (no model call).** Diagram checks 3/3, projects-live
+  6/6, vocab-live 6/6; a spoken relationship decided by Jev in 114 ms in-region.
+- Settle unchanged (~750 ms): it waits for Flux's end-of-turn signal, not the model — the next lever.
