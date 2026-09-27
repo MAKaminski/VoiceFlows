@@ -11,7 +11,7 @@ export interface Prompt {
   render(vars: Record<string, string>): string;
 }
 
-export type PromptName = "intent_system" | "patch_system" | "fused_system";
+export type PromptName = "intent_system" | "patch_system" | "fused_system" | "diagram_architecture" | "diagram_erd" | "diagram_sequence";
 
 export function loadPrompt(name: PromptName, dir = process.env.PROMPTS_DIR ?? resolve(process.cwd(), "prompts")): Prompt {
   const raw = readFileSync(resolve(dir, `${name}.md`), "utf8");

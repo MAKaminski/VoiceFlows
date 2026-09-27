@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CONTAINER_TYPES, PrimitiveType, propSchemas } from "./primitives.js";
+import { CONTAINER_TYPES, DiagramKind, PARENTS, PrimitiveType, propSchemas, type Tier } from "./primitives.js";
 
 export interface DesignNode {
   id: string;
@@ -31,24 +31,90 @@ export const DesignNodeSchema: z.ZodType<DesignNode> = z.lazy(() =>
     }),
 );
 
-export const DesignDocSchema = z.object({
-  id: z.string(),
-  tokens: z.string(),
-  root: DesignNodeSchema,
-});
+/**
+ * Whole-doc rules a single node can't check (ADR 0011): the root is a Frame (screen) or a Diagram;
+ * every child sits under an allowed parent type, so screen and diagram primitives never mix; every
+ * Edge points at two existing Nodes (the gateway prunes edges whose endpoint was removed).
+ */
+function checkTree(root: DesignNode): string | null {
+  if (root.type !== "Frame" && root.type !== "Diagram") return `root must be Frame or Diagram, got ${root.type}`;
+  const nodeIds = new Set<string>();
+  const edges: DesignNode[] = [];
+  const walk = (n: DesignNode): string | null => {
+    for (const c of n.children ?? []) {
+      if (!PARENTS[c.type].has(n.type)) return `${c.type} cannot be a child of ${n.type}`;
+      if (c.type === "Node") nodeIds.add(c.id);
+      if (c.type === "Edge") edges.push(c);
+      const err = walk(c);
+      if (err) return err;
+    }
+    return null;
+  };
+  const err = walk(root);
+  if (err) return err;
+  if (root.type === "Diagram") {
+    const kind = root.props.kind;
+    for (const c of root.children ?? []) {
+      if (c.type === "Layer" && kind !== "architecture") return `Layer only in architecture diagrams`;
+      if (c.type === "Node" && kind === "architecture") return `architecture Nodes belong in a Layer`;
+    }
+  }
+  for (const e of edges) {
+    if (!nodeIds.has(String(e.props.from)) || !nodeIds.has(String(e.props.to))) return `Edge ${e.id} points at a missing node`;
+  }
+  return null;
+}
+
+export const DesignDocSchema = z
+  .object({
+    id: z.string(),
+    tokens: z.string(),
+    root: DesignNodeSchema,
+  })
+  .superRefine((doc, ctx) => {
+    const err = checkTree(doc.root);
+    if (err) ctx.addIssue({ code: "custom", message: err });
+  });
 export type DesignDoc = z.infer<typeof DesignDocSchema>;
 
-export function emptyDoc(id = "doc"): DesignDoc {
-  return {
-    id,
-    tokens: "default",
-    root: {
-      id: "n_root",
-      type: "Frame",
+/** What a doc is: a phone screen or one of the three diagram kinds. */
+export const DocKind = z.enum(["screen", ...DiagramKind.options]);
+export type DocKind = z.infer<typeof DocKind>;
+
+export const docKind = (doc: DesignDoc): DocKind => (doc.root.type === "Diagram" ? (doc.root.props.kind as DocKind) : "screen");
+
+/** Architecture lanes, top to bottom — fixed ids so the model and lexicon address them directly. */
+export const LANES: ReadonlyArray<{ id: string; tier: Tier; label: string }> = [
+  { id: "n_frontend", tier: "frontend", label: "Frontend" },
+  { id: "n_api", tier: "api", label: "APIs" },
+  { id: "n_data", tier: "data", label: "Database" },
+  { id: "n_infra", tier: "infra", label: "Infrastructure" },
+];
+
+export function emptyRoot(kind: DocKind = "screen"): DesignNode {
+  if (kind === "screen") {
+    return {
+      id: "n_root", type: "Frame",
       props: { width: 390, height: 844, direction: "column", gap: "md", padding: "lg", fill: "surface" },
       children: [],
-    },
+    };
+  }
+  return {
+    id: "n_root", type: "Diagram", props: { kind },
+    children: kind === "architecture"
+      ? LANES.map((l) => ({ id: l.id, type: "Layer" as const, props: { tier: l.tier, label: l.label }, children: [] }))
+      : [],
   };
+}
+
+export function emptyDoc(opts: { id?: string; kind?: DocKind } = {}): DesignDoc {
+  return { id: opts.id ?? "doc", tokens: "default", root: emptyRoot(opts.kind) };
+}
+
+/** True when the doc holds nothing the user made (seeded lanes don't count) — kind may switch freely. */
+export function isBlank(doc: DesignDoc): boolean {
+  const kids = doc.root.children ?? [];
+  return kids.every((c) => c.type === "Layer" && !(c.children?.length));
 }
 
 /** Depth-first node lookup by id; returns the JSON Pointer to the node. */

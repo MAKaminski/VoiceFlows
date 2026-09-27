@@ -1,11 +1,11 @@
 {
-  "ards": 11,
-  "ards_contributing": 11,
+  "ards": 12,
+  "ards_contributing": 12,
   "components_from_code": 4,
-  "components_from_ards": 11,
-  "flows_from_ards": 21,
-  "features": 8,
-  "notes": 9,
+  "components_from_ards": 13,
+  "flows_from_ards": 22,
+  "features": 9,
+  "notes": 10,
   "index": [
     {
       "num": "0000",
@@ -81,6 +81,13 @@
       "num": "0010",
       "file": "0010-m4-scheduling.md",
       "title": "ADR 0010 \u2014 M4 scheduling: call the model only for what the lexicon can't draw",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0011",
+      "file": "0011-diagram-kinds.md",
+      "title": "ADR 0011 \u2014 Three diagram kinds: Architecture, ERD, Sequence",
       "status": "accepted",
       "contributes": true
     }

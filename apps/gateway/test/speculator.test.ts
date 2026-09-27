@@ -199,3 +199,58 @@ describe("speculative scheduling (M4)", () => {
     expect(calls).toBe(1);
   });
 });
+
+describe("diagrams (ADR 0011)", () => {
+  const speak = async (d: DocSession, sentence: string, seq = 0) => {
+    const w = sentence.split(" ");
+    for (let n = 1; n <= w.length; n++) { d.onTranscript(seq, w.slice(0, n).join(" "), false, n * 300); await sleep(20); }
+    d.onTranscript(seq, sentence, true, w.length * 300);
+    await idle(d); await sleep(40);
+  };
+  const labels = (n: DesignNode): string[] => [...(n.type === "Node" ? [String(n.props.label)] : []), ...(n.children ?? []).flatMap(labels)];
+
+  it("voice switches a blank screen to architecture; the model's Redis never folds into the lexicon's Postgres", async () => {
+    const { d, stats } = await session((t) => t.includes("calls")
+      ? ["add .9", '+Node cache >n_data k=cache "Redis"', "+Edge e1 >root from=n_p_api to=n_p_postgres \"SQL\"", "+Edge e2 >root from=n_p_api to=cache"]
+      : ["none 0"]);
+    await speak(d, "architecture diagram the api calls postgres");
+    expect(d.doc.root.type).toBe("Diagram");
+    expect(labels(d.doc.root).sort()).toEqual(["API", "Postgres", "Redis"]);
+    expect(d.doc.root.children!.filter((c) => c.type === "Edge")).toHaveLength(2);
+    expect(stats.calls.length).toBeGreaterThanOrEqual(1);
+    expect(DesignDocSchema.safeParse(d.doc).success).toBe(true);
+  });
+
+  it("removing a node prunes its edges; undo brings both back", async () => {
+    const { d } = await session((t) => t.includes("remove") ? ["remove .9", "-n_p_postgres"] : ["add .9", "+Edge e1 >root from=n_p_api to=n_p_postgres \"SQL\""]);
+    d.newDoc("architecture");
+    await speak(d, "the api writes to postgres", 0);
+    expect(d.doc.root.children!.filter((c) => c.type === "Edge")).toHaveLength(1);
+    await d.run("remove postgres", "typed", d.allocSeq());
+    expect(labels(d.doc.root)).toEqual(["API"]);
+    expect(d.doc.root.children!.filter((c) => c.type === "Edge")).toHaveLength(0);
+    expect(DesignDocSchema.safeParse(d.doc).success).toBe(true);
+    d.undo();
+    expect(labels(d.doc.root).sort()).toEqual(["API", "Postgres"]);
+    expect(d.doc.root.children!.filter((c) => c.type === "Edge")).toHaveLength(1);
+  });
+
+  it("new_doc is an undoable version; 'start over' keeps the diagram kind", async () => {
+    const { d, sent } = await session(() => ["reset 1 x"]);
+    d.newDoc("erd");
+    expect(d.doc.root.props.kind).toBe("erd");
+    expect(sent.filter((m) => m.type === "version").at(-1)).toMatchObject({ version: 1, canUndo: true });
+    await d.run("start over", "typed", d.allocSeq());
+    expect(d.doc.root).toMatchObject({ type: "Diagram", props: { kind: "erd" } });
+    d.undo(); d.undo();
+    expect(d.doc.root.type).toBe("Frame");
+  });
+
+  it("filler speech in a diagram does not call the model", async () => {
+    const { d, stats } = await session(() => ["none 0"]);
+    d.newDoc("sequence");
+    await speak(d, "so um the user and the api");
+    expect(stats.calls).toHaveLength(0);
+    expect(labels(d.doc.root)).toEqual(["User", "API"]);
+  });
+});

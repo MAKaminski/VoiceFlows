@@ -27,6 +27,15 @@
         "NEXT_PUBLIC_GATEWAY_WS=wss://gateway-production-1c11.up.railway.app/ws pnpm --filter @livecanvas/web build && pnpm --filter @livecanvas/web start"
       ],
       "port": 3000
+    },
+    {
+      "name": "web-dev",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "pnpm --filter @livecanvas/web dev"
+      ],
+      "port": 3000
     }
   ]
 }

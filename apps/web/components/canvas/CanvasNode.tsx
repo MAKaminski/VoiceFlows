@@ -12,7 +12,7 @@ export const CanvasNode = memo(function CanvasNode({ node }: { node: DesignNode 
   const children = node.children?.map((c) => <CanvasNode key={c.id} node={c} />);
   return (
     <div data-node-id={node.id} data-type={node.type} className={node.provisional ? "lc-provisional" : undefined} style={{ display: "contents" }}>
-      {renderers[node.type](node.props, children)}
+      {node.type in renderers ? renderers[node.type as keyof typeof renderers](node.props, children) : null}
     </div>
   );
 });

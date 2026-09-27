@@ -1,6 +1,6 @@
 import {
-  applyOp, DesignDocSchema, emptyDoc, expandCompact, findNode, isModifier, kindKey, lexicon, lexTokens, occurrenceKeys, parseHeader, serializeCompact,
-  type CompactContext, type DesignDoc, type DesignNode, type IntentHeader, type OpOrigin, type PatchOp, type ServerMsg,
+  applyOp, DesignDocSchema, docKind, emptyDoc, emptyRoot, expandCompact, findNode, isModifier, kindKey, lexicon, lexTokens, occurrenceKeys, parseHeader,
+  serializeCompact, type CompactContext, type DesignDoc, type DesignNode, type DocKind, type IntentHeader, type OpOrigin, type PatchOp, type ServerMsg,
 } from "@livecanvas/dsl";
 import { randomUUID } from "node:crypto";
 import type { OpenedSession, Persistence, VersionRow } from "../persist.js";
@@ -29,16 +29,39 @@ const CONTENT = new Set(["button", "email", "password", "username", "logo", "ima
   "card", "list", "nav", "navigation", "menu", "table", "chart", "graph", "big", "large", "small", "blue", "red", "purple", "gray", "grey",
   "white", "black", "top", "bottom", "left", "right", "center", "row", "column", "remove", "delete", "move", "bigger", "smaller", "undo", "reset", "form", "field", "input", "text", "header", "footer"]);
 /**
+ * Diagram content words (ADR 0011): relationships, columns and edits — what the lexicon can't draw.
+ * An allowlist, not "every non-stopword", so continuous speech can't drain the call budget (plan-critic #5).
+ */
+const EDIT = ["remove", "delete", "rename", "move", "undo", "reset", "instead", "change", "replace", "label", "title", "called", "named"];
+const DIAGRAM_CONTENT: Record<Exclude<DocKind, "screen">, Set<string>> = {
+  architecture: new Set([...EDIT, "calls", "call", "talks", "sends", "send", "reads", "writes", "queries", "hits", "connects", "connected",
+    "uses", "through", "via", "behind", "proxies", "caches", "publishes", "subscribes", "consumes", "enqueues", "pushes", "pulls", "streams",
+    "stores", "deployed", "deploy", "hosted", "hosts", "runs", "https", "grpc", "rest", "webhook", "webhooks", "events", "async", "sync",
+    "service", "services", "lambda", "functions", "microservice", "search", "analytics", "cron", "scheduler", "email", "sms", "payments", "login"]),
+  erd: new Set([...EDIT, "has", "have", "many", "belongs", "references", "foreign", "key", "column", "columns", "field", "fields",
+    "join", "between", "one", "id", "email", "name", "status", "price", "total", "amount", "created", "updated", "date", "timestamp",
+    "type", "unique", "index", "nullable", "boolean", "count", "quantity", "role", "password", "url", "description", "slug", "owner"]),
+  sequence: new Set([...EDIT, "calls", "call", "sends", "send", "requests", "request", "returns", "return", "responds", "replies", "then",
+    "queries", "query", "checks", "validates", "verifies", "authenticates", "logs", "login", "signs", "submits", "clicks", "opens", "loads",
+    "fetches", "saves", "stores", "writes", "reads", "creates", "updates", "deletes", "publishes", "enqueues", "notifies", "emails",
+    "redirects", "renders", "streams", "forwards", "caches", "error", "fails", "ok", "token", "jwt", "session", "webhook", "charge", "pays"]),
+};
+/**
  * Content-word positions the lexicon did NOT handle — the only words worth a model call (M4 timeline).
  * A modifier is still waiting for its noun ("big blue … button") until 4 words pass or speech ends;
  * after that it is an edit the model must make ("make it blue").
  */
 const MODIFIER_WINDOW = 4;
-const uncovered = (text: string, handled: Set<string>, ending = false) => {
+const uncovered = (text: string, handled: Set<string>, ending = false, kind: DocKind = "screen") => {
   const toks = lexTokens(text);
   const occ = occurrenceKeys(toks);
+  const content = kind === "screen" ? CONTENT : DIAGRAM_CONTENT[kind];
+  // Diagrams: a relationship word waits for its object ("the api calls … postgres") — it is pending
+  // once the lexicon drew a node after it, 3 words have passed, or speech ended.
+  const lastDrawn = Math.max(-1, ...toks.map((_, i) => (handled.has(occ[i]!) ? i : -1)));
   return toks.flatMap((w, i) => {
-    if (!CONTENT.has(w) || handled.has(occ[i]!)) return [];
+    if (!content.has(w) || handled.has(occ[i]!)) return [];
+    if (kind !== "screen" && !ending && lastDrawn < i && toks.length - 1 - i < 3) return [];
     if (isModifier(w) && !ending && toks.length - 1 - i < MODIFIER_WINDOW) return [];
     return [occ[i]!];
   });
@@ -69,7 +92,11 @@ export class DocSession {
 
   constructor(
     private readonly opened: OpenedSession,
-    private readonly deps: { persistence: Persistence; model: ModelClient | null; engine: EngineConfig; send: (m: ServerMsg) => void; log?: (m: string) => void },
+    private readonly deps: {
+      persistence: Persistence; model: ModelClient | null; send: (m: ServerMsg) => void; log?: (m: string) => void;
+      engine: EngineConfig; // screen prompt
+      engines?: Partial<Record<DocKind, EngineConfig>>; // per diagram kind (ADR 0011); falls back to `engine`
+    },
   ) {
     for (const v of opened.versions) this.versions.set(v.version, v);
     if (!this.versions.has(0)) this.versions.set(0, { version: 0, parent: null, doc: emptyDoc() });
@@ -114,7 +141,7 @@ export class DocSession {
     }
     const u = this.utt;
     // Speech resumed after an eager settle (Flux TurnResumed): reopen the utterance as a new part.
-    if (u.settled && !isFinal && uncovered(text, u.handled, true).some((k) => !u.calledFor.has(k))) {
+    if (u.settled && !isFinal && uncovered(text, u.handled, true, docKind(this.doc)).some((k) => !u.calledFor.has(k))) {
       u.settled = false; u.ending = false; u.baseDoc = this.doc;
     }
     if (u.settled) return;
@@ -131,7 +158,7 @@ export class DocSession {
     this.maybeSpeculate();
   }
 
-  private pending(u: Utterance) { return uncovered(u.text, u.handled, u.ending).filter((k) => !u.calledFor.has(k)); }
+  private pending(u: Utterance) { return uncovered(u.text, u.handled, u.ending, docKind(this.doc)).filter((k) => !u.calledFor.has(k)); }
 
   private maybeSpeculate(force = false) {
     const u = this.utt;
@@ -226,10 +253,12 @@ export class DocSession {
     this.deps.send({ type: "job", jobId: job.id, state: "running", kind, text });
     if (!this.deps.model) return this.finish(job, "failed", "no model key configured");
 
+    const dk = docKind(this.doc);
+    const engine = this.deps.engines?.[dk] ?? this.deps.engine;
     const stream = this.deps.model({
-      model: this.deps.engine.model,
-      system: this.deps.engine.system,
-      user: this.deps.engine.render({ doc_compact: serializeCompact(this.doc.root) || "(empty screen: root)", partial_text: text }),
+      model: engine.model,
+      system: engine.system,
+      user: engine.render({ doc_compact: serializeCompact(this.doc.root) || `(empty ${dk === "screen" ? "screen" : "diagram"}: root)`, partial_text: text }),
       signal: job.abort.signal,
     });
     const aliases = new Map<string, string>();
@@ -242,6 +271,7 @@ export class DocSession {
         aliases.set(alias, id);
         return id;
       },
+      idOf: (ref) => aliases.get(ref) ?? (findNode(this.doc.root, ref) ? ref : null),
     };
     const typeOf = (ref: string) => findNode(this.doc.root, aliases.get(ref) ?? ref)?.node.type ?? null;
 
@@ -255,10 +285,10 @@ export class DocSession {
           header = parsed ?? { a: "add", c: 0.5, s: false, x: false, t: [] };
           const intentId = randomUUID();
           persistence.intent(sid, { id: intentId, utteranceId, header, delta: 1, path: "haiku", tMs: atMs });
-          persistence.jobStart(sid, { id: job.id, intentId, model: this.deps.engine.model });
+          persistence.jobStart(sid, { id: job.id, intentId, model: engine.model });
           if (header.a === "none") break;
           if (header.a === "undo" && header.x) { this.finish(job, "done"); this.undo(); return; }
-          if (header.a === "reset" && header.x) { this.applyValidated(job, [{ op: "replace", path: "/root", value: emptyDoc().root }], atMs, opSeq++); continue; }
+          if (header.a === "reset" && header.x) { this.applyValidated(job, [{ op: "replace", path: "/root", value: emptyRoot(dk) }], atMs, opSeq++); continue; }
           if (parsed) continue;
         }
         let ops: PatchOp[];
@@ -312,8 +342,11 @@ export class DocSession {
       // end-of-turn commit clears the flag mid-sentence — browser run, 2026-09-27).
       const lexIds = this.utt?.lexIds ?? new Set<string>();
       const provisionalOfType = all.filter((x) => (x.node.provisional || lexIds.has(x.node.id) || this.lexOrigin.has(x.node.id)) && x.node.type === node.type);
+      // Diagram nodes fold only on an exact key: the lexicon's Postgres must never absorb the model's
+      // Redis just because it is the only provisional Node (plan-critic #1).
+      const exactOnly = node.type === "Node" || node.type === "Edge" || node.type === "Layer";
       const match = (key.includes(":") && (all.find((x) => x.node.provisional && kindKey(x.node) === key) ?? all.find((x) => kindKey(x.node) === key)))
-        || (provisionalOfType.length === 1 ? provisionalOfType[0] : undefined);
+        || (!exactOnly && provisionalOfType.length === 1 ? provisionalOfType[0] : undefined);
       if (!match) { out.push(op); continue; }
       for (const [alias, id] of aliases) if (id === node.id) aliases.set(alias, match.node.id);
       job.protectedIds.add(match.node.id);
@@ -344,6 +377,8 @@ export class DocSession {
           extra.push(clear);
         }
       }
+      // Removing a Node takes its edges with it (undo restores both via the version).
+      for (const op of pruneDanglingEdges(candidate)) { candidate = applyOp(candidate, op); extra.push(op); }
     } catch (e) { this.deps.log?.(`engine: dropped ops (${(e as Error).message})`); return false; }
     if (!DesignDocSchema.safeParse(candidate).success) { this.deps.log?.("engine: dropped ops (doc failed validation)"); return false; }
     this.doc = candidate;
@@ -409,6 +444,28 @@ export class DocSession {
     const t = this.redoTarget();
     if (t != null) this.moveTo(t, "redo");
   }
+
+  /** New blank doc of a kind (ADR 0011): settles what's in flight, then one undoable version. */
+  newDoc(kind: DocKind) {
+    this.abortActive("new doc");
+    if (this.utt && !this.utt.settled) this.commitUtterance();
+    if (docKind(this.doc) === kind && JSON.stringify(this.doc.root) === JSON.stringify(emptyRoot(kind))) return;
+    this.doc = { ...this.doc, root: emptyRoot(kind) };
+    this.lexOrigin.clear();
+    this.emitOps(randomUUID(), "model", [{ op: "replace", path: "/root", value: this.doc.root }]);
+    this.writeVersion(null);
+    this.deps.send({ type: "version", ...this.versionInfo() });
+  }
+}
+
+/** Remove ops (highest index first) for Edges whose endpoint no longer exists. */
+function pruneDanglingEdges(doc: DesignDoc): PatchOp[] {
+  if (doc.root.type !== "Diagram") return [];
+  const ids = new Set<string>();
+  const walk = (n: DesignNode) => { if (n.type === "Node") ids.add(n.id); n.children?.forEach(walk); };
+  walk(doc.root);
+  return (doc.root.children ?? []).flatMap((c, i) => (c.type === "Edge" && (!ids.has(String(c.props.from)) || !ids.has(String(c.props.to))) ? [i] : []))
+    .reverse().map((i) => ({ op: "remove" as const, path: `/root/children/${i}` }));
 }
 
 /** RFC 6902 `move` removes `from` first: a later sibling on the target path shifts up by one. */

@@ -1,12 +1,12 @@
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
-import { ClientMsg, type ServerMsg } from "@livecanvas/dsl";
+import { ClientMsg, type DocKind, type ServerMsg } from "@livecanvas/dsl";
 import Fastify from "fastify";
 import { loadConfig, type Config } from "./config.js";
 import { getSql } from "./db.js";
 import { DocSession, type EngineConfig } from "./engine/docSession.js";
 import { anthropicClient, hedgedClient, type ModelClient } from "./engine/model.js";
-import { loadPrompt } from "@livecanvas/prompts";
+import { loadPrompt, type PromptName } from "@livecanvas/prompts";
 import { memoryPersistence, pgPersistence, type Persistence } from "./persist.js";
 import { PROVIDERS, type SttProvider, type SttSession } from "./stt/providers.js";
 import { createSttGrant } from "./sttGrant.js";
@@ -17,6 +17,7 @@ export interface Deps {
   relayProvider: SttProvider;
   model: ModelClient | null;
   engine: EngineConfig;
+  engines?: Partial<Record<DocKind, EngineConfig>>;
 }
 
 export function defaultDeps(config: Config): Deps {
@@ -30,8 +31,18 @@ export function defaultDeps(config: Config): Deps {
         ? hedgedClient(anthropicClient(config.ANTHROPIC_API_KEY), config.MODEL_HEDGE_MS, (won) => console.log(`model: hedged call started (${won ? "hedge won" : "primary won"})`))
         : anthropicClient(config.ANTHROPIC_API_KEY))
       : null,
-    engine: (() => { const p = loadPrompt("fused_system"); return { model: config.MODEL_PATCH_FAST, system: p.system, render: p.render }; })(),
+    engine: engineFor("fused_system", config),
+    engines: {
+      architecture: engineFor("diagram_architecture", config),
+      erd: engineFor("diagram_erd", config),
+      sequence: engineFor("diagram_sequence", config),
+    },
   };
+}
+
+function engineFor(name: PromptName, config: Config): EngineConfig {
+  const p = loadPrompt(name);
+  return { model: config.MODEL_PATCH_FAST, system: p.system, render: p.render };
 }
 
 export function buildServer(config: Config = loadConfig(), deps: Deps = defaultDeps(config)) {
@@ -100,7 +111,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
               const t0 = performance.now();
               const opened = (msg.sessionId && (await deps.persistence.resumeSession(msg.sessionId))) || (await deps.persistence.openSession());
               app.log.info({ sessionId: opened.sessionId, ms: Math.round(performance.now() - t0), resumed: opened.sessionId === msg.sessionId }, "session: opened");
-              doc = new DocSession(opened, { persistence: deps.persistence, model: deps.model, engine: deps.engine, send, log: (m) => app.log.warn(m) });
+              doc = new DocSession(opened, { persistence: deps.persistence, model: deps.model, engine: deps.engine, engines: deps.engines, send, log: (m) => app.log.warn(m) });
               send({ type: "welcome", sessionId: doc.sessionId, version: doc.versionInfo().version, resumed: opened.sessionId === msg.sessionId });
               send(doc.snapshot());
             } catch (e) { fail("could not open session", e); }
@@ -141,6 +152,8 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
             return doc!.undo();
           case "redo":
             return doc!.redo();
+          case "new_doc":
+            return doc!.newDoc(msg.kind);
           case "tune":
             return doc!.tune({ ...(msg.minGapMs != null ? { minGapMs: msg.minGapMs } : {}), ...(msg.callsPerMin != null ? { callsPerMin: msg.callsPerMin } : {}) });
           case "metrics": {

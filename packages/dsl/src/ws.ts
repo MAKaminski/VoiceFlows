@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DesignDocSchema } from "./doc.js";
+import { DesignDocSchema, DocKind } from "./doc.js";
 import { PatchOp } from "./ops.js";
 
 /** Response of `POST /stt/token` (ADR 0008): how this browser should get speech-to-text. */
@@ -36,6 +36,8 @@ export const ClientMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("metrics"), utteranceSeq: z.number().int(), reflows: z.number().int().nonnegative(), maxReflowsPerElement: z.number().int().nonnegative() }),
   z.object({ type: z.literal("undo") }),
   z.object({ type: z.literal("redo") }),
+  // Start a new blank doc of a kind (screen or one of the three diagrams, ADR 0011). Undoable.
+  z.object({ type: z.literal("new_doc"), kind: DocKind }),
 ]);
 export type ClientMsg = z.infer<typeof ClientMsg>;
 

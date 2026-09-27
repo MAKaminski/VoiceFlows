@@ -2,6 +2,8 @@ flowchart TB
   subgraph frontend["Front-end · user interface"]
     direction LR
     _livecanvas_web["@livecanvas/web"]
+    diagram_canvas["DiagramCanvas<br/><small>ARD 0011</small>"]
+    diagram_layout["layoutDiagram<br/><small>ARD 0011</small>"]
   end
   subgraph middleware["Middleware · APIs"]
     direction LR
@@ -47,13 +49,14 @@ flowchart TB
   _livecanvas_gateway -.->|"prompt · final utterance · undo/redo · ARD 0009"| doc_session
   doc_session -.->|"doc snapshot · ops batches (origin + jobId) · version · job · ARD 0009"| _livecanvas_web
   doc_session -.->|"intent → job → patch_ops → design_versions (async) · ARD 0009"| postgres
+  diagram_layout -.->|"rects + edge routes · ARD 0011"| diagram_canvas
   classDef declared stroke-dasharray:5 4,stroke-width:2px;
   classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef be fill:#eaf1ec,stroke:#2C6249,color:#12191B;
   classDef inf fill:#f4efe6,stroke:#8A6210,color:#12191B;
-  class _livecanvas_web fe;
+  class _livecanvas_web,diagram_layout,diagram_canvas fe;
   class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session mw;
   class postgres,redis be;
   class vercel,railway inf;
-  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session declared;
+  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas declared;

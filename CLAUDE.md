@@ -9,7 +9,7 @@ and refined on a canvas *while they are still talking*. The product's measure of
 |---|---|
 | `ARCHITECTURE.md` | Source of truth: layers, living diagram, sequence, throughput, thresholds, ERD, design AST, patterns, sprawl. Generated blocks via `/arch` |
 | `docs/CODEMAP.md` | Every module + exported symbol, generated from the TypeScript AST (`pnpm codemap`) |
-| `docs/DECISIONS.md` + `.claude/decisions/*.md` | Locked decisions D1–D16 and ADRs 0000–0005 (each carries an ```` ```arch ```` block) |
+| `docs/DECISIONS.md` + `.claude/decisions/*.md` | Locked decisions D1–D23 and ADRs 0000–0011 (each carries an ```` ```arch ```` block) |
 | `docs/COST_MODEL.md` | $/speaking-minute, plan limits, BYOK |
 | `docs/LATENCY_BUDGET.md` | Per-hop budget (superseded numbers noted in ADR 0001; M0 rewrites it) |
 | `docs/BUILD_PLAN.md`, `PROGRESS.md`, `ASSUMPTIONS.md` | Milestones, results, guesses to review |
@@ -27,8 +27,9 @@ and refined on a canvas *while they are still talking*. The product's measure of
    `pnpm arch:check` must pass. New decisions go through `/adr` with an ```` ```arch ```` block.
    `db/schema.sql` keeps one column per line and `);` on its own line (the ERD parser needs it).
 4. **Minimal, repetitive components.** Use the six patterns in `ARCHITECTURE.md` §6 before
-   inventing a seventh. The canvas renders only the 12 primitives; new visual needs compose
-   primitives + tokens. A new table arrives with a foreign key.
+   inventing a seventh. The canvas renders only the 12 screen primitives and the 4 diagram
+   primitives (ADR 0011: Architecture · ERD · Sequence, positions from `layoutDiagram`); new visual
+   needs compose primitives + tokens. A new table arrives with a foreign key.
 5. **Never regenerate the whole design.** All changes are RFC 6902 ops through
    `applyOp`/`invertOp` in `packages/dsl`. The model writes compact op lines (ADR 0002); the
    gateway expands them. Full regeneration only on an explicit "start over" intent.

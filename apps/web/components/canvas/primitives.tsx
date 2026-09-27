@@ -1,5 +1,5 @@
 "use client";
-import type { DesignNode, PrimitiveType } from "@livecanvas/dsl";
+import type { DesignNode, SCREEN_TYPES } from "@livecanvas/dsl";
 import { DynamicIcon, type IconName } from "lucide-react/dynamic";
 import type { CSSProperties, ReactNode } from "react";
 import { color, radius, space } from "./tokens";
@@ -26,7 +26,7 @@ const textStyle: Record<string, CSSProperties> = {
 const btnPad = { sm: "6px 10px", md: "10px 16px", lg: "14px 20px" } as const;
 const iconPx = { sm: 16, md: 20, lg: 28 } as const;
 
-export const renderers: Record<PrimitiveType, Renderer> = {
+export const renderers: Record<(typeof SCREEN_TYPES)[number], Renderer> = {
   Frame: (p, c) => (
     <div style={{ ...flex(p), width: p.width, minHeight: p.height, padding: space(p.padding),
       background: color(p.fill, "surface"), color: color("text"), borderRadius: 28,

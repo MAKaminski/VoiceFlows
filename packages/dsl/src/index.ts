@@ -7,3 +7,4 @@ export * from "./intent.js";
 export * from "./ws.js";
 export * from "./fixtures.js";
 export * from "./lexicon.js";
+export * from "./layout.js";

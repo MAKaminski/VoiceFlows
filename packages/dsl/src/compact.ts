@@ -1,6 +1,6 @@
 import type { PatchOp } from "./ops.js";
 import type { DesignNode } from "./doc.js";
-import { CONTAINER_TYPES, PRIMARY_TEXT_PROP, PrimitiveType } from "./primitives.js";
+import { ARRAY_PROPS, CONTAINER_TYPES, PRIMARY_TEXT_PROP, PrimitiveType } from "./primitives.js";
 
 // ADR 0002 — compact model wire format, expanded to RFC 6902 before validation.
 //   +<Type> <alias> ><parentRef> [k=v ...] ["text"] [@index]   add (appended, or inserted at @index)
@@ -18,6 +18,8 @@ export interface CompactContext {
   resolve(ref: string): string | null;
   /** Assigns the stable `n_…` id for a new alias (ids are never chosen by the model). */
   assignId(alias: string): string;
+  /** Node id for a ref (id or alias from this reply) — resolves Edge `from=`/`to=` (ADR 0011). */
+  idOf?(ref: string): string | null;
 }
 
 export class CompactParseError extends Error {}
@@ -42,7 +44,7 @@ function scalar(v: string): unknown {
   return v;
 }
 
-function parseProps(tokens: ReturnType<typeof tokenize>, type: PrimitiveType | null) {
+function parseProps(tokens: ReturnType<typeof tokenize>, type: PrimitiveType | null, ctx?: CompactContext) {
   const props: Record<string, unknown> = {};
   for (const t of tokens) {
     if (t.key) props[SHORT_KEYS[t.key] ?? t.key] = t.value;
@@ -56,6 +58,18 @@ function parseProps(tokens: ReturnType<typeof tokenize>, type: PrimitiveType | n
       if (eq <= 0) throw new CompactParseError(`bad prop token: ${t.value}`);
       const k = t.value.slice(0, eq);
       props[SHORT_KEYS[k] ?? k] = scalar(t.value.slice(eq + 1));
+    }
+  }
+  for (const k of ARRAY_PROPS) if (k in props && !Array.isArray(props[k])) props[k] = [props[k]];
+  // Edge endpoints: the model writes aliases or ids; the doc stores ids.
+  for (const k of ["from", "to"]) {
+    if (type === "Edge" || (type == null && k in props)) {
+      const v = props[k];
+      if (typeof v === "string" && ctx?.idOf) {
+        const id = ctx.idOf(v);
+        if (!id) throw new CompactParseError(`unknown ${k}: ${v}`);
+        props[k] = id;
+      }
     }
   }
   return props;
@@ -94,14 +108,14 @@ export function expandCompact(
       const at = tokens.findIndex((t) => !t.quoted && /^@\d+$/.test(t.value));
       const index = at >= 0 ? tokens.splice(at, 1)[0]!.value.slice(1) : "-";
       const value = {
-        id: ctx.assignId(alias), type: type.data, props: parseProps(tokens, type.data),
+        id: ctx.assignId(alias), type: type.data, props: parseProps(tokens, type.data, ctx),
         ...(CONTAINER_TYPES.has(type.data) ? { children: [] } : {}), // so later lines can add into it
       };
       return [{ op: "add", path: `${parentPath}/children/${index}`, value }];
     }
     case "~": {
       const path = need(ctx, head.value);
-      const props = parseProps(tokens, typeOf(head.value));
+      const props = parseProps(tokens, typeOf(head.value), ctx);
       return Object.entries(props).map(([k, v]) => ({ op: "replace", path: `${path}/props/${k}`, value: v }));
     }
     case "-":

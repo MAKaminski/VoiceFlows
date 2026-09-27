@@ -36,6 +36,7 @@ flowchart LR
     F_latency["Latency telemetry &amp; HUD<br/><small>ARD 0001</small>"]
     F_billing["Plans · quota · BYOK (M5, planned)<br/><small>ARD 0004</small>"]
     F_documents["Design documents · versions · undo<br/><small>ARD 0009</small>"]
+    F_diagrams["Spoken diagrams: Architecture · ERD · Sequence<br/><small>ARD 0011</small>"]
   end
   subgraph uses["Components"]
     direction TB
@@ -107,7 +108,7 @@ flowchart LR
   classDef feat fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef comp fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef tab fill:#eaf1ec,stroke:#2C6249,color:#12191B;
-  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents feat;
+  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams feat;
   class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_doc_session,C_postgres,C_redis,C_stripe comp;
   class T_design_documents,T_design_versions,T_exports,T_generation_jobs,T_intents,T_latency_events,T_patch_ops,T_plans,T_primitives,T_provider_keys,T_sessions,T_token_sets,T_transcript_segments,T_usage_periods,T_users,T_utterances tab;
 ```
@@ -126,6 +127,13 @@ Reads `generation_jobs` (a successful job creates one version, D12).
 ### 2.3 Component vocabulary & themes — ADR 0000
 Uses `@livecanvas/dsl`. **Owns** `primitives`, `token_sets`. Source of truth is the zod code
 in `packages/dsl`; the tables are seeded from it (see finding F2).
+
+### 2.3a Spoken diagrams: Architecture · ERD · Sequence — ADR 0011
+Uses `@livecanvas/dsl` (`Diagram`/`Layer`/`Node`/`Edge`, `layoutDiagram`, diagram lexicon),
+`@livecanvas/gateway` (`DocSession` with a prompt and call allowlist per kind) and
+`@livecanvas/web` (`DiagramCanvas`, kind switcher, vocabulary rail). **Owns no table**: a diagram is
+a `design_versions.doc` whose root is a `Diagram` — it reads and writes through 2.1/2.2 like a screen.
+New primitive rows arrive through the `primitives` seed (2.3).
 
 ### 2.4 Latency telemetry & HUD — ADR 0001
 Uses web (client-measured TTFV, reflow observer) + gateway (stage events). **Owns**
@@ -152,9 +160,9 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Tables with no FK either way | 0 |
 | Distinct error types | 1 |
 | Symbol names defined 3+ times | 0 |
-| ARDs on record | 11 (11 contributing to the diagram) |
-| Components declared by ARDs | 11 |
-| Features declared by ARDs | 8 |
+| ARDs on record | 12 (12 contributing to the diagram) |
+| Components declared by ARDs | 13 |
+| Features declared by ARDs | 9 |
 <!-- arch:end:counts -->
 
 | Component | Layer | Owns | Pattern (§6) |
@@ -182,6 +190,8 @@ flowchart TB
   subgraph frontend["Front-end · user interface"]
     direction LR
     _livecanvas_web["@livecanvas/web"]
+    diagram_canvas["DiagramCanvas<br/><small>ARD 0011</small>"]
+    diagram_layout["layoutDiagram<br/><small>ARD 0011</small>"]
   end
   subgraph middleware["Middleware · APIs"]
     direction LR
@@ -227,16 +237,17 @@ flowchart TB
   _livecanvas_gateway -.->|"prompt · final utterance · undo/redo · ARD 0009"| doc_session
   doc_session -.->|"doc snapshot · ops batches (origin + jobId) · version · job · ARD 0009"| _livecanvas_web
   doc_session -.->|"intent → job → patch_ops → design_versions (async) · ARD 0009"| postgres
+  diagram_layout -.->|"rects + edge routes · ARD 0011"| diagram_canvas
   classDef declared stroke-dasharray:5 4,stroke-width:2px;
   classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef be fill:#eaf1ec,stroke:#2C6249,color:#12191B;
   classDef inf fill:#f4efe6,stroke:#8A6210,color:#12191B;
-  class _livecanvas_web fe;
+  class _livecanvas_web,diagram_layout,diagram_canvas fe;
   class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session mw;
   class postgres,redis be;
   class vercel,railway inf;
-  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session declared;
+  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas declared;
 ```
 <!-- arch:end:components -->
 
@@ -349,10 +360,16 @@ Schema rules: every table has `id` and `created_at`; JSON lives only in `intent`
 The canvas is an abstract syntax tree; every edit is an RFC 6902 op against it.
 
 ```
-DesignDoc  := { id, tokens: TokenSetName, root: Node }            -- root.type = Frame
+DesignDoc  := { id, tokens: TokenSetName, root: Node }            -- root.type = Frame | Diagram (ADR 0011)
 Node       := { id: /n_[a-z0-9_]+/, type: Primitive, props: Props[type],
-                provisional?: bool, children?: Node[] }           -- children only on Frame | Stack | Card
-Primitive  := Frame | Stack | Text | Button | Input | Image | Icon | Card | List | Nav | Table | Chart
+                provisional?: bool, children?: Node[] }           -- children only on Frame | Stack | Card | Diagram | Layer
+Primitive  := Screen | Diagrammatic
+Screen     := Frame | Stack | Text | Button | Input | Image | Icon | Card | List | Nav | Table | Chart
+Diagrammatic := Diagram{kind: architecture|erd|sequence, title?}  -- root only
+            | Layer{tier: frontend|api|data|infra, label}         -- architecture only, 4 seeded lanes
+            | Node{label, kind?, tech?, cols?: "name:type[:pk|:fk]"[]}  -- in a Layer (arch) or the Diagram
+            | Edge{from: NodeId, to: NodeId, label?, style?: sync|async|return, card?: 1:1|1:n|n:1|n:n}
+Nesting    := PARENTS table (primitives.ts); Edge endpoints must exist; positions come from layoutDiagram
 Props[t]   := zod object per primitive (packages/dsl/src/primitives.ts); values are tokens:
               color ∈ primary|secondary|surface|muted|danger|text · space ∈ xs..xl · radius ∈ none|sm|md|full
 
@@ -387,6 +404,11 @@ flowchart TD
 | P5 | **Per-node `memo` keyed by stable node id** | [`CanvasNode.tsx`](apps/web/components/canvas/CanvasNode.tsx) | Anything rendering the tree (canvas, export preview, share view) |
 | P6 | **Generated doc + `--check` gate** | [`gen-codemap.ts`](scripts/gen-codemap.ts), `/arch` | Any doc derived from code |
 
+**Diagrams reuse P1–P5, no seventh pattern (ADR 0011).** Proof: the four diagram primitives extend
+the P3 registry (`propSchemas`, `PRIMARY_TEXT_PROP`, `PARENTS`); every diagram edit is a P2 op; the
+per-kind prompts, allowlists and noun tables are registries keyed by kind (P3 shape); `DiagramCanvas`
+memoises per node id (P5). `layoutDiagram` is a pure function of the doc, like `serializeCompact`.
+
 ## 7. Sprawl watch
 
 <!-- arch:begin:sprawl -->
@@ -400,7 +422,7 @@ Generated. Every item here is a candidate for consolidation — the goal is **fe
 | Components (workspace members) | 4 |
 | Components nothing depends on | 0 |
 | Distinct error types | 1 |
-| Client/Service/Manager/Handler/Provider types | 0 |
+| Client/Service/Manager/Handler/Provider types | 4 |
 | Symbol names defined 3+ times | 0 |
 <!-- arch:end:sprawl -->
 

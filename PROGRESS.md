@@ -9,3 +9,13 @@
 | M2a — STT bake-off | **Done 2026-09-26** | Deepgram **Flux** adopted: word lag **91 ms p50** (sfo) / 51 ms (Mac) vs Nova-3 397 / 433 ms; updates every 240 ms. Projected TTFV-0 196 ms ✅, TTFV-1 879 ms ✅ with ADR 0006 levers. Soniox/AssemblyAI/ElevenLabs adapters ready, untested (no keys). ADR 0007 |
 | M1 — Skeleton + static render | **Done 2026-09-26** | `docker compose up`: all 4 services · `/playground` renders all 12 primitives · schema = ERD (13 tables, 16 FKs) · WS hello→welcome · dsl tests · typecheck clean |
 | Deploy (pulled forward) | **Live 2026-09-26** | Vercel `live-canvas` ↔ Railway gateway (sfo) `/healthz` 200, WS verified; Postgres schema applied by pre-deploy migrate (13 tables, 16 FKs); Redis online |
+
+## M5a — Spoken diagrams: Architecture · ERD · Sequence (2026-09-27) — built, live check pending deploy
+- ADR 0011 / D23: `Diagram`/`Layer`/`Node`/`Edge` primitives, 4 seeded architecture lanes, append-stable
+  `layoutDiagram`, per-kind lexicon + prompt + call allowlist, `new_doc`, vocabulary rail.
+- Plan-critic blockers fixed before build: exact-key folds for diagram nodes, lane-aware lexicon,
+  nesting rules, reset keeps kind. Found in tests: a relationship verb called the model before its
+  object was spoken (edge lost) → verbs wait for their object.
+- Tests: dsl 35/35 (layout: no overlaps, edges avoid boxes, append-stable), gateway 28 + 3 pg-skipped.
+- Visual check: /playground?kind=architecture|erd|sequence.
+- Pending: deploy gateway, live model check per kind, M4 10-run regression (screen mode unchanged in code paths except folds).

@@ -1,6 +1,6 @@
-import type { DesignDoc, DesignNode } from "./doc.js";
-import type { PatchOp } from "./ops.js";
-import type { PrimitiveType } from "./primitives.js";
+import { docKind, emptyRoot, isBlank, type DesignDoc, type DesignNode, type DocKind } from "./doc.js";
+import { applyOp, type PatchOp } from "./ops.js";
+import type { NodeKind, PrimitiveType, Tier } from "./primitives.js";
 
 /**
  * Lexicon tier (ADR 0001, runs in the gateway per ADR 0009): turns the running transcript of an
@@ -106,6 +106,9 @@ export function kindKey(n: Pick<DesignNode, "type" | "props">): string {
     case "Image": return `Image:${String(p.alt ?? "").toLowerCase()}`;
     case "Button": return `Button:${String(p.label ?? "").toLowerCase()}`;
     case "Text": return `Text:${p.variant === "title" || p.variant === "display" ? "title" : String(p.content ?? "").toLowerCase()}`;
+    case "Node": return `Node:${String(p.label ?? "").toLowerCase()}`;
+    case "Layer": return `Layer:${p.tier}`;
+    case "Edge": return `Edge:${p.from}>${p.to}:${String(p.label ?? "").toLowerCase()}`;
     default: return n.type;
   }
 }
@@ -126,6 +129,18 @@ const isReference = (words: string[], i: number) => words.slice(Math.max(0, i - 
  * even if the transcript was revised so the label or kind now reads differently.
  */
 export function lexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<string> = new Set()): LexiconResult {
+  // A diagram request on a blank doc switches kind first (ADR 0011), then draws against the new root.
+  const want = requestedKind(lexTokens(runningText));
+  if (want && want !== docKind(doc) && isBlank(doc)) {
+    const sw: PatchOp = { op: "replace", path: "/root", value: emptyRoot(want) };
+    const rest = lexicon(runningText, applyOp(doc, sw), drawn);
+    return { ops: [sw, ...rest.ops], created: rest.created, consumed: rest.consumed };
+  }
+  if (doc.root.type === "Diagram") return diagramLexicon(runningText, doc, drawn);
+  return screenLexicon(runningText, doc, drawn);
+}
+
+function screenLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<string>): LexiconResult {
   const words = lexTokens(runningText);
   const occ = occurrenceKeys(words);
   const kinds = collectKinds(doc.root);
@@ -163,4 +178,176 @@ export function lexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<
     consumed.push(occ[i]!, ...usedMods.map((j) => occ[j]!));
   });
   return { ops, created, consumed };
+}
+
+// ── Diagrams (ADR 0011) ──────────────────────────────────────────────────────────────────────────
+
+/** Phrases that ask for a diagram kind. The earliest one in the utterance wins. */
+const KIND_TRIGGERS: Array<[string[], DocKind]> = [
+  [["architecture"], "architecture"], [["system", "diagram"], "architecture"], [["system", "design"], "architecture"],
+  [["infrastructure", "diagram"], "architecture"],
+  [["erd"], "erd"], [["e", "r", "d"], "erd"], [["entity", "relationship"], "erd"], [["data", "model"], "erd"],
+  [["database", "schema"], "erd"], [["schema"], "erd"],
+  [["sequence"], "sequence"], [["flow", "diagram"], "sequence"],
+];
+
+export function requestedKind(words: string[]): DocKind | null {
+  let best: { at: number; kind: DocKind } | null = null;
+  for (const [phrase, kind] of KIND_TRIGGERS) {
+    for (let i = 0; i + phrase.length <= words.length; i++) {
+      if (phrase.every((w, k) => words[i + k] === w)) { if (!best || i < best.at) best = { at: i, kind }; break; }
+    }
+  }
+  return best?.kind ?? null;
+}
+
+interface DiagramNoun { label: string; kind: NodeKind; tier?: Tier; tech?: string }
+type NounTable = Array<[string[], DiagramNoun]>;
+
+const svc = (label: string, tech?: string): DiagramNoun => ({ label, kind: "service", tier: "api", ...(tech ? { tech } : {}) });
+const ext = (label: string): DiagramNoun => ({ label, kind: "external", tier: "api" });
+const db = (label: string, tech?: string): DiagramNoun => ({ label, kind: "db", tier: "data", ...(tech ? { tech } : {}) });
+const infra = (label: string, kind: NodeKind = "service"): DiagramNoun => ({ label, kind, tier: "infra" });
+const fe = (label: string, tech?: string): DiagramNoun => ({ label, kind: "client", tier: "frontend", ...(tech ? { tech } : {}) });
+
+/** Longer phrases first: "web app" must win over "app". */
+const ARCH_NOUNS: NounTable = [
+  [["load", "balancer"], infra("Load balancer", "cdn")], [["github", "actions"], infra("GitHub Actions")],
+  [["web", "app"], fe("Web app")], [["mobile", "app"], fe("Mobile app")], [["front", "end"], fe("Web app")],
+  [["back", "end"], svc("Backend")], [["api", "gateway"], svc("API gateway")], [["message", "queue"], { label: "Queue", kind: "queue", tier: "api" }],
+  [["object", "storage"], { label: "Object storage", kind: "storage", tier: "data" }],
+  [["frontend"], fe("Web app")], [["webapp"], fe("Web app")], [["browser"], fe("Browser")], [["ios"], fe("iOS app")],
+  [["android"], fe("Android app")], [["react"], fe("React app", "React")], [["nextjs"], fe("Next.js app", "Next.js")],
+  [["client"], fe("Client")],
+  [["api"], svc("API")], [["gateway"], svc("Gateway")], [["backend"], svc("Backend")], [["server"], svc("Server")],
+  [["graphql"], svc("GraphQL API", "GraphQL")], [["websocket"], svc("WebSocket server")], [["websockets"], svc("WebSocket server")],
+  [["fastify"], svc("API", "Fastify")], [["express"], svc("API", "Express")], [["fastapi"], svc("API", "FastAPI")],
+  [["auth"], { label: "Auth", kind: "auth", tier: "api" }], [["worker"], { label: "Worker", kind: "worker", tier: "api" }],
+  [["workers"], { label: "Worker", kind: "worker", tier: "api" }], [["queue"], { label: "Queue", kind: "queue", tier: "api" }],
+  [["kafka"], { label: "Kafka", kind: "queue", tier: "api" }], [["sqs"], { label: "SQS", kind: "queue", tier: "api" }],
+  [["stripe"], ext("Stripe")], [["twilio"], ext("Twilio")], [["openai"], ext("OpenAI")], [["anthropic"], ext("Anthropic")],
+  [["claude"], ext("Claude API")], [["deepgram"], ext("Deepgram")], [["sendgrid"], ext("SendGrid")], [["resend"], ext("Resend")],
+  [["postgres"], db("Postgres", "Postgres")], [["postgresql"], db("Postgres", "Postgres")], [["mysql"], db("MySQL", "MySQL")],
+  [["mongodb"], db("MongoDB", "MongoDB")], [["mongo"], db("MongoDB", "MongoDB")], [["supabase"], db("Supabase", "Postgres")],
+  [["dynamodb"], db("DynamoDB", "DynamoDB")], [["database"], db("Database")], [["db"], db("Database")],
+  [["redis"], { label: "Redis", kind: "cache", tier: "data", tech: "Redis" }], [["cache"], { label: "Cache", kind: "cache", tier: "data" }],
+  [["s3"], { label: "S3", kind: "storage", tier: "data" }], [["storage"], { label: "Object storage", kind: "storage", tier: "data" }],
+  [["docker"], infra("Docker")], [["kubernetes"], infra("Kubernetes")], [["k8s"], infra("Kubernetes")],
+  [["vercel"], infra("Vercel")], [["railway"], infra("Railway")], [["aws"], infra("AWS")], [["gcp"], infra("Google Cloud")],
+  [["azure"], infra("Azure")], [["cloudflare"], infra("Cloudflare", "cdn")], [["cdn"], infra("CDN", "cdn")],
+  [["nginx"], infra("Nginx", "cdn")], [["terraform"], infra("Terraform")], [["datadog"], infra("Datadog")], [["sentry"], infra("Sentry")],
+];
+
+const ENTITY_WORDS = ["users", "accounts", "orders", "products", "payments", "customers", "sessions", "posts", "comments", "teams",
+  "organizations", "invoices", "items", "subscriptions", "messages", "projects", "tasks", "documents", "events", "roles",
+  "permissions", "tags", "categories", "carts", "reviews", "addresses", "transactions", "companies", "employees", "tickets",
+  "plans", "workspaces", "members", "files", "notifications", "bookings", "listings", "vendors", "shipments", "courses"];
+const SINGULAR: Record<string, string> = Object.fromEntries(ENTITY_WORDS.map((w) => [w.replace(/ies$/, "y").replace(/(ss|sh|ch|x)es$/, "$1").replace(/s$/, ""), w]));
+const ERD_NOUNS: NounTable = [
+  ...ENTITY_WORDS.map((w): [string[], DiagramNoun] => [[w], { label: w, kind: "entity" }]),
+  ...Object.entries(SINGULAR).filter(([s, p]) => s !== p).map(([s, p]): [string[], DiagramNoun] => [[s], { label: p, kind: "entity" }]),
+];
+
+const actor = (label: string, kind: NodeKind): DiagramNoun => ({ label, kind });
+const SEQ_NOUNS: NounTable = [
+  [["web", "app"], actor("Web app", "client")], [["mobile", "app"], actor("Mobile app", "client")], [["front", "end"], actor("Web app", "client")],
+  [["back", "end"], actor("API", "service")], [["api", "gateway"], actor("API gateway", "service")],
+  [["user"], actor("User", "user")], [["customer"], actor("User", "user")], [["browser"], actor("Browser", "client")],
+  [["client"], actor("Client", "client")], [["frontend"], actor("Web app", "client")], [["app"], actor("App", "client")],
+  [["api"], actor("API", "service")], [["gateway"], actor("Gateway", "service")], [["server"], actor("Server", "service")],
+  [["backend"], actor("API", "service")], [["auth"], actor("Auth", "auth")], [["database"], actor("Database", "db")],
+  [["db"], actor("Database", "db")], [["postgres"], actor("Postgres", "db")], [["redis"], actor("Redis", "cache")],
+  [["cache"], actor("Cache", "cache")], [["queue"], actor("Queue", "queue")], [["worker"], actor("Worker", "worker")],
+  [["stripe"], actor("Stripe", "external")], [["deepgram"], actor("Deepgram", "external")], [["claude"], actor("Claude", "external")],
+  [["model"], actor("LLM", "external")], [["llm"], actor("LLM", "external")], [["email"], actor("Email service", "external")],
+];
+
+const NOUN_TABLES: Record<Exclude<DocKind, "screen">, NounTable> = { architecture: ARCH_NOUNS, erd: ERD_NOUNS, sequence: SEQ_NOUNS };
+
+/** `<word> table` in an ERD names an entity even when it isn't a common noun ("a leads table"). */
+const TABLE_WORD = new Set(["table", "tables", "entity"]);
+const STOP = new Set(["a", "an", "the", "and", "with", "of", "for", "to", "that", "this", "each", "one", "many", "has", "have", "join", "new"]);
+
+/**
+ * Diagram tier 0: nouns become provisional Nodes — architecture components go into their lane,
+ * entities and actors append to the diagram in the order spoken (append-stable, so nothing drawn
+ * earlier moves). Edges, columns and labels are the model's job.
+ */
+function diagramLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<string>): LexiconResult {
+  const kind = docKind(doc) as Exclude<DocKind, "screen">;
+  const table = NOUN_TABLES[kind];
+  const words = lexTokens(runningText);
+  const occ = occurrenceKeys(words);
+  const labels = new Set<string>();
+  const kinds = new Set<string>();
+  const ids = new Set<string>();
+  const walk = (n: DesignNode) => {
+    ids.add(n.id);
+    if (n.type === "Node") { labels.add(String(n.props.label).toLowerCase()); kinds.add(String(n.props.kind)); }
+    n.children?.forEach(walk);
+  };
+  walk(doc.root);
+  const counts = new Map<string, number>(); // children per lane path, updated as we add
+  const kidsOf = (path: string, n: DesignNode) => counts.get(path) ?? n.children?.length ?? 0;
+  let nodeAt = (doc.root.children ?? []).map((c) => c.type).lastIndexOf("Node") + 1;
+
+  const ops: PatchOp[] = [];
+  const created: LexiconResult["created"] = [];
+  const consumed: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    let hit: { len: number; noun: DiagramNoun } | null = null;
+    for (const [phrase, noun] of table) {
+      if (i + phrase.length <= words.length && phrase.every((w, k) => words[i + k] === w)) { hit = { len: phrase.length, noun }; break; }
+    }
+    if (!hit && kind === "erd" && TABLE_WORD.has(words[i + 1] ?? "") && !STOP.has(words[i]!) && !TABLE_WORD.has(words[i]!) && /^[a-z][a-z_]{2,}$/.test(words[i]!)) {
+      hit = { len: 1, noun: { label: SINGULAR[words[i]!] ?? words[i]!, kind: "entity" } };
+    }
+    if (!hit) continue;
+    const keys = occ.slice(i, i + hit.len);
+    i += hit.len - 1;
+    if (keys.some((k) => drawn.has(k))) continue;
+    const { noun } = hit;
+    if (labels.has(noun.label.toLowerCase())) continue;
+    // "the app" after "web app": a definite reference to something of that kind already drawn.
+    if (isReference(words, i - hit.len + 1) && kinds.has(noun.kind)) continue;
+    const alias = noun.label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "node";
+    let id = `n_p_${alias}`, n = 2;
+    while (ids.has(id)) id = `n_p_${alias}_${n++}`;
+    const props: Record<string, unknown> = { label: noun.label, kind: noun.kind, ...(noun.tech ? { tech: noun.tech } : {}), ...(kind === "erd" ? { cols: ["id:uuid:pk"] } : {}) };
+    const node: DesignNode = { id, type: "Node", props, provisional: true };
+    let parentPath = "/root", parent = doc.root;
+    if (kind === "architecture") {
+      const idx = (doc.root.children ?? []).findIndex((c) => c.type === "Layer" && c.props.tier === noun.tier);
+      if (idx < 0) continue;
+      parentPath = `/root/children/${idx}`; parent = doc.root.children![idx]!;
+    } else {
+      // Nodes before Edges: a new entity/actor goes right after the last Node, so edge order is untouched.
+      ops.push({ op: "add", path: `/root/children/${nodeAt}`, value: node });
+      nodeAt++;
+      ids.add(id); labels.add(noun.label.toLowerCase()); kinds.add(noun.kind); created.push({ id, word: words[i]!, kind: kindKey(node) }); consumed.push(...keys);
+      continue;
+    }
+    const at = kidsOf(parentPath, parent);
+    ops.push({ op: "add", path: `${parentPath}/children/${at}`, value: node });
+    counts.set(parentPath, at + 1);
+    ids.add(id); labels.add(noun.label.toLowerCase()); kinds.add(noun.kind); created.push({ id, word: words[i]!, kind: kindKey(node) }); consumed.push(...keys);
+  }
+  return { ops, created, consumed };
+}
+
+/**
+ * The words each diagram kind understands, for the UI's vocabulary rail — steering speech toward
+ * terms the lexicon draws instantly (0 ms, no model call) keeps diagrams fast and predictable.
+ */
+export function diagramVocabulary(kind: Exclude<DocKind, "screen">): { nouns: string[]; relations: string[]; example: string } {
+  const seen = new Set<string>();
+  const nouns = NOUN_TABLES[kind].map(([p]) => p.join(" ")).filter((w) => w.length > 2 && !seen.has(w) && (seen.add(w), true));
+  return {
+    architecture: { nouns: nouns.slice(0, 28), relations: ["calls", "writes to", "reads from", "publishes to", "deployed on", "behind"],
+      example: "a Next.js web app calls a Fastify API that writes to Postgres and Redis, deployed on Railway" },
+    erd: { nouns: ENTITY_WORDS.slice(0, 20), relations: ["has many", "belongs to", "with a … column", "one-to-one", "join table"],
+      example: "users with an email, each user has many orders, orders have a total and a status" },
+    sequence: { nouns: nouns.slice(0, 22), relations: ["sends", "calls", "returns", "validates", "saves", "then"],
+      example: "the user logs in on the web app, the app posts credentials to the API, the API checks Postgres and returns a token" },
+  }[kind];
 }

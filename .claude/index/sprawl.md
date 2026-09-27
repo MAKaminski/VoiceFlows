@@ -10,6 +10,6 @@ Generated. Every item here is a candidate for consolidation — the goal is **fe
 | Components (workspace members) | 4 |
 | Components nothing depends on | 0 |
 | Distinct error types | 1 |
-| Client/Service/Manager/Handler/Provider types | 0 |
+| Client/Service/Manager/Handler/Provider types | 4 |
 | Symbol names defined 3+ times | 0 |
 

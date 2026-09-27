@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyOp, CompactParseError, DesignDocSchema, deltaScore, emptyDoc, expandCompact, findNode,
-  invertOp, kitchenSinkDoc, PatchOp, PRIMITIVE_TYPES, type CompactContext, type DesignDoc, type Intent,
+  invertOp, kitchenSinkDoc, PatchOp, SCREEN_TYPES, type CompactContext, type DesignDoc, type Intent,
 } from "../src/index.js";
 
 function ctxFor(doc: DesignDoc): CompactContext & { aliases: Map<string, string> } {
@@ -19,12 +19,12 @@ function ctxFor(doc: DesignDoc): CompactContext & { aliases: Map<string, string>
 }
 
 describe("DesignDoc", () => {
-  it("kitchen-sink fixture validates and uses all 12 primitives", () => {
+  it("kitchen-sink fixture validates and uses all 12 screen primitives", () => {
     expect(DesignDocSchema.safeParse(kitchenSinkDoc).success).toBe(true);
     const seen = new Set<string>();
     const walk = (n: DesignDoc["root"]) => { seen.add(n.type); n.children?.forEach(walk); };
     walk(kitchenSinkDoc.root);
-    expect([...seen].sort()).toEqual([...PRIMITIVE_TYPES].sort());
+    expect([...seen].sort()).toEqual([...SCREEN_TYPES].sort());
   });
 
   it("rejects raw hex in props and children on leaf primitives", () => {

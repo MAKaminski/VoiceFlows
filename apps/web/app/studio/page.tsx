@@ -8,7 +8,12 @@ import { gateway } from "@/lib/gateway";
 import { startVoice } from "@/lib/voice/session";
 import { useDoc } from "@/store/doc";
 import { useVoice } from "@/store/voice";
+import { diagramVocabulary, docKind, type DocKind } from "@livecanvas/dsl";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+
+const KINDS: Array<{ kind: DocKind; label: string }> = [
+  { kind: "screen", label: "Screen" }, { kind: "architecture", label: "Architecture" }, { kind: "erd", label: "ERD" }, { kind: "sequence", label: "Sequence" },
+];
 
 const MODE_LABEL = { direct: "Deepgram Flux · direct", relay: "Deepgram Flux · via gateway", webspeech: "Browser speech (dev)" } as const;
 
@@ -68,6 +73,8 @@ export default function Studio() {
   };
 
   const listening = status === "listening" || status === "connecting";
+  const kind = docKind(doc);
+  const vocab = kind === "screen" ? null : diagramVocabulary(kind);
   const jobLabel = !job ? null
     : job.state === "running" ? `Building: “${job.text}”…`
     : job.state === "done" ? `Done: ${job.opCount ?? 0} change${job.opCount === 1 ? "" : "s"}${job.firstOpMs != null ? ` · first in ${Math.round(job.firstOpMs)} ms` : ""}`
@@ -87,6 +94,14 @@ export default function Studio() {
             style={{ flex: 1, minWidth: 0, font: "inherit", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--lc-chrome-border)", background: "transparent", color: "inherit" }} />
           <button type="submit" disabled={!connected || !prompt.trim()} style={{ ...pill("#0f172a"), opacity: connected && prompt.trim() ? 1 : 0.5 }}>Build</button>
         </form>
+        <div role="tablist" aria-label="Diagram kind" style={{ display: "flex", padding: 3, gap: 2, borderRadius: 999, border: "1px solid var(--lc-chrome-border)" }}>
+          {KINDS.map((k) => (
+            <button key={k.kind} type="button" role="tab" aria-selected={kind === k.kind} data-testid={`kind-${k.kind}`}
+              onClick={() => kind !== k.kind && gateway.send({ type: "new_doc", kind: k.kind })}
+              style={{ font: "inherit", fontSize: 13, fontWeight: 600, padding: "6px 12px", borderRadius: 999, border: "none", cursor: "pointer",
+                background: kind === k.kind ? "#0f172a" : "transparent", color: kind === k.kind ? "#fff" : "inherit" }}>{k.label}</button>
+          ))}
+        </div>
         <button type="button" data-testid="undo" onClick={() => gateway.send({ type: "undo" })} disabled={!canUndo} title="Undo (⌘Z)" style={{ ...pill("transparent", "inherit"), opacity: canUndo ? 1 : 0.4 }}>Undo</button>
         <button type="button" data-testid="redo" onClick={() => gateway.send({ type: "redo" })} disabled={!canRedo} title="Redo (⇧⌘Z)" style={{ ...pill("transparent", "inherit"), opacity: canRedo ? 1 : 0.4 }}>Redo</button>
       </header>
@@ -96,6 +111,14 @@ export default function Studio() {
         <span data-testid="conn">{connError ? `Gateway: ${connError}` : connected ? `Version ${version}` : "Connecting to gateway…"}</span>
         {jobLabel && <span data-testid="job" style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{jobLabel}</span>}
       </div>
+      {/* Vocabulary rail: the words this kind draws instantly — steers speech toward standard terms. */}
+      {vocab && (
+        <div data-testid="vocab" style={{ padding: "0 24px", height: 34, display: "flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap", overflowX: "auto", borderBottom: "1px solid var(--lc-chrome-border)" }}>
+          <span style={{ opacity: 0.6, marginRight: 4 }}>Try “{vocab.example}”</span>
+          {vocab.relations.map((w) => <span key={w} style={{ padding: "2px 8px", borderRadius: 999, background: "#f5f3ff", color: "#6d28d9", fontWeight: 600 }}>{w}</span>)}
+          {vocab.nouns.map((w) => <span key={w} style={{ padding: "2px 8px", borderRadius: 999, background: "#eff6ff", color: "#1d4ed8" }}>{w}</span>)}
+        </div>
+      )}
       <div style={{ flex: 1 }}><Canvas doc={doc} /></div>
       <TranscriptStrip />
       {hud && <Hud />}
