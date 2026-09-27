@@ -12,8 +12,9 @@ import { useEffect, useRef } from "react";
 const KIND = { screen: "Screen", architecture: "Arch", erd: "ERD", sequence: "Seq" } as const;
 const time = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
 
-function change(v: VersionSummary) {
+function change(v: VersionSummary, parentKind?: VersionSummary["kind"]) {
   if (v.parent == null) return "start";
+  if (parentKind && parentKind !== v.kind) return `new ${KIND[v.kind]}`;
   const parts = [v.added && `+${v.added}`, v.removed && `−${v.removed}`, v.changed && `~${v.changed}`].filter(Boolean);
   return parts.length ? parts.join(" ") : "no change";
 }
@@ -26,6 +27,7 @@ export function VersionTimeline() {
   if (!flags.version_timeline || items.length === 0) return null;
 
   const path = new Set(solid);
+  const kindOf = new Map(items.map((v) => [v.version, v.kind]));
 
   return (
     <div ref={strip} data-testid="timeline" role="list" aria-label="Versions"
@@ -35,7 +37,7 @@ export function VersionTimeline() {
         const on = v.version === current, inPath = path.has(v.version);
         return (
           <button key={v.version} type="button" role="listitem" aria-current={on} data-testid={`version-${v.version}`}
-            title={`Version ${v.version}${v.parent != null ? ` (from v${v.parent})` : ""} · ${KIND[v.kind]} · ${v.nodes} elements · ${change(v)}${v.at ? ` · ${new Date(v.at).toLocaleString()}` : ""}`}
+            title={`Version ${v.version}${v.parent != null ? ` (from v${v.parent})` : ""} · ${KIND[v.kind]} · ${v.nodes} elements · ${change(v, v.parent != null ? kindOf.get(v.parent) : undefined)}${v.at ? ` · ${new Date(v.at).toLocaleString()}` : ""}`}
             onClick={() => !on && gateway.send({ type: "goto_version", version: v.version })}
             style={{
               flex: "none", font: "inherit", fontSize: 12, cursor: on ? "default" : "pointer", borderRadius: 10, padding: "4px 10px",
@@ -44,7 +46,7 @@ export function VersionTimeline() {
               opacity: inPath || on ? 1 : 0.45,
             }}>
             <span style={{ fontWeight: 650 }}>v{v.version} <span style={{ fontWeight: 500, opacity: 0.7 }}>{KIND[v.kind]}</span></span>
-            <span style={{ opacity: 0.75, fontVariantNumeric: "tabular-nums" }}>{change(v)}{v.at ? ` · ${time(v.at)}` : ""}</span>
+            <span style={{ opacity: 0.75, fontVariantNumeric: "tabular-nums" }}>{change(v, v.parent != null ? kindOf.get(v.parent) : undefined)}{v.at ? ` · ${time(v.at)}` : ""}</span>
           </button>
         );
       })}
