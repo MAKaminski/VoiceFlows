@@ -15,8 +15,9 @@
     "arch:check": "pnpm codemap --check && python3 ~/.claude/bin/arch-sync.py . --check"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
-    "@types/node": "^22.0.0"
+    "ws": "^8.21.3"
   }
 }

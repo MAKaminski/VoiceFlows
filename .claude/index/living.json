@@ -1,10 +1,10 @@
 {
-  "ards": 9,
-  "ards_contributing": 9,
+  "ards": 10,
+  "ards_contributing": 10,
   "components_from_code": 4,
-  "components_from_ards": 10,
-  "flows_from_ards": 18,
-  "features": 7,
+  "components_from_ards": 11,
+  "flows_from_ards": 21,
+  "features": 8,
   "notes": 7,
   "index": [
     {
@@ -67,6 +67,13 @@
       "num": "0008",
       "file": "0008-stt-transport-modes.md",
       "title": "ADR 0008 \u2014 STT transport: direct, relay, or Web Speech, chosen by the gateway",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0009",
+      "file": "0009-gateway-single-writer.md",
+      "title": "ADR 0009 \u2014 The gateway is the only writer of the doc; the lexicon runs there (M4)",
       "status": "accepted",
       "contributes": true
     }

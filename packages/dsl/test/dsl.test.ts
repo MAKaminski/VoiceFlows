@@ -61,6 +61,22 @@ describe("compact → RFC 6902", () => {
     expect(DesignDocSchema.safeParse(doc).success).toBe(true);
   });
 
+  it("new containers accept children, and a stray label on a container is ignored (M3 live bug)", () => {
+    let doc = emptyDoc();
+    const ctx = ctxFor(doc);
+    const run = (line: string) => {
+      ctx.resolve = (ref) => (ref === "root" ? "/root" : findNode(doc.root, ctx.aliases.get(ref) ?? ref)?.path ?? null);
+      for (const op of expandCompact(line, ctx)) doc = applyOp(doc, op);
+    };
+    run(`+Card form >root p=lg "Login Form"`);
+    run(`+Input email >form k=email "Email"`);
+    run(`+Button signin >form v=primary "Sign in"`);
+    const form = doc.root.children![0]!;
+    expect(form).toMatchObject({ type: "Card", props: { padding: "lg" } });
+    expect(form.children!.map((c) => c.type)).toEqual(["Input", "Button"]);
+    expect(DesignDocSchema.safeParse(doc).success).toBe(true);
+  });
+
   it("compact line is much shorter than the JSON Patch it replaces", () => {
     const line = `+Button signin >root v=primary s=lg "Sign in"`;
     const [op] = expandCompact(line, ctxFor(emptyDoc()));
@@ -92,6 +108,27 @@ describe("applyOp / invertOp", () => {
   });
 });
 
+describe("applyOp structural sharing (F1)", () => {
+  const deepFreeze = (o: any): any => { Object.values(o).forEach((v) => v && typeof v === "object" && deepFreeze(v)); return Object.freeze(o); };
+  it("never mutates the input and keeps untouched subtrees identical", () => {
+    const before = deepFreeze(structuredClone(kitchenSinkDoc));
+    const after = applyOp(before, { op: "replace", path: "/root/children/4/children/0/children/2/props/label", value: "Log in" });
+    expect(before.root.children[4].children[0].children[2].props.label).toBe("Sign in");
+    expect(after.root.children[4].children[0].children[2].props.label).toBe("Log in");
+    // siblings off the path keep identity → React.memo skips them
+    expect(after.root.children[0]).toBe(before.root.children[0]);
+    expect(after.root.children[5]).toBe(before.root.children[5]);
+    expect(after.root.children[4].children[0].children[0]).toBe(before.root.children[4].children[0].children[0]);
+    // nodes on the path are new objects
+    expect(after.root.children[4]).not.toBe(before.root.children[4]);
+  });
+  it("rejects out-of-range indices and missing targets", () => {
+    expect(() => applyOp(kitchenSinkDoc, { op: "remove", path: "/root/children/99" })).toThrow();
+    expect(() => applyOp(kitchenSinkDoc, { op: "replace", path: "/root/children/99/props/x", value: 1 })).toThrow();
+    expect(() => applyOp(kitchenSinkDoc, { op: "add", path: "/root/children/2.5", value: {} })).toThrow();
+  });
+});
+
 describe("deltaScore", () => {
   const base: Intent = { action: "add", targets: [{ ref: "signin", primitive: "Button" }], attributes: { color: "primary" }, structural: false, explicit_command: false, confidence: 0.9 };
   it("is 0 for identical intents and ≥ commit threshold for a new target", () => {
@@ -110,5 +147,20 @@ describe("serializeCompact", () => {
     expect(lines).toHaveLength(count(kitchenSinkDoc.root) - 1); // root is implicit
     expect(text.length * 1.8).toBeLessThan(JSON.stringify(kitchenSinkDoc).length);
     expect(lines.find((l) => l.startsWith("+Button n_signin"))).toBe(`+Button n_signin >n_fields v=primary s=lg "Sign in"`);
+  });
+});
+
+describe("parseHeader (compressed intent header, ADR 0006)", async () => {
+  const { parseHeader } = await import("../src/index.js");
+  it("parses action, confidence, flags and targets", () => {
+    expect(parseHeader("add .9 signin logo")).toEqual({ a: "add", c: 0.9, s: false, x: false, t: ["signin", "logo"] });
+    expect(parseHeader("layout .8 s")).toEqual({ a: "layout", c: 0.8, s: true, x: false, t: [] });
+    expect(parseHeader("undo 1 x")).toEqual({ a: "undo", c: 1, s: false, x: true, t: [] });
+    expect(parseHeader("none 0")).toEqual({ a: "none", c: 0, s: false, x: false, t: [] });
+  });
+  it("accepts the legacy JSON header and rejects op lines", () => {
+    expect(parseHeader('{"a":"add","t":["x"],"c":0.9,"s":false,"x":false}')?.a).toBe("add");
+    expect(parseHeader('+Button signin >root "Sign in"')).toBeNull();
+    expect(parseHeader("add 7")).toBeNull();
   });
 });

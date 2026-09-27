@@ -47,3 +47,21 @@ export function deltaScore(next: Intent, prev: Intent | null): number {
     DELTA_WEIGHTS.structural * (next.structural !== prev.structural ? 1 : 0)
   );
 }
+
+/**
+ * Compressed header line (ADR 0006): `<action> <confidence> [s] [x] [target ...]`, e.g.
+ * `add .9 logo`, `layout .8 s`, `undo 1 x`, `none 0`. ≈ 5 tokens instead of ≈ 23 for JSON.
+ * A leading `{` is parsed as the older JSON header. Returns null when the line is not a header.
+ */
+export function parseHeader(line: string): IntentHeader | null {
+  const l = line.trim();
+  if (l.startsWith("{")) {
+    try { const h = IntentHeader.safeParse(JSON.parse(l)); return h.success ? h.data : null; } catch { return null; }
+  }
+  const [a, c, ...rest] = l.split(/\s+/);
+  const action = IntentAction.safeParse(a);
+  const conf = Number(c);
+  if (!action.success || !Number.isFinite(conf) || conf < 0 || conf > 1) return null;
+  const flags = new Set(rest.filter((r) => r === "s" || r === "x"));
+  return { a: action.data, c: conf, s: flags.has("s"), x: flags.has("x"), t: rest.filter((r) => r !== "s" && r !== "x") };
+}

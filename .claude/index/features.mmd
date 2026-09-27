@@ -8,6 +8,7 @@ flowchart LR
     F_export["Export — React · HTML · PNG · URL (M6)<br/><small>ARD 0000</small>"]
     F_latency["Latency telemetry &amp; HUD<br/><small>ARD 0001</small>"]
     F_billing["Plans · quota · BYOK (M5, planned)<br/><small>ARD 0004</small>"]
+    F_documents["Design documents · versions · undo<br/><small>ARD 0009</small>"]
   end
   subgraph uses["Components"]
     direction TB
@@ -15,6 +16,7 @@ flowchart LR
     C__livecanvas_gateway["@livecanvas/gateway"]
     C__livecanvas_web["@livecanvas/web"]
     C_anthropic["Anthropic Messages API (Haiku 4.5 · Sonnet 5)"]
+    C_doc_session["DocSession — single writer: doc, job controller, versions/undo"]
     C_postgres["Postgres 16 — system of record"]
     C_redis["Redis 7 — live doc · active job · pub/sub"]
     C_stripe["Stripe metered billing (M5, planned)"]
@@ -71,9 +73,13 @@ flowchart LR
   F_billing ==>|owns| T_plans
   F_billing ==>|owns| T_usage_periods
   F_billing ==>|owns| T_provider_keys
+  F_documents --> C_doc_session
+  F_documents --> C_postgres
+  F_documents ==>|owns| T_design_documents
+  F_documents ==>|owns| T_design_versions
   classDef feat fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef comp fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef tab fill:#eaf1ec,stroke:#2C6249,color:#12191B;
-  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing feat;
-  class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_postgres,C_redis,C_stripe comp;
+  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents feat;
+  class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_doc_session,C_postgres,C_redis,C_stripe comp;
   class T_design_documents,T_design_versions,T_exports,T_generation_jobs,T_intents,T_latency_events,T_patch_ops,T_plans,T_primitives,T_provider_keys,T_sessions,T_token_sets,T_transcript_segments,T_usage_periods,T_users,T_utterances tab;

@@ -1,4 +1,5 @@
-import { ServerMsg, SttGrant, type ClientMsg } from "@livecanvas/dsl";
+import { SttGrant } from "@livecanvas/dsl";
+import { gateway, HTTP_BASE } from "@/lib/gateway";
 import { startCapture, type Capture } from "./capture";
 
 export interface Transcript { utteranceSeq: number; text: string; isFinal: boolean; tMs: number }
@@ -9,8 +10,6 @@ export interface VoiceEvents {
   onFrame?(level: number): void;
 }
 
-const WS_URL = process.env.NEXT_PUBLIC_GATEWAY_WS ?? "ws://localhost:8787/ws";
-const HTTP_BASE = WS_URL.replace(/^ws/, "http").replace(/\/ws$/, "");
 
 /**
  * One voice session (ADR 0008): gateway WS for control/persistence, and speech-to-text in one of
@@ -22,12 +21,8 @@ export async function startVoice(ev: VoiceEvents): Promise<{ stop(): void }> {
   const grant = SttGrant.parse(await (await fetch(`${HTTP_BASE}/stt/token`, { method: "POST" })).json());
   ev.onMode(grant.mode);
 
-  const gw = new WebSocket(WS_URL);
-  gw.binaryType = "arraybuffer";
-  await new Promise<void>((res, rej) => { gw.onopen = () => res(); gw.onerror = () => rej(new Error("gateway unreachable")); });
-  const sendGw = (m: ClientMsg) => gw.readyState === 1 && gw.send(JSON.stringify(m));
-  sendGw({ type: "hello" });
-  sendGw({ type: "stt_start", mode: grant.mode });
+  await gateway.connect();
+  gateway.send({ type: "stt_start", mode: grant.mode });
 
   let capture: Capture | null = null;
   let seq = 0;
@@ -36,17 +31,14 @@ export async function startVoice(ev: VoiceEvents): Promise<{ stop(): void }> {
     if (!text) return;
     const t = { utteranceSeq: seq, text, isFinal, tMs: since() };
     ev.onTranscript(t);
-    if (forward) sendGw({ type: "partial", ...t });
+    if (forward) gateway.send({ type: "partial", ...t });
     if (isFinal) seq++;
   };
 
-  gw.onmessage = (e) => {
-    if (typeof e.data !== "string") return;
-    const m = ServerMsg.safeParse(JSON.parse(e.data));
-    if (!m.success) return;
-    if (m.data.type === "transcript") { ev.onTranscript({ ...m.data, tMs: since() }); }
-    if (m.data.type === "error") ev.onStatus("error", m.data.message);
-  };
+  const off = gateway.on((m) => {
+    if (m.type === "transcript") ev.onTranscript({ ...m, tMs: since() });
+    if (m.type === "error") ev.onStatus("error", m.message);
+  });
 
   let stt: { stop(): void };
   if (grant.mode === "webspeech") {
@@ -64,7 +56,7 @@ export async function startVoice(ev: VoiceEvents): Promise<{ stop(): void }> {
     capture = await startCapture((frame) => {
       if (ev.onFrame) { const pcm = new Int16Array(frame); let peak = 0; for (let i = 0; i < pcm.length; i += 8) peak = Math.max(peak, Math.abs(pcm[i]!)); ev.onFrame(peak / 32768); }
       if (dg) { if (dg.readyState === 1) dg.send(frame); }
-      else if (gw.readyState === 1) gw.send(frame);
+      else gateway.sendAudio(frame);
     });
     stt = { stop: () => { capture?.stop(); if (dg?.readyState === 1) { dg.send(JSON.stringify({ type: "CloseStream" })); dg.close(); } } };
   }
@@ -73,8 +65,8 @@ export async function startVoice(ev: VoiceEvents): Promise<{ stop(): void }> {
   return {
     stop() {
       stt.stop();
-      sendGw({ type: "stt_stop" });
-      gw.close();
+      gateway.send({ type: "stt_stop" });
+      off();
       ev.onStatus("stopped");
     },
   };

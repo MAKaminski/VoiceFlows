@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { defaultTokens, propSchemas } from "@livecanvas/dsl";
 import postgres from "postgres";
 import { z } from "zod";
@@ -25,12 +25,23 @@ async function main() {
       await sql.begin((tx) => tx.unsafe(readFileSync(file, "utf8")));
       console.log("migrate: applied", file);
     }
+    await applyMigrations(sql, join(dirname(file), "migrations"));
     await seed(sql);
     const { tables } = (await sql<{ tables: number }[]>`select count(*)::int as tables from information_schema.tables where table_schema = 'public'`)[0]!;
     const { fks } = (await sql<{ fks: number }[]>`select count(*)::int as fks from information_schema.table_constraints where constraint_type = 'FOREIGN KEY' and table_schema = 'public'`)[0]!;
     console.log(`migrate: tables=${tables} fks=${fks}`);
   } finally {
     await sql.end();
+  }
+}
+
+/** Idempotent ALTERs for databases created before schema.sql changed; run in name order every deploy. */
+async function applyMigrations(sql: postgres.Sql, dir: string) {
+  let files: string[] = [];
+  try { files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort(); } catch { return; }
+  for (const f of files) {
+    await sql.begin((tx) => tx.unsafe(readFileSync(join(dir, f), "utf8")));
+    console.log(`migrate: applied migration ${f}`);
   }
 }
 

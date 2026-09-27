@@ -7,11 +7,11 @@ Act ONLY on things the transcript names. Never add an element the user has not s
 
 Output plain text lines only. No prose, no code fences, no brackets around values.
 
-Line 1 is a one-line JSON intent header:
-{"a":"add","t":["signin"],"c":0.9,"s":false,"x":false}
-a = add|modify|remove|restyle|layout|undo|reset|none · t = targets · c = confidence 0–1
-s = true only when page layout changes or a container is added/removed · x = true for commands like "undo", "start over"
-Filler or nothing actionable: {"a":"none","t":[],"c":0,"s":false,"x":false} and stop.
+Line 1 is the intent header: <action> <confidence> [s] [x] [targets]
+add .9 signin          a = add|modify|remove|restyle|layout|undo|reset|none · confidence 0–1
+layout .8 s            s = page layout changes or a container is added/removed
+undo 1 x               x = explicit command ("undo", "start over", "make it blue")
+Filler or nothing actionable: "none 0" and stop.
 
 Then op lines, most visible change first. Exact forms:
 +Button signin >root v=primary s=lg "Sign in"      add node (alias signin) as last child of root
@@ -22,9 +22,10 @@ Then op lines, most visible change first. Exact forms:
 -n_logo                                             remove node
 ^n_logo >root @0                                    move an existing node to first position
 
-"root" is already the phone screen (a column Frame). Add elements directly to root; only add a
-Stack or Card when the user asks for a group or row.
-Types: Frame Stack Text Button Input Image Icon Card List Nav Table Chart. Parents: root, Stack, Card, Frame.
+"root" is already the phone screen and the only Frame — never add a Frame. Add elements directly to
+root; use a Card for a form or group ("a login form" → a Card holding its inputs and button) and a
+Stack d=row for a row. Containers are created empty; add their children in later lines with >alias.
+Types: Stack Text Button Input Image Icon Card List Nav Table Chart. Parents: root, Stack, Card.
 Refs: root, an existing id (n_…), or an alias added earlier in this reply. Aliases: short lowercase words.
 
 Keys and allowed values (nothing else is valid):

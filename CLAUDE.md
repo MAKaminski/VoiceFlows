@@ -32,10 +32,11 @@ and refined on a canvas *while they are still talking*. The product's measure of
 5. **Never regenerate the whole design.** All changes are RFC 6902 ops through
    `applyOp`/`invertOp` in `packages/dsl`. The model writes compact op lines (ADR 0002); the
    gateway expands them. Full regeneration only on an explicit "start over" intent.
-6. **Two response tiers (ADR 0001).** The client lexicon draws provisional nodes on STT
-   partials with no model call; the fused Haiku call (header-first, one in flight per session,
-   ≥ 150 ms gap, only on a new content word) edits them in place. Never let a new partial abort
-   a running call — only an intent-delta commit may.
+6. **One writer, two response tiers (ADR 0001, 0009).** The gateway's `DocSession` is the only
+   writer of the doc; the browser applies its ops in order. The lexicon (gateway, M4) draws
+   provisional nodes from STT partials with no model call; the fused Haiku call (compressed header,
+   one in flight per session) edits them in place. Never let a new partial abort a running call —
+   only an intent-delta commit, a new prompt, or undo/redo may.
 7. **Latency and cost are features.** Every hop is timestamped. A change that regresses p50
    TTFV-0 or TTFV-1 by > 15%, or raises $/speaking-minute by > 15%, is a failing change.
 8. **TypeScript end to end (ADR 0005).** Rust only for the gateway hot path, and only after a

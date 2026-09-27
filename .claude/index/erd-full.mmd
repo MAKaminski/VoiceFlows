@@ -29,6 +29,7 @@ erDiagram
         uuid document_id FK
         uuid job_id FK
         int version
+        int parent_version
         jsonb doc
         timestamptz created_at
     }
@@ -117,6 +118,7 @@ erDiagram
         uuid id PK
         uuid session_id FK
         int seq
+        text source
         timestamptz started_at
         timestamptz finalized_at
         text final_text

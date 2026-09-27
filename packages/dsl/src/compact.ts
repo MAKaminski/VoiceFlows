@@ -1,6 +1,6 @@
 import type { PatchOp } from "./ops.js";
 import type { DesignNode } from "./doc.js";
-import { PRIMARY_TEXT_PROP, PrimitiveType } from "./primitives.js";
+import { CONTAINER_TYPES, PRIMARY_TEXT_PROP, PrimitiveType } from "./primitives.js";
 
 // ADR 0002 — compact model wire format, expanded to RFC 6902 before validation.
 //   +<Type> <alias> ><parentRef> [k=v ...] ["text"] [@index]   add (appended, or inserted at @index)
@@ -47,9 +47,10 @@ function parseProps(tokens: ReturnType<typeof tokenize>, type: PrimitiveType | n
   for (const t of tokens) {
     if (t.key) props[SHORT_KEYS[t.key] ?? t.key] = t.value;
     else if (t.quoted) {
+      // A label on a type with no main text (e.g. `+Card form "Login"`) is ignored, not fatal:
+      // dropping the whole line would also orphan every child that references its alias (M3 live run).
       const key = type ? PRIMARY_TEXT_PROP[type] : undefined;
-      if (!key) throw new CompactParseError(`no primary text prop for ${type ?? "unknown type"}`);
-      props[key] = t.value;
+      if (key) props[key] = t.value;
     } else {
       const eq = t.value.indexOf("=");
       if (eq <= 0) throw new CompactParseError(`bad prop token: ${t.value}`);
@@ -92,7 +93,10 @@ export function expandCompact(
       const parentPath = need(ctx, parent.slice(1));
       const at = tokens.findIndex((t) => !t.quoted && /^@\d+$/.test(t.value));
       const index = at >= 0 ? tokens.splice(at, 1)[0]!.value.slice(1) : "-";
-      const value = { id: ctx.assignId(alias), type: type.data, props: parseProps(tokens, type.data) };
+      const value = {
+        id: ctx.assignId(alias), type: type.data, props: parseProps(tokens, type.data),
+        ...(CONTAINER_TYPES.has(type.data) ? { children: [] } : {}), // so later lines can add into it
+      };
       return [{ op: "add", path: `${parentPath}/children/${index}`, value }];
     }
     case "~": {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DesignDocSchema } from "./doc.js";
 import { PatchOp } from "./ops.js";
 
 /** Response of `POST /stt/token` (ADR 0008): how this browser should get speech-to-text. */
@@ -25,19 +26,27 @@ export const ClientMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("stt_start"), mode: z.enum(["direct", "relay", "webspeech"]) }),
   z.object({ type: z.literal("stt_stop") }),
   z.object({ type: z.literal("partial"), ...Transcript }),
-  z.object({ type: z.literal("provisional_ops"), utteranceSeq: z.number().int(), ops: z.array(PatchOp) }),
+  z.object({ type: z.literal("prompt"), text: z.string().min(1).max(2000) }), // typed prompt (M3)
   z.object({ type: z.literal("first_render"), jobId: z.string(), tMs: z.number() }),
   z.object({ type: z.literal("undo") }),
   z.object({ type: z.literal("redo") }),
 ]);
 export type ClientMsg = z.infer<typeof ClientMsg>;
 
-// Gateway → client
+/** Who produced an op batch — M4's "keep ops that still validate" rule needs origin + jobId. */
+export const OpOrigin = z.enum(["model", "lexicon", "undo", "redo", "rollback"]);
+export type OpOrigin = z.infer<typeof OpOrigin>;
+
+const VersionInfo = { version: z.number().int().nonnegative(), canUndo: z.boolean(), canRedo: z.boolean() };
+
+// Gateway → client. The gateway is the only writer of the doc (ADR 0009); the browser applies ops in order.
 export const ServerMsg = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("welcome"), sessionId: z.string(), version: z.number().int() }),
+  z.object({ type: z.literal("welcome"), sessionId: z.string(), version: z.number().int(), resumed: z.boolean().optional() }),
+  z.object({ type: z.literal("doc"), doc: DesignDocSchema, ...VersionInfo }), // full snapshot on welcome/resume
   z.object({ type: z.literal("transcript"), ...Transcript }), // relay mode
-  z.object({ type: z.literal("ops"), jobId: z.string(), ops: z.array(PatchOp) }),
-  z.object({ type: z.literal("rollback"), jobId: z.string(), ops: z.array(PatchOp) }),
+  z.object({ type: z.literal("ops"), jobId: z.string(), origin: OpOrigin, ops: z.array(PatchOp) }),
+  z.object({ type: z.literal("job"), jobId: z.string(), state: z.enum(["running", "done", "aborted", "failed"]), text: z.string().optional(), firstOpMs: z.number().optional(), opCount: z.number().int().optional(), detail: z.string().optional() }),
+  z.object({ type: z.literal("version"), ...VersionInfo }),
   z.object({ type: z.literal("status"), pending: z.string().nullable() }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);

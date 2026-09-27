@@ -35,6 +35,7 @@ flowchart LR
     F_export["Export — React · HTML · PNG · URL (M6)<br/><small>ARD 0000</small>"]
     F_latency["Latency telemetry &amp; HUD<br/><small>ARD 0001</small>"]
     F_billing["Plans · quota · BYOK (M5, planned)<br/><small>ARD 0004</small>"]
+    F_documents["Design documents · versions · undo<br/><small>ARD 0009</small>"]
   end
   subgraph uses["Components"]
     direction TB
@@ -42,6 +43,7 @@ flowchart LR
     C__livecanvas_gateway["@livecanvas/gateway"]
     C__livecanvas_web["@livecanvas/web"]
     C_anthropic["Anthropic Messages API (Haiku 4.5 · Sonnet 5)"]
+    C_doc_session["DocSession — single writer: doc, job controller, versions/undo"]
     C_postgres["Postgres 16 — system of record"]
     C_redis["Redis 7 — live doc · active job · pub/sub"]
     C_stripe["Stripe metered billing (M5, planned)"]
@@ -98,11 +100,15 @@ flowchart LR
   F_billing ==>|owns| T_plans
   F_billing ==>|owns| T_usage_periods
   F_billing ==>|owns| T_provider_keys
+  F_documents --> C_doc_session
+  F_documents --> C_postgres
+  F_documents ==>|owns| T_design_documents
+  F_documents ==>|owns| T_design_versions
   classDef feat fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef comp fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef tab fill:#eaf1ec,stroke:#2C6249,color:#12191B;
-  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing feat;
-  class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_postgres,C_redis,C_stripe comp;
+  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents feat;
+  class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_doc_session,C_postgres,C_redis,C_stripe comp;
   class T_design_documents,T_design_versions,T_exports,T_generation_jobs,T_intents,T_latency_events,T_patch_ops,T_plans,T_primitives,T_provider_keys,T_sessions,T_token_sets,T_transcript_segments,T_usage_periods,T_users,T_utterances tab;
 ```
 <!-- arch:end:features -->
@@ -146,15 +152,16 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Tables with no FK either way | 0 |
 | Distinct error types | 1 |
 | Symbol names defined 3+ times | 0 |
-| ARDs on record | 9 (9 contributing to the diagram) |
-| Components declared by ARDs | 10 |
-| Features declared by ARDs | 7 |
+| ARDs on record | 10 (10 contributing to the diagram) |
+| Components declared by ARDs | 11 |
+| Features declared by ARDs | 8 |
 <!-- arch:end:counts -->
 
 | Component | Layer | Owns | Pattern (§6) |
 |---|---|---|---|
 | `@livecanvas/web` — canvas renderer, Zustand doc store, playground | Front-end | Rendering of the 12 primitives; client doc copy | P3 registry, P5 memo-by-id, P2 patch |
-| Client lexicon (M3, in `packages/dsl`) | Front-end | Provisional ops from partials | P2 patch |
+| Lexicon (M4, `packages/dsl`, runs in gateway — ADR 0009) | Middleware | Provisional ops from partials | P2 patch |
+| `DocSession` (`apps/gateway/src/engine`) | Middleware | The live doc (single writer), job controller, versions/undo | P2 patch, P1 at the WS boundary |
 | `@livecanvas/dsl` — contracts, applier, compact expander, delta score | Middleware (shared) | Every schema and the one patch implementation | P1 schema+type, P2 patch, P3 registry |
 | `@livecanvas/prompts` — prompt loader | Middleware | Static-prefix / template split | P4 validated config |
 | `@livecanvas/gateway` — Fastify + ws | Middleware | Sessions, STT token, fused engine, job controller, persistence | P4 validated config, P1 at the WS boundary |
@@ -175,7 +182,6 @@ flowchart TB
   subgraph frontend["Front-end · user interface"]
     direction LR
     _livecanvas_web["@livecanvas/web"]
-    client_lexicon["Client lexicon — TTFV-0 provisional nodes<br/><small>ARD 0001</small><br/><small>TTFV-0 target ≤ 400 ms p50</small>"]
   end
   subgraph middleware["Middleware · APIs"]
     direction LR
@@ -185,7 +191,9 @@ flowchart TB
     anthropic["Anthropic Messages API (Haiku 4.5 · Sonnet 5)<br/><small>ARD 0000</small>"]
     compact_expander["Compact op expander → RFC 6902 (packages/dsl)<br/><small>ARD 0002</small>"]
     deepgram["Deepgram Flux streaming STT (flux-general-en)<br/><small>ARD 0007</small><br/><small>M2 bake-off: word lag 91 ms p50 (sfo), update every 240 ms — ADR 0007</small>"]
+    doc_session["DocSession — single writer: doc, job controller, versions/undo<br/><small>ARD 0009</small>"]
     fused_engine["Fused intent+patch engine — header-first, single in-flight<br/><small>ARD 0001</small><br/><small>TTFV-1 target ≤ 1,000 ms p50</small>"]
+    client_lexicon["Lexicon — provisional nodes (gateway, M4)<br/><small>ARD 0009</small><br/><small>TTFV-0 target ≤ 400 ms p50</small>"]
     stripe["Stripe metered billing (M5, planned)<br/><small>ARD 0004</small><br/><small>$20 incl. 200 speaking min · BYOK $10</small>"]
   end
   subgraph backend["Back-end · database"]
@@ -216,16 +224,19 @@ flowchart TB
   _livecanvas_gateway -.->|"overage usage (M5) · ARD 0004"| stripe
   _livecanvas_web -.->|"relay: 80 ms PCM frames (binary WS) · ARD 0008"| _livecanvas_gateway
   _livecanvas_gateway -.->|"relay stream · ARD 0008"| deepgram
+  _livecanvas_gateway -.->|"prompt · final utterance · undo/redo · ARD 0009"| doc_session
+  doc_session -.->|"doc snapshot · ops batches (origin + jobId) · version · job · ARD 0009"| _livecanvas_web
+  doc_session -.->|"intent → job → patch_ops → design_versions (async) · ARD 0009"| postgres
   classDef declared stroke-dasharray:5 4,stroke-width:2px;
   classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef be fill:#eaf1ec,stroke:#2C6249,color:#12191B;
   classDef inf fill:#f4efe6,stroke:#8A6210,color:#12191B;
-  class _livecanvas_web,client_lexicon fe;
-  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,fused_engine,compact_expander,deepgram,stripe mw;
+  class _livecanvas_web fe;
+  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session mw;
   class postgres,redis be;
   class vercel,railway inf;
-  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe declared;
+  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session declared;
 ```
 <!-- arch:end:components -->
 
@@ -419,9 +430,9 @@ Generated. Every item here is a candidate for consolidation — the goal is **fe
 
 | Finding | Consolidate into | Effort |
 |---|---|---|
-| F1 memo defeated by whole-doc clone | Structural-sharing `applyOp` in `packages/dsl/src/ops.ts` | S (½ day, M3) |
-| F2 vocabulary duplicated in DB and code | Seed `primitives` + `token_sets` from `packages/dsl` | S (M5) |
-| Ad-hoc WS error strings | One `toServerError()` in gateway | XS (M3) |
+| ~~F1 memo defeated by whole-doc clone~~ | **Done M3**: copy-on-write `applyOp`, identity test | — |
+| ~~F2 vocabulary duplicated in DB and code~~ | **Done M2**: migrate seeds both from `packages/dsl` | — |
+| ~~Ad-hoc WS error strings~~ | **Done M3**: one `fail()` path in the WS handler | — |
 | `@livecanvas/prompts` single caller | Fold into gateway if still one caller after M3 | XS |
 | ~~F3 layer misclassification~~ | Fixed in global `/arch` tooling (2026-09-26) | done |
 

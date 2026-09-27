@@ -2,7 +2,6 @@ flowchart TB
   subgraph frontend["Front-end · user interface"]
     direction LR
     _livecanvas_web["@livecanvas/web"]
-    client_lexicon["Client lexicon — TTFV-0 provisional nodes<br/><small>ARD 0001</small><br/><small>TTFV-0 target ≤ 400 ms p50</small>"]
   end
   subgraph middleware["Middleware · APIs"]
     direction LR
@@ -12,7 +11,9 @@ flowchart TB
     anthropic["Anthropic Messages API (Haiku 4.5 · Sonnet 5)<br/><small>ARD 0000</small>"]
     compact_expander["Compact op expander → RFC 6902 (packages/dsl)<br/><small>ARD 0002</small>"]
     deepgram["Deepgram Flux streaming STT (flux-general-en)<br/><small>ARD 0007</small><br/><small>M2 bake-off: word lag 91 ms p50 (sfo), update every 240 ms — ADR 0007</small>"]
+    doc_session["DocSession — single writer: doc, job controller, versions/undo<br/><small>ARD 0009</small>"]
     fused_engine["Fused intent+patch engine — header-first, single in-flight<br/><small>ARD 0001</small><br/><small>TTFV-1 target ≤ 1,000 ms p50</small>"]
+    client_lexicon["Lexicon — provisional nodes (gateway, M4)<br/><small>ARD 0009</small><br/><small>TTFV-0 target ≤ 400 ms p50</small>"]
     stripe["Stripe metered billing (M5, planned)<br/><small>ARD 0004</small><br/><small>$20 incl. 200 speaking min · BYOK $10</small>"]
   end
   subgraph backend["Back-end · database"]
@@ -43,13 +44,16 @@ flowchart TB
   _livecanvas_gateway -.->|"overage usage (M5) · ARD 0004"| stripe
   _livecanvas_web -.->|"relay: 80 ms PCM frames (binary WS) · ARD 0008"| _livecanvas_gateway
   _livecanvas_gateway -.->|"relay stream · ARD 0008"| deepgram
+  _livecanvas_gateway -.->|"prompt · final utterance · undo/redo · ARD 0009"| doc_session
+  doc_session -.->|"doc snapshot · ops batches (origin + jobId) · version · job · ARD 0009"| _livecanvas_web
+  doc_session -.->|"intent → job → patch_ops → design_versions (async) · ARD 0009"| postgres
   classDef declared stroke-dasharray:5 4,stroke-width:2px;
   classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef be fill:#eaf1ec,stroke:#2C6249,color:#12191B;
   classDef inf fill:#f4efe6,stroke:#8A6210,color:#12191B;
-  class _livecanvas_web,client_lexicon fe;
-  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,fused_engine,compact_expander,deepgram,stripe mw;
+  class _livecanvas_web fe;
+  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session mw;
   class postgres,redis be;
   class vercel,railway inf;
-  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe declared;
+  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session declared;
