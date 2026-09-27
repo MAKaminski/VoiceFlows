@@ -74,3 +74,6 @@
 - 2026-09-27 · ERD prompt 3,001 → 2,154 chars and sequence 2,943 → 1,990. Live input tokens per call: ERD
   862 → 692 (−20%), sequence 826 → 618 (−25%); same tables/participants/edges drawn; diagram-live 3/3 twice;
   projects-live all pass.
+- 2026-09-27 · Screen prompt trim tried and **reverted**. A/B on Railway, 10 runs each: trimmed 7/10 and 10/10,
+  settle p50 920 / 891 ms, $0.0119 / $0.0116; original 9/10, settle p50 750 ms, $0.0119. No measurable cost
+  win and a consistent ~150 ms settle loss, so the original stays. (Trimmed draft kept out of the repo.)
