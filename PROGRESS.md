@@ -71,3 +71,6 @@
 - 2026-09-27 · Architecture prompt trimmed 4,044 → 2,510 chars; the four standard lanes are no longer re-sent
   in the document. Live: input tokens per architecture call ~1,272 → 779 (−39%, under the 1,100 guideline);
   projects-live 2/2 all checks pass; diagram-live 3/3.
+- 2026-09-27 · ERD prompt 3,001 → 2,154 chars and sequence 2,943 → 1,990. Live input tokens per call: ERD
+  862 → 692 (−20%), sequence 826 → 618 (−25%); same tables/participants/edges drawn; diagram-live 3/3 twice;
+  projects-live all pass.
