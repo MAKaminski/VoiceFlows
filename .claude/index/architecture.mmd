@@ -11,7 +11,7 @@ flowchart TB
     _livecanvas_prompts["@livecanvas/prompts"]
     anthropic["Anthropic Messages API (Haiku 4.5 · Sonnet 5)<br/><small>ARD 0000</small>"]
     compact_expander["Compact op expander → RFC 6902 (packages/dsl)<br/><small>ARD 0002</small>"]
-    deepgram["Deepgram Nova-3 streaming STT<br/><small>ARD 0003</small>"]
+    deepgram["Deepgram Nova-3 streaming STT<br/><small>ARD 0003</small><br/><small>M0: partial every 979 ms, word lag 502 ms p50 — bake-off in M2</small>"]
     fused_engine["Fused intent+patch engine — header-first, single in-flight<br/><small>ARD 0001</small><br/><small>TTFV-1 target ≤ 1,000 ms p50</small>"]
     stripe["Stripe metered billing (M5, planned)<br/><small>ARD 0004</small><br/><small>$20 incl. 200 speaking min · BYOK $10</small>"]
   end

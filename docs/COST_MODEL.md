@@ -75,3 +75,21 @@ sessions per account; not billed.
 HUD shows live $/speaking-minute (GENERATION_JOBS tokens × unit prices + Deepgram minutes).
 M0 reports calls/min and tokens/call; if $/min > $0.055 (+20%), cut the cap before launch
 rather than raising price.
+
+## Measured — M0, 2026-09-26 (Railway sfo; raw data in `docs/m0/`)
+| Line | Estimate | **Measured** | Derivation |
+|---|---|---|---|
+| Haiku fused call | 1,100 in / 60 out | **742 in / 46 out = $0.00100** | 742 × $1/M + 46 × $5/M |
+| Haiku per speaking min | $0.028 | **$0.0200** | 20 calls (cap binds; 106 content-word events/min) × $0.00100 |
+| Sonnet settle | $0.010 | **$0.0036** per call | 960 in / 157 out; ADR 0006 moves settle to Haiku, so this is a ceiling |
+| Deepgram | $0.0077 | $0.0077 | list price |
+| **Total per speaking min** | **$0.046** | **$0.0313 (−32%)** | $0.0200 + $0.0036 + $0.0077 |
+
+At the measured rate the managed plan's economics improve. The price and 200-minute cap stay as
+set; the 15% regression gate now applies to the measured baseline ($0.0313 → fail > $0.036).
+
+| Speaking min/mo | Cost at $0.0313 | Margin at $20 |
+|---|---|---|
+| 70 (typical) | 70 × $0.0313 + $1.68 = $3.87 | 81% |
+| 200 (cap) | 200 × $0.0313 + $1.68 = $7.94 | 60% |
+| Break-even | ($20 − $1.68) ÷ $0.0313 = **585 min** | 0% |

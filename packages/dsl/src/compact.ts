@@ -1,8 +1,9 @@
 import type { PatchOp } from "./ops.js";
+import type { DesignNode } from "./doc.js";
 import { PRIMARY_TEXT_PROP, PrimitiveType } from "./primitives.js";
 
 // ADR 0002 — compact model wire format, expanded to RFC 6902 before validation.
-//   +<Type> <alias> ><parentRef> [k=v ...] ["text"]   add (appended to parent's children)
+//   +<Type> <alias> ><parentRef> [k=v ...] ["text"] [@index]   add (appended, or inserted at @index)
 //   ~<ref> [k=v ...] ["text"]                         replace props
 //   -<ref>                                            remove
 //   ^<ref> ><parentRef> [@index]                      move
@@ -89,8 +90,10 @@ export function expandCompact(
       const parent = tokens.shift()?.value;
       if (!alias || !parent?.startsWith(">")) throw new CompactParseError(`add needs <alias> ><parent>: ${line}`);
       const parentPath = need(ctx, parent.slice(1));
+      const at = tokens.findIndex((t) => !t.quoted && /^@\d+$/.test(t.value));
+      const index = at >= 0 ? tokens.splice(at, 1)[0]!.value.slice(1) : "-";
       const value = { id: ctx.assignId(alias), type: type.data, props: parseProps(tokens, type.data) };
-      return [{ op: "add", path: `${parentPath}/children/-`, value }];
+      return [{ op: "add", path: `${parentPath}/children/${index}`, value }];
     }
     case "~": {
       const path = need(ctx, head.value);
@@ -110,4 +113,30 @@ export function expandCompact(
     default:
       throw new CompactParseError(`unknown sigil '${sigil}': ${line}`);
   }
+}
+
+const REVERSE_SHORT: Record<string, string> = Object.fromEntries(Object.entries(SHORT_KEYS).map(([k, v]) => [v, k]));
+
+function fmtValue(v: unknown): string {
+  if (Array.isArray(v) && v.every((x) => typeof x === "number" || (typeof x === "string" && /^[\w.:-]+$/.test(x)))) return v.join(",");
+  if (typeof v === "string") return /^[\w.:#-]+$/.test(v) ? v : JSON.stringify(v);
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return JSON.stringify(JSON.stringify(v)); // complex values (List items, Table rows) as a quoted JSON string
+}
+
+/**
+ * Serializes a doc as compact `+` lines in tree order (model context, ADR 0002) — about 3× fewer
+ * tokens than the JSON doc. Node ids are used as aliases so the model can reference them directly.
+ */
+export function serializeCompact(root: DesignNode, parent = "", out: string[] = []): string {
+  if (parent) {
+    const text = PRIMARY_TEXT_PROP[root.type];
+    const props = Object.entries(root.props)
+      .filter(([k]) => k !== text)
+      .map(([k, v]) => `${REVERSE_SHORT[k] ?? k}=${fmtValue(v)}`);
+    const quoted = text && typeof root.props[text] === "string" ? ` ${JSON.stringify(root.props[text])}` : "";
+    out.push(`+${root.type} ${root.id} >${parent}${props.length ? " " + props.join(" ") : ""}${quoted}${root.provisional ? " ?provisional" : ""}`);
+  }
+  for (const c of root.children ?? []) serializeCompact(c, parent ? root.id : "root", out);
+  return out.join("\n");
 }

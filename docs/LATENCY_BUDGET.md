@@ -1,33 +1,67 @@
-# Latency budget
+# Latency budget — measured (M0, 2026-09-26)
 
-Metric that matters: **TTFV** — time from the spoken words that justify a change to the
-first visible canvas change.
+Metric that matters: **TTFV**, the time from a spoken word ending to a visible canvas change.
+- **TTFV-0** is the first visible change: the client lexicon draws provisional nodes (ADR 0001).
+- **TTFV-1** is the first model-quality change: the fused Haiku call.
 
-| Hop | Budget (p50) | Budget (p95) | Notes |
-|---|---|---|---|
-| Mic frame → gateway | 40 ms | 80 ms | 20 ms frames, WS, same region |
-| STT interim partial | 250 ms | 450 ms | provider interim results |
-| Extract gap / debounce | 125 ms | 250 ms | avg half of 250 ms gap |
-| Intent model first token + JSON close | 350 ms | 650 ms | tiny prompt, small JSON |
-| Patch model first op closes | 350 ms | 700 ms | op streamed, applied on close |
-| Apply + WS push + React render | 60 ms | 120 ms | per-node memo |
-| **TTFV total** | **~1.18 s** | **~2.25 s** | target p50 ≤ 1.2 s |
-| Settle after stop speaking | ≤ 1.5 s | ≤ 2.5 s | final + settle pass |
+Raw data: [`docs/m0/2026-09-26-railway-sfo.json`](m0/2026-09-26-railway-sfo.json) (the spike ran as a
+Railway service in sfo) and [`docs/m0/2026-09-26-mac.json`](m0/2026-09-26-mac.json) (the owner's Mac).
+Harness: `apps/gateway/src/spike.ts`. It streams a recorded 6.23 s WAV of the definition-of-done
+sentence in real time. 10 STT runs; 20 model runs per cell (5 for Sonnet).
 
-Math: 40 + 250 + 125 + 350 + 350 + 60 = 1,175 ms p50.
-Biggest lever: fusing intent + patch into one call for non-structural edits removes one
-~350 ms model hop (≈30% of TTFV). Implement behind `FUSED_FAST_PATH` in M4 and A/B it.
-These are targets to measure against, not guarantees — M4 replaces them with observed values.
+## Result against targets
 
-## Instrumentation
-Write a LATENCY_EVENTS row per stage: `frame_rx, partial, extract_start, intent_ready,
-commit, first_op, first_render, final, settled, reflow`. Client reports `first_render`
-back over WS. Dev HUD shows rolling p50/p95.
+| Metric | Target p50 | **Measured p50** | Gap | Verdict |
+|---|---|---|---|---|
+| TTFV-0 | ≤ 400 ms | **607 ms** | +207 ms (+52%) | ❌ STT-bound |
+| TTFV-1 | ≤ 1,000 ms | **1,515 ms** | +515 ms (+52%) | ❌ STT + model |
+| Model op validity | ≥ 98% | **100%** Haiku · 88% Sonnet | — | ✅ Haiku · ❌ Sonnet |
+| Cost per speaking minute | ≤ $0.046 | **$0.0313** | −32% | ✅ |
+| Model calls per speaking minute | ≤ 20 | 20 (cap binds; 106 content-word events/min) | — | ✅ |
 
-## Cost model (plug in current Anthropic pricing)
-Per spoken minute, assuming 1 extract / 0.5 s of speech and 1 commit / 3 s:
-- Intent calls: 120 × (~900 in + ~120 out) = 108k in / 14.4k out tokens
-- Patch calls: 20 × (~2,500 in + ~400 out) = 50k in / 8k out tokens
-- Total ≈ 158k input + 22.4k output tokens per minute; input is ~88% of volume, so
-  **prompt caching on the static prefix is mandatory**.
-Log per-job tokens in GENERATION_JOBS and show $/minute in the HUD.
+TTFV-0 = 40 net + **502 STT** + 5 lexicon + 60 render = **607 ms**.
+TTFV-1 = 40 net + **502 STT** + 20 relay + 75 gap + **788 first op** + 30 push + 60 render = **1,515 ms**.
+Net, relay, gap, push and render are still estimates. M4 measures them on the client.
+
+## Per hop: estimate vs measured
+
+| Hop | ADR 0001 estimate | Measured sfo p50 / p95 | Measured Mac p50 | Note |
+|---|---|---|---|---|
+| Deepgram connect | — | 24 / — ms | 254 ms | Opened at session start, so it is off the hot path |
+| **Deepgram word-end → first partial** | 250 ms | **502 / 2,706 ms** | 541 ms | **The dominant hop.** p95 is inflated because the harness counts a word Deepgram revises as a new word |
+| Deepgram interval between partials | ~250 ms | **979 ms** | 987 ms | Nova-3 sends an interim roughly once per second; this is the root cause |
+| Keyword lag p50 ("button", "email", "logo") | — | 502 · 416 · 363 ms | 568 · 460 · 426 ms | "big" is worst at 801 ms |
+| Haiku TTFT | 350 ms | **475 ms** | 499 ms | |
+| Haiku header line closed | — | 669 ms | 695 ms | The header costs about **194 ms** (≈ 23 tokens at 117 tok/s) |
+| **Haiku first valid op (compact, warm)** | 520 ms | **788 / 1,110 ms** | 820 ms | |
+| Haiku first op, compact on a fresh connection | — | 796 ms | 899 ms | Keep-alive saves 8 ms in sfo and 79 ms from the Mac |
+| Haiku first op, JSON Patch | — | 878 ms | 901 ms | Compact wins by **90 ms (−10%)**, and needs no separate intent call |
+| Sonnet 5 first op (settle) | — | **2,232 / 5,726 ms** | 1,531 ms | Too slow for a ≤ 1.2 s settle |
+| Prompt cache writes / reads | 0 expected | **0 / 0** | 0 / 0 | The ~600-token prefix is under the minimum cacheable length |
+
+## What this changes (decisions in ADR 0006)
+1. **STT is the problem, not the model.** Deepgram Nova-3's ~1 s interim cadence alone
+   exceeds the TTFV-0 budget. TTFV-0 ≤ 400 ms requires the STT hop to be ≤ 295 ms
+   (400 − 40 − 5 − 60). **M2 runs an STT bake-off with this same harness:** Chrome Web Speech
+   (free, per-word interims) and other streaming providers, each judged on word lag and
+   $/min. The provider adapter (D6) already allows the swap.
+2. **Compress the intent header.** Each output token costs ≈ 8.5 ms (at 117 tok/s), so cutting
+   the header from ≈ 23 tokens to ≈ 5 (e.g. `add .9`) saves ≈ 150 ms of TTFV-1.
+3. **Fire on the lexicon event instead of waiting for the gap.** When no call is in flight,
+   start the call on the content word, saving 75 ms of average gap wait.
+4. **Settle with Haiku by default.** Sonnet is reserved for explicit reset/structural rebuilds and runs in the
+   background: its first op was 2,232 ms p50 with 88% validity.
+5. **Drop prompt caching from the latency plan.** It never activates at this prefix size, and
+   keep-alive only matters from far-away clients.
+
+Projected, if the levers land:
+
+| Scenario | TTFV-0 | TTFV-1 |
+|---|---|---|
+| Deepgram as-is + header + no gap | 607 ms | 40 + 502 + 20 + 0 + 638 + 30 + 60 = **1,290 ms** |
+| STT at 200 ms + header + no gap | 40 + 200 + 5 + 60 = **305 ms ✅** | 40 + 200 + 20 + 0 + 638 + 30 + 60 = **988 ms ✅** |
+
+## Instrumentation (unchanged)
+Write a `latency_events` row per stage: `frame_rx, partial, extract_start, intent_ready, commit,
+first_op, first_render, final, settled, reflow`. TTFV is measured on the client, from the
+Deepgram word-end offset to render. The dev HUD shows rolling p50/p95.

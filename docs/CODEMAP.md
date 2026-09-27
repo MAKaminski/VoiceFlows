@@ -4,10 +4,10 @@ _Generated from the TypeScript AST by `pnpm codemap` — do not edit by hand; CI
 
 | Measure | Count |
 |---|---|
-| Modules | 22 |
-| Lines | 886 |
-| Top-level symbols | 86 |
-| Exported symbols | 60 |
+| Modules | 23 |
+| Lines | 1186 |
+| Top-level symbols | 115 |
+| Exported symbols | 61 |
 | Exported names defined in 2+ modules | 0 |
 
 ## Package dependency graph
@@ -19,6 +19,7 @@ flowchart LR
   _livecanvas_gateway["@livecanvas/gateway<br/><small>Middleware</small>"]
   _livecanvas_web["@livecanvas/web<br/><small>Front-end</small>"]
   _livecanvas_gateway --> _livecanvas_dsl
+  _livecanvas_gateway --> _livecanvas_prompts
   _livecanvas_web --> _livecanvas_dsl
 ```
 
@@ -26,7 +27,7 @@ flowchart LR
 |---|---|
 | @livecanvas/dsl | `zod` |
 | @livecanvas/prompts | — |
-| @livecanvas/gateway | `@fastify/websocket`, `fastify`, `postgres`, `zod` |
+| @livecanvas/gateway | `@fastify/websocket`, `fastify`, `postgres`, `undici`, `zod` |
 | @livecanvas/web | `lucide-react`, `next`, `react`, `zustand` |
 
 ## Modules and exported symbols
@@ -35,7 +36,7 @@ flowchart LR
 
 | Module | LOC | Exports (kind) |
 |---|---|---|
-| [compact.ts](../packages/dsl/src/compact.ts) | 114 | `SHORT_KEYS` const · `CompactContext` interface · `CompactParseError` class · `expandCompact` function |
+| [compact.ts](../packages/dsl/src/compact.ts) | 143 | `SHORT_KEYS` const · `CompactContext` interface · `CompactParseError` class · `expandCompact` function · `serializeCompact` function |
 | [doc.ts](../packages/dsl/src/doc.ts) | 63 | `DesignNode` interface · `NodeId` const · `DesignNodeSchema` const · `DesignDocSchema` const · `DesignDoc` type · `emptyDoc` function · `findNode` function |
 | [fixtures.ts](../packages/dsl/src/fixtures.ts) | 41 | `kitchenSinkDoc` const |
 | [index.ts](../packages/dsl/src/index.ts) | 9 | — |
@@ -58,6 +59,7 @@ flowchart LR
 | [config.ts](../apps/gateway/src/config.ts) | 26 | `Config` type · `loadConfig` const |
 | [migrate.ts](../apps/gateway/src/migrate.ts) | 34 | — |
 | [server.ts](../apps/gateway/src/server.ts) | 50 | `buildServer` function |
+| [spike.ts](../apps/gateway/src/spike.ts) | 271 | — |
 
 ### @livecanvas/web — Front-end
 

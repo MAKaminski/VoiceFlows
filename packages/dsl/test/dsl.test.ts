@@ -51,6 +51,9 @@ describe("compact → RFC 6902", () => {
     run(`+Button signin >root v=primary s=lg "Sign in"`);
     run(`~signin c=primary label="Log in"`);
     run(`^signin >root @0`);
+    run(`+Text hint >root "Tap to begin" @0`);
+    expect(doc.root.children?.[0]?.props).toEqual({ content: "Tap to begin" });
+    run(`-hint`);
     expect(doc.root.children?.map((c) => c.type)).toEqual(["Button", "Image"]);
     expect(doc.root.children?.[0]?.props).toEqual({ variant: "primary", size: "lg", label: "Log in", color: "primary" });
     run(`-logo`);
@@ -95,5 +98,17 @@ describe("deltaScore", () => {
     expect(deltaScore(base, base)).toBe(0);
     expect(deltaScore({ ...base, targets: [...base.targets, { ref: "logo", primitive: "Image" }] }, base)).toBeGreaterThanOrEqual(0.3);
     expect(deltaScore({ ...base, action: "restyle", attributes: { size: "lg" } }, base)).toBeCloseTo(0.55);
+  });
+});
+
+describe("serializeCompact", () => {
+  it("is ≥ 1.8× smaller than the JSON doc (measured 1.83×) and lists every node once", async () => {
+    const { serializeCompact } = await import("../src/index.js");
+    const text = serializeCompact(kitchenSinkDoc.root);
+    const lines = text.split("\n");
+    const count = (n: DesignDoc["root"]): number => 1 + (n.children ?? []).reduce((s, c) => s + count(c), 0);
+    expect(lines).toHaveLength(count(kitchenSinkDoc.root) - 1); // root is implicit
+    expect(text.length * 1.8).toBeLessThan(JSON.stringify(kitchenSinkDoc).length);
+    expect(lines.find((l) => l.startsWith("+Button n_signin"))).toBe(`+Button n_signin >n_fields v=primary s=lg "Sign in"`);
   });
 });

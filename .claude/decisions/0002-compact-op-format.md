@@ -3,7 +3,7 @@ Date: 2026-09-26 · Status: accepted · Clarifies: D4
 
 Model emits one compact line per op; `packages/dsl/src/compact.ts` expands each to RFC 6902
 before zod validation, storage (PATCH_OPS) and fan-out. Grammar:
-- `+<Type> <alias> ><parentRef> [k=v ...] ["text"]` → add (parentRef = `root` | node id | alias)
+- `+<Type> <alias> ><parentRef> [k=v ...] ["text"] [@index]` → add; `@index` inserts instead of appending (added 2026-09-26 after M0: Haiku emitted `+Image logo >root "Logo" @0` for "logo on top" — one op instead of add + move)
 - `~<ref> k=v ... ["text"]` → replace props
 - `-<ref>` → remove
 - `^<ref> ><parentRef> [@index]` → move
