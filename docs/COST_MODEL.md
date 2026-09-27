@@ -93,3 +93,10 @@ set; the 15% regression gate now applies to the measured baseline ($0.0313 → f
 | 70 (typical) | 70 × $0.0313 + $1.68 = $3.87 | 81% |
 | 200 (cap) | 200 × $0.0313 + $1.68 = $7.94 | 60% |
 | Break-even | ($20 − $1.68) ÷ $0.0313 = **585 min** | 0% |
+
+## Measured — M4, 2026-09-27 (`docs/m4/`)
+One model call per utterance (ADR 0010) cut model spend to **$0.0129 per speaking minute** including
+Deepgram at list ($0.0052 model + $0.0077 STT): 72% under the $0.046 budget and 59% under the M0
+figure ($0.0313). At the 200-minute cap: 200 × $0.0129 + $1.68 = **$4.26 → 79% margin** on $20.
+Break-even: ($20 − $1.68) ÷ $0.0129 = **1,420 speaking minutes**. Numbers come from one test sentence;
+M5 production telemetry (`generation_jobs` tokens) replaces them.

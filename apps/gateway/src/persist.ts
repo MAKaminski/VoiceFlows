@@ -28,6 +28,8 @@ export interface Persistence {
   jobEnd(sessionId: string, r: { id: string; status: "done" | "aborted" | "failed"; inputTokens?: number; outputTokens?: number }): void;
   version(sessionId: string, r: { documentId: string; version: number; parent: number | null; doc: DesignDoc; jobId: string | null }): void;
   setCurrent(sessionId: string, r: { documentId: string; version: number; doc: DesignDoc }): void;
+  /** latency_events row (job- or utterance-scoped; schema CHECK requires one). tMs = audio clock. */
+  latency(sessionId: string, r: { jobId?: string; utteranceId?: string; stage: string; tMs: number }): void;
   endSession(sessionId: string): void;
   flush(): Promise<void>;
 }
@@ -70,6 +72,7 @@ export function memoryPersistence(): Persistence & { rows: Array<Segment & { ses
       const s = [...sessions.values()].find((x) => x.documentId === r.documentId);
       if (s) s.current = r.version;
     },
+    latency: log("latency"),
     endSession: log("endSession"),
     flush: async () => {},
   };
@@ -168,6 +171,11 @@ export function pgPersistence(sql: postgres.Sql, log: (e: unknown) => void = con
     },
     setCurrent(sessionId, r) {
       enqueue(sessionId, () => sql`update design_documents set current_version = ${r.version}, current_doc = ${json(r.doc)} where id = ${r.documentId}`);
+    },
+    latency(sessionId, r) {
+      enqueue(sessionId, () => sql`
+        insert into latency_events (job_id, utterance_id, stage, t_ms)
+        values (${r.jobId ?? null}, ${r.utteranceId ?? null}, ${r.stage}, ${Math.round(r.tMs)})`);
     },
     endSession(sessionId) {
       enqueue(sessionId, () => sql`update sessions set status = 'ended', ended_at = now() where id = ${sessionId}`);

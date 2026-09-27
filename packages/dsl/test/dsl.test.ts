@@ -164,3 +164,56 @@ describe("parseHeader (compressed intent header, ADR 0006)", async () => {
     expect(parseHeader("add 7")).toBeNull();
   });
 });
+
+describe("lexicon (M4 tier 0)", async () => {
+  const { lexicon } = await import("../src/lexicon.js");
+  const SENTENCE = "a login screen with email and password big blue sign in button logo on top";
+
+  /** Replays the sentence as growing partials (as Flux sends them), applying ops each time. */
+  function replay(sentence: string, start = emptyDoc()) {
+    let doc = start;
+    const batches: string[][] = [];
+    const moves: Record<string, number> = {};
+    const words = sentence.split(" ");
+    for (let n = 1; n <= words.length; n++) {
+      const before = new Map((doc.root.children ?? []).map((c, i) => [c.id, i]));
+      const r = lexicon(words.slice(0, n).join(" "), doc);
+      for (const op of r.ops) doc = applyOp(doc, op);
+      if (r.created.length) batches.push(r.created.map((c) => c.id));
+      (doc.root.children ?? []).forEach((c, i) => { if (before.has(c.id) && before.get(c.id)! !== i) moves[c.id] = (moves[c.id] ?? 0) + 1; });
+    }
+    return { doc, batches, moves };
+  }
+
+  it("draws the definition-of-done sentence in order, with held modifiers and the button label", () => {
+    const { doc, batches } = replay(SENTENCE);
+    expect(batches).toEqual([["n_p_email"], ["n_p_password"], ["n_p_button"], ["n_p_logo"]]);
+    expect(doc.root.children!.map((c) => [c.type, c.props])).toEqual([
+      ["Image", { alt: "Logo", aspect: "3:1" }],
+      ["Input", { label: "Email", kind: "email", placeholder: "you@example.com" }],
+      ["Input", { label: "Password", kind: "password" }],
+      ["Button", { label: "Sign in", variant: "primary", size: "lg", color: "primary" }],
+    ]);
+    expect(doc.root.children!.every((c) => c.provisional === true)).toBe(true);
+    expect(DesignDocSchema.safeParse(doc).success).toBe(true);
+  });
+
+  it("never duplicates across partials, mentions, or edits of existing elements", () => {
+    const { doc } = replay(`${SENTENCE} and make the email field bigger and the button blue`);
+    expect(doc.root.children).toHaveLength(4);
+    const again = lexicon("an email and a password", doc);
+    expect(again.ops).toEqual([]);
+  });
+
+  it("each element moves at most once (logo inserted by rank, not appended then moved)", () => {
+    const { moves } = replay(SENTENCE);
+    expect(Math.max(0, ...Object.values(moves))).toBeLessThanOrEqual(1);
+  });
+
+  it("ignores filler and uses doc kinds built by the model, not just provisional ones", () => {
+    expect(lexicon("um so like a", emptyDoc()).ops).toEqual([]);
+    const built = emptyDoc();
+    built.root.children = [{ id: "n_email", type: "Input", props: { label: "Email", kind: "email" } }];
+    expect(lexicon("email", built).ops).toEqual([]);
+  });
+});

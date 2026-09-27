@@ -5,9 +5,11 @@
  */
 import WebSocketNode from "ws";
 
+/** eager: Flux EagerEndOfTurn — the speaker has probably finished (a TurnResumed may follow). */
+export interface SttMeta { lastWordEndMs?: number; eager?: boolean }
 export interface SttSession {
   send(frame: Buffer): void;
-  onText(cb: (text: string, isFinal: boolean) => void): void;
+  onText(cb: (text: string, isFinal: boolean, meta?: SttMeta) => void): void;
   finish(): Promise<void>;
 }
 export interface SttProvider {
@@ -27,7 +29,7 @@ export async function wsSession(
     headers?: Record<string, string>;
     onOpen?: (send: (data: string | Buffer) => void) => void;
     encode?: (frame: Buffer) => string | Buffer;
-    parse: (msg: any, emit: (text: string, isFinal: boolean) => void) => void;
+    parse: (msg: any, emit: (text: string, isFinal: boolean, meta?: SttMeta) => void) => void;
     close: (send: (data: string | Buffer) => void) => void;
   },
 ): Promise<SttSession> {
@@ -39,13 +41,13 @@ export async function wsSession(
   });
   const send = (d: string | Buffer) => { if (ws.readyState === WebSocketNode.OPEN) ws.send(d); };
   opts.onOpen?.(send);
-  let cb: (text: string, isFinal: boolean) => void = () => {};
+  let cb: (text: string, isFinal: boolean, meta?: SttMeta) => void = () => {};
   const closed = new Promise<void>((res) => ws.once("close", () => res()));
   ws.on("message", (data, isBinary) => {
     if (isBinary) return;
     let msg: any;
     try { msg = JSON.parse(data.toString()); } catch { return; }
-    opts.parse(msg, (t, f) => cb(t, f));
+    opts.parse(msg, (t, f, m) => cb(t, f, m));
   });
   return {
     send: (frame) => { const d = opts.encode ? opts.encode(frame) : frame; if (typeof d === "string" || d.length) send(d); },
@@ -83,14 +85,23 @@ export const PROVIDERS: Record<string, SttProvider> = {
     connect: async () => {
       // Batch to ≥ 80 ms (2,560 bytes); frames that are already 80 ms (browser relay) pass straight through.
       let pending: Buffer[] = [], bytes = 0;
-      return wsSession("wss://api.deepgram.com/v2/listen?model=flux-general-en&encoding=linear16&sample_rate=16000", {
+      // eager_eot_threshold enables EagerEndOfTurn: an early "probably finished" signal we settle on (M4).
+      return wsSession(`wss://api.deepgram.com/v2/listen?model=flux-general-en&encoding=linear16&sample_rate=16000&eager_eot_threshold=${env("FLUX_EAGER_EOT") ?? "0.4"}`, {
         headers: { authorization: `Token ${env("DEEPGRAM_API_KEY")}` },
         encode: (frame) => {
           pending.push(frame); bytes += frame.length;
           if (bytes < 2560) return Buffer.alloc(0);
           const out = Buffer.concat(pending); pending = []; bytes = 0; return out;
         },
-        parse: (m, emit) => { if (m.type === "TurnInfo") emit(m.transcript ?? "", m.event === "EndOfTurn"); },
+        parse: (m, emit) => {
+          if (m.type !== "TurnInfo") return;
+          const words: Array<{ end?: number }> = m.words ?? [];
+          const last = words.length ? words[words.length - 1]!.end : undefined;
+          emit(m.transcript ?? "", m.event === "EndOfTurn", {
+            ...(last != null ? { lastWordEndMs: Math.round(last * 1000) } : {}),
+            ...(m.event === "EagerEndOfTurn" ? { eager: true } : {}),
+          });
+        },
         close: (send) => send(JSON.stringify({ type: "CloseStream" })),
       });
     },

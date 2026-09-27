@@ -1,6 +1,8 @@
 "use client";
 import { Canvas } from "@/components/canvas/Canvas";
+import { Hud } from "@/components/Hud";
 import { TranscriptStrip } from "@/components/TranscriptStrip";
+import { installMetricsTap } from "@/lib/metricsTap";
 import { gateway } from "@/lib/gateway";
 import { startVoice } from "@/lib/voice/session";
 import { useDoc } from "@/store/doc";
@@ -20,6 +22,7 @@ export default function Studio() {
   const session = useRef<{ stop(): void } | null>(null);
   const [prompt, setPrompt] = useState("");
   const [connError, setConnError] = useState<string | null>(null);
+  const [hud, setHud] = useState(false);
 
   const start = useCallback(async () => {
     reset();
@@ -34,9 +37,11 @@ export default function Studio() {
   useEffect(() => {
     (window as unknown as Record<string, unknown>).__lcVoice = useVoice; // E2E harness
     (window as unknown as Record<string, unknown>).__lcDoc = useDoc;
+    const untap = installMetricsTap();
+    setHud(new URLSearchParams(location.search).has("hud"));
     gateway.connect().then(() => setConnError(null), (e: Error) => setConnError(e.message));
     if (new URLSearchParams(location.search).has("autostart")) void start();
-    return () => session.current?.stop();
+    return () => { untap(); session.current?.stop(); };
   }, [start]);
 
   // ⌘Z / Ctrl+Z undo, ⇧⌘Z / Ctrl+Y redo — ignored while typing in the prompt box.
@@ -89,6 +94,7 @@ export default function Studio() {
       </div>
       <div style={{ flex: 1 }}><Canvas doc={doc} /></div>
       <TranscriptStrip />
+      {hud && <Hud />}
     </main>
   );
 }

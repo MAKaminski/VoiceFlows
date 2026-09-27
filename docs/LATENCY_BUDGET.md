@@ -79,3 +79,17 @@ Scored against one ground-truth alignment (`scripts/fixtures/dod.words.json`); r
 |---|---|---|---|---|
 | TTFV-0 | 607 ms | 40 + 91 + 5 + 60 = **196 ms ✅** | 196 ms ✅ | ≤ 400 |
 | TTFV-1 | 1,515 ms | 40 + 91 + 20 + 75 + 788 + 30 + 60 = 1,104 ms ❌ | 40 + 91 + 20 + 0 + 638 + 30 + 60 = **879 ms ✅** | ≤ 1,000 |
+
+## M4 acceptance — measured end to end (ADR 0010, `docs/m4/`)
+
+Node harness streams the WAV over the gateway relay exactly like the browser; 10 runs vs Railway sfo.
+Adjusted = + 40 ms capture + 16 ms render (estimates).
+
+| Metric | p50 raw | p50 adjusted | Target | |
+|---|---|---|---|---|
+| TTFV-0 (lexicon) | −94 ms | −38 ms | ≤ 400 | ✅ elements appear before the word ends |
+| TTFV-1 (first model op) | 850 ms | 906 ms | ≤ 1,000 | ✅ (2/10 runs over: 1,070 / 1,100 raw) |
+| Settle after last word | 839 ms | 895 ms | ≤ 1,200 | ✅ |
+| Max reflows / element | 1 | — | < 3 | ✅ |
+| Model calls / speaking min | 9.6 | — | ≤ 20 | ✅ |
+| $ / speaking min | $0.0129 | — | ≤ $0.046 | ✅ (−72% vs budget) |

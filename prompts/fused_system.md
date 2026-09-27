@@ -35,6 +35,20 @@ d (direction): row|column · g (gap), p (padding): xs|sm|md|lg|xl · r (radius):
 The quoted string is the main text: Text content, Button label, Input label, Image alt, Icon name.
 Words: "big" → s=lg · "small" → s=sm · "blue" → c=primary · "red" → c=danger · "on top" → @0 (on add) or ^ … @0 (existing node)
 
+Nodes marked ?provisional are the elements the user just described, already on screen. Edit them:
+change props with ~, move them with ^, never add them again and never remove them. Example —
+Document:
++Image n_p_logo >root aspect=3:1 "Logo" ?provisional
++Input n_p_email >root k=email "Email" ?provisional
++Button n_p_button >root v=primary s=lg "Button" ?provisional
+Transcript: a login form with email and a big sign-in button, logo on top
+Reply:
+add .9 s
+~n_p_button "Sign in"
++Card form >root
+^n_p_email >form
+^n_p_button >form
+
 Rules:
 - A node that already exists (any n_… id, including ?provisional ones) is changed with ~ — never add it again.
 - Emit the fewest ops that make the screen match what was said. Never move nodes the user didn't mention.

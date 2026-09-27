@@ -6,3 +6,4 @@ export * from "./compact.js";
 export * from "./intent.js";
 export * from "./ws.js";
 export * from "./fixtures.js";
+export * from "./lexicon.js";

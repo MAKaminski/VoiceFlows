@@ -1,5 +1,7 @@
 import { SttGrant } from "@livecanvas/dsl";
 import { gateway, HTTP_BASE } from "@/lib/gateway";
+import { tapLocalTranscript } from "@/lib/metricsTap";
+import { useMetrics } from "@/store/metrics";
 import { startCapture, type Capture } from "./capture";
 
 export interface Transcript { utteranceSeq: number; text: string; isFinal: boolean; tMs: number }
@@ -27,9 +29,11 @@ export async function startVoice(ev: VoiceEvents): Promise<{ stop(): void }> {
   let capture: Capture | null = null;
   let seq = 0;
   const since = () => (capture?.startedAt ? performance.now() - capture.startedAt : 0);
-  const emit = (text: string, isFinal: boolean, forward: boolean) => {
+  useMetrics.setState({ audioClock: () => (capture?.startedAt ? performance.now() - capture.startedAt : null) });
+  const emit = (text: string, isFinal: boolean, forward: boolean, lastWordEndMs?: number) => {
     if (!text) return;
-    const t = { utteranceSeq: seq, text, isFinal, tMs: since() };
+    const t = { utteranceSeq: seq, text, isFinal, tMs: since(), ...(lastWordEndMs != null ? { lastWordEndMs } : {}) };
+    tapLocalTranscript(t);
     ev.onTranscript(t);
     if (forward) gateway.send({ type: "partial", ...t });
     if (isFinal) seq++;
@@ -50,7 +54,10 @@ export async function startVoice(ev: VoiceEvents): Promise<{ stop(): void }> {
       await new Promise<void>((res, rej) => { dg!.onopen = () => res(); dg!.onerror = () => rej(new Error("Deepgram refused the browser token")); });
       dg.onmessage = (e) => {
         const m = JSON.parse(String(e.data));
-        if (m.type === "TurnInfo") emit(m.transcript ?? "", m.event === "EndOfTurn", true);
+        if (m.type === "TurnInfo") {
+          const last = (m.words ?? []).at(-1)?.end;
+          emit(m.transcript ?? "", m.event === "EndOfTurn", true, last != null ? Math.round(last * 1000) : undefined);
+        }
       };
     }
     capture = await startCapture((frame) => {

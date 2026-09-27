@@ -18,6 +18,8 @@ const Transcript = {
   text: z.string(),
   isFinal: z.boolean(),
   tMs: z.number(), // ms since this session's audio started (client clock in direct/webspeech, gateway clock in relay)
+  lastWordEndMs: z.number().optional(), // audio-clock end of the newest word (Flux word timings) — TTFV anchor
+  eager: z.boolean().optional(), // Flux EagerEndOfTurn: probably finished speaking (settle early)
 };
 
 // Client → gateway (JSON text frames; relay-mode audio travels as binary frames alongside)
@@ -28,6 +30,10 @@ export const ClientMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("partial"), ...Transcript }),
   z.object({ type: z.literal("prompt"), text: z.string().min(1).max(2000) }), // typed prompt (M3)
   z.object({ type: z.literal("first_render"), jobId: z.string(), tMs: z.number() }),
+  // Dev HUD sliders (M4): per-session scheduler tunables.
+  z.object({ type: z.literal("tune"), minGapMs: z.number().int().min(0).max(5000).optional(), callsPerMin: z.number().int().min(1).max(120).optional() }),
+  // Client-measured per-utterance metrics (reflows need real layout).
+  z.object({ type: z.literal("metrics"), utteranceSeq: z.number().int(), reflows: z.number().int().nonnegative(), maxReflowsPerElement: z.number().int().nonnegative() }),
   z.object({ type: z.literal("undo") }),
   z.object({ type: z.literal("redo") }),
 ]);
@@ -44,8 +50,13 @@ export const ServerMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("welcome"), sessionId: z.string(), version: z.number().int(), resumed: z.boolean().optional() }),
   z.object({ type: z.literal("doc"), doc: DesignDocSchema, ...VersionInfo }), // full snapshot on welcome/resume
   z.object({ type: z.literal("transcript"), ...Transcript }), // relay mode
-  z.object({ type: z.literal("ops"), jobId: z.string(), origin: OpOrigin, ops: z.array(PatchOp) }),
-  z.object({ type: z.literal("job"), jobId: z.string(), state: z.enum(["running", "done", "aborted", "failed"]), text: z.string().optional(), firstOpMs: z.number().optional(), opCount: z.number().int().optional(), detail: z.string().optional() }),
+  // trigMs: audio-clock time of the word that caused this batch (TTFV = render time − trigMs).
+  z.object({ type: z.literal("ops"), jobId: z.string(), origin: OpOrigin, ops: z.array(PatchOp), trigMs: z.number().optional() }),
+  z.object({
+    type: z.literal("job"), jobId: z.string(), state: z.enum(["running", "done", "aborted", "failed"]),
+    kind: z.enum(["typed", "speculative", "settle"]).optional(), text: z.string().optional(), firstOpMs: z.number().optional(),
+    opCount: z.number().int().optional(), detail: z.string().optional(), inputTokens: z.number().int().optional(), outputTokens: z.number().int().optional(),
+  }),
   z.object({ type: z.literal("version"), ...VersionInfo }),
   z.object({ type: z.literal("status"), pending: z.string().nullable() }),
   z.object({ type: z.literal("error"), message: z.string() }),

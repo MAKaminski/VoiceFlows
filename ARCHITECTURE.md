@@ -152,7 +152,7 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Tables with no FK either way | 0 |
 | Distinct error types | 1 |
 | Symbol names defined 3+ times | 0 |
-| ARDs on record | 10 (10 contributing to the diagram) |
+| ARDs on record | 11 (11 contributing to the diagram) |
 | Components declared by ARDs | 11 |
 | Features declared by ARDs | 8 |
 <!-- arch:end:counts -->
@@ -191,7 +191,7 @@ flowchart TB
     anthropic["Anthropic Messages API (Haiku 4.5 · Sonnet 5)<br/><small>ARD 0000</small>"]
     compact_expander["Compact op expander → RFC 6902 (packages/dsl)<br/><small>ARD 0002</small>"]
     deepgram["Deepgram Flux streaming STT (flux-general-en)<br/><small>ARD 0007</small><br/><small>M2 bake-off: word lag 91 ms p50 (sfo), update every 240 ms — ADR 0007</small>"]
-    doc_session["DocSession — single writer: doc, job controller, versions/undo<br/><small>ARD 0009</small>"]
+    doc_session["DocSession — single writer: doc, job controller, versions/undo<br/><small>ARD 0009</small><br/><small>M4: 1 model call/utterance · TTFV-1 906 ms · settle 839 ms · $0.0129/min</small>"]
     fused_engine["Fused intent+patch engine — header-first, single in-flight<br/><small>ARD 0001</small><br/><small>TTFV-1 target ≤ 1,000 ms p50</small>"]
     client_lexicon["Lexicon — provisional nodes (gateway, M4)<br/><small>ARD 0009</small><br/><small>TTFV-0 target ≤ 400 ms p50</small>"]
     stripe["Stripe metered billing (M5, planned)<br/><small>ARD 0004</small><br/><small>$20 incl. 200 speaking min · BYOK $10</small>"]
@@ -299,16 +299,16 @@ row you plan to reach — both are account-specific.
 
 | Metric | Target p50 | Target p95 | **M0 measured p50** | Fails when | Measured by |
 |---|---|---|---|---|---|
-| TTFV-0 — first visible change | ≤ 400 ms | ≤ 600 ms | **607 ms ❌** | p50 regresses > 15% | client: Deepgram word-end → render |
-| TTFV-1 — first model change | ≤ 1,000 ms | ≤ 1,500 ms | **1,515 ms ❌** | p50 regresses > 15% | client: word-end → render of model op |
+| TTFV-0 — first visible change | ≤ 400 ms | ≤ 600 ms | M0 607 ms ❌ → **M4 −38 ms ✅** | p50 regresses > 15% | client: Deepgram word-end → render |
+| TTFV-1 — first model change | ≤ 1,000 ms | ≤ 1,500 ms | M0 1,515 ms ❌ → **M4 906 ms ✅** | p50 regresses > 15% | client: word-end → render of model op |
 | STT word-end → partial | ≤ 295 ms | — | 502 ms Nova-3 ❌ → **91 ms Flux ✅** (ADR 0007) | — | bake-off / client |
 | Haiku first valid op | ≤ 640 ms | — | **788 ms** | — | spike / `latency_events` first_op |
-| Settle after speech stops | ≤ 1,200 ms | ≤ 2,000 ms | — (M4) | p50 > 1,500 ms | `latency_events` final → settled |
-| Reflows per element per utterance | < 3 | — | — (M4) | ≥ 3 in > 2/10 runs | ResizeObserver, bbox move > 4 px |
+| Settle after speech stops | ≤ 1,200 ms | ≤ 2,000 ms | **M4 839 ms ✅** | p50 > 1,500 ms | `latency_events` final → settled |
+| Reflows per element per utterance | < 3 | — | **M4 1 ✅** (op-stream proxy) | ≥ 3 in > 2/10 runs | ResizeObserver, bbox move > 4 px |
 | React commit, 1 op on 200-node doc | < 16 ms | — | — (M3) | ≥ 16 ms | React Profiler |
 | Model op validity | ≥ 98% | — | **100% ✅** | < 98% | zod on expanded ops |
-| Cost per speaking minute | ≤ $0.046 | — | **$0.0313 ✅** | > $0.036 (+15% on measured) | HUD: tokens × price + STT min |
-| Model calls per speaking minute | ≤ 20 | — | 20 (cap binds) | > 23 | `generation_jobs` count |
+| Cost per speaking minute | ≤ $0.046 | — | M0 $0.0313 → **M4 $0.0129 ✅** | > $0.015 (+15% on measured) | HUD: tokens × price + STT min |
+| Model calls per speaking minute | ≤ 20 | — | **M4 9.6 ✅** | > 23 | `generation_jobs` count |
 | Gateway self-time per TTFV-1 | ≤ 20 ms | — | — (M4) | > 20 ms p95 → ADR 0005 Rust trigger | OTel spans |
 
 M0 (ADR 0006): STT is the gating hop — see `docs/LATENCY_BUDGET.md` for per-hop data and the

@@ -62,11 +62,11 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
         if (!seqMap.has(clientSeq)) seqMap.set(clientSeq, doc!.allocSeq());
         return seqMap.get(clientSeq)!;
       };
-      const onTranscript = (t: { utteranceSeq: number; text: string; isFinal: boolean; tMs: number }) => {
+      const onTranscript = (t: { utteranceSeq: number; text: string; isFinal: boolean; tMs: number; lastWordEndMs?: number; eager?: boolean }) => {
         if (!doc || !t.text) return;
         const seq = voiceSeq(t.utteranceSeq);
-        deps.persistence.record(doc.sessionId, { ...t, utteranceSeq: seq });
-        if (t.isFinal) void doc.run(t.text, "voice", seq); // M3: one job per finished utterance; M4 adds speculation
+        deps.persistence.record(doc.sessionId, { utteranceSeq: seq, text: t.text, isFinal: t.isFinal, tMs: t.tMs });
+        doc.onTranscript(seq, t.text, t.isFinal, t.lastWordEndMs, t.eager); // M4: lexicon + speculative jobs + settle
       };
       const stopRelay = async () => {
         const r = relay; relay = null;
@@ -103,9 +103,9 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
               relay = await deps.relayProvider.connect();
               relayStart = performance.now(); relaySeq = 0; framesIn = 0; transcriptsOut = 0;
               app.log.info({ sessionId: doc!.sessionId }, "relay: opened Deepgram Flux");
-              relay.onText((text, isFinal) => {
+              relay.onText((text, isFinal, meta) => {
                 if (!text) return;
-                const t = { utteranceSeq: relaySeq, text, isFinal, tMs: performance.now() - relayStart };
+                const t = { utteranceSeq: relaySeq, text, isFinal, tMs: performance.now() - relayStart, ...(meta?.lastWordEndMs != null ? { lastWordEndMs: meta.lastWordEndMs } : {}), ...(meta?.eager ? { eager: true } : {}) };
                 transcriptsOut++;
                 send({ type: "transcript", ...t });
                 onTranscript(t);
@@ -123,6 +123,14 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
             return doc!.undo();
           case "redo":
             return doc!.redo();
+          case "tune":
+            return doc!.tune({ ...(msg.minGapMs != null ? { minGapMs: msg.minGapMs } : {}), ...(msg.callsPerMin != null ? { callsPerMin: msg.callsPerMin } : {}) });
+          case "metrics": {
+            const uid = deps.persistence.utterance(doc!.sessionId, voiceSeq(msg.utteranceSeq), "voice");
+            return deps.persistence.latency(doc!.sessionId, { utteranceId: uid, stage: "reflow", tMs: msg.maxReflowsPerElement });
+          }
+          case "first_render":
+            return deps.persistence.latency(doc!.sessionId, { jobId: msg.jobId, stage: "first_render", tMs: msg.tMs });
           default:
             return send({ type: "status", pending: null });
         }
