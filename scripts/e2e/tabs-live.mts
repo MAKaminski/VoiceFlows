@@ -23,7 +23,7 @@ async function tab(ids: object = {}) {
 }
 
 const a = await tab();
-a.send({ type: "new_doc", kind: "sequence" });
+a.send({ type: "set_title", title: "Tabs check" });
 await a.until((m) => m.type === "version" && m.version === 1);
 a.ws.close();
 const b = await tab({ documentId: a.welcome.documentId });

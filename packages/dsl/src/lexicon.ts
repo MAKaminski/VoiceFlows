@@ -1,5 +1,5 @@
-import { docKind, emptyRoot, isBlank, type DesignDoc, type DesignNode, type DocKind } from "./doc.js";
-import { applyOp, type PatchOp } from "./ops.js";
+import { docKind, isBlank, type DesignDoc, type DesignNode, type DocKind } from "./doc.js";
+import type { PatchOp } from "./ops.js";
 import type { NodeKind, PrimitiveType, Tier } from "./primitives.js";
 import { isVocabCommand, type VocabTerm } from "./vocabulary.js";
 
@@ -23,6 +23,8 @@ export interface LexiconResult {
   /** Occurrence keys (`button#1` = first "button" in the utterance) this call turned into nodes —
    *  nouns plus the modifiers attached to them. Stable under Flux revisions ("sign and" → "sign in"). */
   consumed: string[];
+  /** The utterance names another view (ADR 0016): the caller switches to it and runs the lexicon there. */
+  view?: DocKind;
 }
 
 /** `word#k` for each token: the k-th occurrence of that word in the text (1-based). */
@@ -133,23 +135,21 @@ const isReference = (words: string[], i: number) => words.slice(Math.max(0, i - 
 export function lexicon(
   runningText: string, doc: DesignDoc, drawn: ReadonlySet<string> = new Set(), terms: readonly VocabTerm[] = [],
   kindAllowed: (k: DocKind) => boolean = () => true, // feature flags (ADR 0012): a disabled kind is never switched to
+  reservedIds: ReadonlySet<string> = new Set(), // ids used in the project's other views (ADR 0016)
 ): LexiconResult {
-  // A diagram request on a blank doc switches kind first (ADR 0011), then draws against the new root.
-  const want = requestedKind(lexTokens(runningText));
-  if (want && want !== docKind(doc) && isBlank(doc) && kindAllowed(want)) {
-    const sw: PatchOp = { op: "replace", path: "/root", value: emptyRoot(want) };
-    const rest = lexicon(runningText, applyOp(doc, sw), drawn, terms, kindAllowed);
-    return { ops: [sw, ...rest.ops], created: rest.created, consumed: rest.consumed };
-  }
-  if (doc.root.type === "Diagram") return diagramLexicon(runningText, doc, drawn, terms);
-  return screenLexicon(runningText, doc, drawn);
+  // Naming a view switches to it — never by replacing anything (ADR 0016). Strong phrases always switch;
+  // loose ones ("schema", "a login screen") only while the current view is still blank.
+  const want = requestedKind(lexTokens(runningText), isBlank(doc));
+  if (want && want !== docKind(doc) && kindAllowed(want)) return { ops: [], created: [], consumed: [], view: want };
+  if (doc.root.type === "Diagram") return diagramLexicon(runningText, doc, drawn, terms, reservedIds);
+  return screenLexicon(runningText, doc, drawn, reservedIds);
 }
 
-function screenLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<string>): LexiconResult {
+function screenLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<string>, reservedIds: ReadonlySet<string>): LexiconResult {
   const words = lexTokens(runningText);
   const occ = occurrenceKeys(words);
   const kinds = collectKinds(doc.root);
-  const ids = new Set<string>();
+  const ids = new Set<string>(reservedIds);
   const walk = (n: DesignNode) => { ids.add(n.id); n.children?.forEach(walk); };
   walk(doc.root);
 
@@ -187,20 +187,28 @@ function screenLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<s
 
 // ── Diagrams (ADR 0011) ──────────────────────────────────────────────────────────────────────────
 
-/** Phrases that ask for a diagram kind. The earliest one in the utterance wins. */
-const KIND_TRIGGERS: Array<[string[], DocKind]> = [
-  [["architecture"], "architecture"], [["system", "diagram"], "architecture"], [["system", "design"], "architecture"],
-  [["infrastructure", "diagram"], "architecture"],
+/**
+ * Phrases that name a view. Strong ones switch any time; loose ones only while the current view is
+ * blank ("database schema" said while describing an architecture must not jump to the ERD).
+ * The LATEST phrase wins: partials arrive word by word, so words before it already went to the
+ * view that was active when they were spoken (ADR 0016).
+ */
+const STRONG_TRIGGERS: Array<[string[], DocKind]> = [
+  [["architecture"], "architecture"], [["system", "diagram"], "architecture"], [["infrastructure", "diagram"], "architecture"],
   [["erd"], "erd"], [["e", "r", "d"], "erd"], [["entity", "relationship"], "erd"], [["data", "model"], "erd"],
-  [["database", "schema"], "erd"], [["schema"], "erd"],
-  [["sequence"], "sequence"], [["flow", "diagram"], "sequence"],
+  [["sequence", "diagram"], "sequence"], [["sequence", "flow"], "sequence"], [["flow", "diagram"], "sequence"],
+  [["wireframe"], "screen"], [["the", "ui"], "screen"],
+];
+const LOOSE_TRIGGERS: Array<[string[], DocKind]> = [
+  [["system", "design"], "architecture"], [["database", "schema"], "erd"], [["schema"], "erd"],
+  [["sequence"], "sequence"], [["screen"], "screen"], [["page"], "screen"],
 ];
 
-export function requestedKind(words: string[]): DocKind | null {
+export function requestedKind(words: string[], loose = true): DocKind | null {
   let best: { at: number; kind: DocKind } | null = null;
-  for (const [phrase, kind] of KIND_TRIGGERS) {
-    for (let i = 0; i + phrase.length <= words.length; i++) {
-      if (phrase.every((w, k) => words[i + k] === w)) { if (!best || i < best.at) best = { at: i, kind }; break; }
+  for (const [phrase, kind] of loose ? [...STRONG_TRIGGERS, ...LOOSE_TRIGGERS] : STRONG_TRIGGERS) {
+    for (let i = words.length - phrase.length; i >= 0; i--) {
+      if (phrase.every((w, k) => words[i + k] === w)) { if (!best || i > best.at) best = { at: i, kind }; break; }
     }
   }
   return best?.kind ?? null;
@@ -218,6 +226,15 @@ const fe = (label: string, tech?: string): DiagramNoun => ({ label, kind: "clien
 /** Longer phrases first: "web app" must win over "app". */
 const ARCH_NOUNS: NounTable = [
   [["load", "balancer"], infra("Load balancer", "cdn")], [["github", "actions"], infra("GitHub Actions")],
+  // Enterprise systems (ADR 0016) — SaaS platforms are external systems in the APIs lane; iPaaS is a service.
+  [["genesys", "bot"], ext("Genesys bot")], [["genesis", "bot"], ext("Genesys bot")], [["observe", "ai"], ext("Observe.AI")],
+  [["service", "now"], ext("ServiceNow")], [["google", "cloud"], infra("Google Cloud")],
+  [["salesforce"], ext("Salesforce")], [["mulesoft"], svc("MuleSoft", "MuleSoft")], [["genesys"], ext("Genesys")], [["genesis"], ext("Genesys")],
+  [["servicenow"], ext("ServiceNow")], [["zendesk"], ext("Zendesk")], [["workday"], ext("Workday")], [["sap"], ext("SAP")],
+  [["hubspot"], ext("HubSpot")], [["segment"], ext("Segment")], [["slack"], ext("Slack")], [["jira"], ext("Jira")],
+  [["okta"], { label: "Okta", kind: "auth", tier: "api" }], [["auth0"], { label: "Auth0", kind: "auth", tier: "api" }],
+  [["snowflake"], db("Snowflake", "Snowflake")], [["databricks"], db("Databricks", "Databricks")], [["bigquery"], db("BigQuery", "BigQuery")],
+  [["elasticsearch"], db("Elasticsearch", "Elasticsearch")], [["dynamo"], db("DynamoDB", "DynamoDB")],
   [["web", "app"], fe("Web app")], [["mobile", "app"], fe("Mobile app")], [["front", "end"], fe("Web app")],
   [["back", "end"], svc("Backend")], [["api", "gateway"], svc("API gateway")], [["message", "queue"], { label: "Queue", kind: "queue", tier: "api" }],
   [["object", "storage"], { label: "Object storage", kind: "storage", tier: "data" }],
@@ -278,7 +295,7 @@ const STOP = new Set(["a", "an", "the", "and", "with", "of", "for", "to", "that"
  * entities and actors append to the diagram in the order spoken (append-stable, so nothing drawn
  * earlier moves). Edges, columns and labels are the model's job.
  */
-function diagramLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<string>, terms: readonly VocabTerm[]): LexiconResult {
+function diagramLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<string>, terms: readonly VocabTerm[], reservedIds: ReadonlySet<string>): LexiconResult {
   const kind = docKind(doc) as Exclude<DocKind, "screen">;
   // Confirmed user words come first, longest first, so a user's definition wins over a built-in (ADR 0012).
   const mine: NounTable = terms.filter((t) => t.kind === kind && t.status === "confirmed")
@@ -290,7 +307,7 @@ function diagramLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<
   const occ = occurrenceKeys(words);
   const labels = new Set<string>();
   const kinds = new Set<string>();
-  const ids = new Set<string>();
+  const ids = new Set<string>(reservedIds);
   const walk = (n: DesignNode) => {
     ids.add(n.id);
     if (n.type === "Node") { labels.add(String(n.props.label).toLowerCase()); kinds.add(String(n.props.kind)); }

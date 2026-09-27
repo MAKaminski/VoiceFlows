@@ -53,6 +53,8 @@ export const ClientMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("vocab_confirm"), id: z.string() }),
   z.object({ type: z.literal("vocab_delete"), id: z.string() }),
   // Share links (ADR 0013): a read-only public link to the version on screen; one live link per version.
+  z.object({ type: z.literal("set_view"), view: DocKind }), // speak to another view of the project (ADR 0016)
+  z.object({ type: z.literal("set_title"), title: z.string().max(80) }),
   z.object({ type: z.literal("goto_version"), version: z.number().int().nonnegative() }), // version timeline (ADR 0015)
   z.object({ type: z.literal("share_create") }),
   z.object({ type: z.literal("share_revoke"), token: ShareToken }),
@@ -87,6 +89,7 @@ export const ServerMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("flags"), flags: Flags }), // an admin flipped a flag (ADR 0012)
   // This tab no longer owns the document: it was opened in another tab (ADR 0014). The socket stays open, idle.
   z.object({ type: z.literal("taken_over") }),
+  z.object({ type: z.literal("view"), view: DocKind }), // the view this tab speaks to (ADR 0016)
   z.object({ type: z.literal("vocab"), terms: z.array(VocabTerm) }), // this document's words, after any change
   z.object({ type: z.literal("vocab_proposed"), term: VocabTerm }), // a spoken "define … as …" awaiting confirm
   // Transcript highlighting: which words of the client's utterance did what (occurrence keys, `word#k`).
@@ -99,7 +102,7 @@ export const ServerMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ops"), jobId: z.string(), origin: OpOrigin, ops: z.array(PatchOp), trigMs: z.number().optional() }),
   z.object({
     type: z.literal("job"), jobId: z.string(), state: z.enum(["running", "done", "aborted", "failed"]),
-    kind: z.enum(["typed", "speculative", "settle"]).optional(), text: z.string().optional(), firstOpMs: z.number().optional(),
+    kind: z.enum(["typed", "speculative", "settle", "notes"]).optional(), text: z.string().optional(), firstOpMs: z.number().optional(),
     opCount: z.number().int().optional(), detail: z.string().optional(), inputTokens: z.number().int().optional(), outputTokens: z.number().int().optional(),
   }),
   z.object({ type: z.literal("version"), ...VersionInfo }),

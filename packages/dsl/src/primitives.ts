@@ -7,7 +7,8 @@ export const SCREEN_TYPES = [
   "Icon", "Card", "List", "Nav", "Table", "Chart",
 ] as const;
 export const DIAGRAM_TYPES = ["Diagram", "Layer", "Node", "Edge"] as const;
-export const PRIMITIVE_TYPES = [...SCREEN_TYPES, ...DIAGRAM_TYPES] as const;
+/** The project root (ADR 0016): exactly four view roots — Screen, Architecture, ERD, Sequence. */
+export const PRIMITIVE_TYPES = [...SCREEN_TYPES, ...DIAGRAM_TYPES, "Project"] as const;
 export const PrimitiveType = z.enum(PRIMITIVE_TYPES);
 export type PrimitiveType = z.infer<typeof PrimitiveType>;
 
@@ -18,7 +19,7 @@ const Id = z.string().regex(/^n_[a-z0-9_]+$/);
 export const DiagramKind = z.enum(["architecture", "erd", "sequence"]);
 export type DiagramKind = z.infer<typeof DiagramKind>;
 /** Architecture lanes = the four layers (Frontend, APIs, Database, Infrastructure). */
-export const Tier = z.enum(["frontend", "api", "data", "infra"]);
+export const Tier = z.enum(["frontend", "api", "data", "infra", "other"]); // "other": a named extra lane (ADR 0016)
 export type Tier = z.infer<typeof Tier>;
 export const NodeKind = z.enum(["user", "client", "service", "db", "cache", "queue", "storage", "external", "cdn", "auth", "worker", "entity"]);
 export type NodeKind = z.infer<typeof NodeKind>;
@@ -91,12 +92,14 @@ export const propSchemas = {
   }),
   // ── Diagrams (ADR 0011): positions are never props — layout.ts computes them from tree order.
   Diagram: z.object({ kind: DiagramKind, title: z.string().optional() }),
+  Project: z.object({ title: z.string().max(80).optional(), notes: z.string().max(600).optional() }),
   Layer: z.object({ tier: Tier, label: z.string().optional() }),
   Node: z.object({
     label: z.string().min(1),
     kind: NodeKind.optional(),
     tech: z.string().optional(),
     cols: z.array(ColumnSpec).optional(),
+    owner: z.string().max(40).optional(), // the team that owns it ("full-stack team") — a badge, not a box
   }),
   Edge: z.object({
     from: Id,
@@ -107,12 +110,13 @@ export const propSchemas = {
   }),
 } satisfies Record<PrimitiveType, z.ZodTypeAny>;
 
-export const CONTAINER_TYPES: ReadonlySet<PrimitiveType> = new Set(["Frame", "Stack", "Card", "Diagram", "Layer"]);
+export const CONTAINER_TYPES: ReadonlySet<PrimitiveType> = new Set(["Frame", "Stack", "Card", "Diagram", "Layer", "Project"]);
 
 /** Allowed parent types per child type — screens and diagrams never mix (plan-critic #3). */
 export const PARENTS: Record<PrimitiveType, ReadonlySet<PrimitiveType>> = Object.fromEntries([
-  ...SCREEN_TYPES.map((t) => [t, new Set<PrimitiveType>(["Frame", "Stack", "Card"])]),
-  ["Diagram", new Set<PrimitiveType>()], // root only
+  ...SCREEN_TYPES.map((t) => [t, new Set<PrimitiveType>(t === "Frame" ? ["Frame", "Stack", "Card", "Project"] : ["Frame", "Stack", "Card"])]),
+  ["Diagram", new Set<PrimitiveType>(["Project"])], // a view root
+  ["Project", new Set<PrimitiveType>()], // root only
   ["Layer", new Set<PrimitiveType>(["Diagram"])],
   ["Node", new Set<PrimitiveType>(["Diagram", "Layer"])],
   ["Edge", new Set<PrimitiveType>(["Diagram"])],
@@ -121,7 +125,7 @@ export const PARENTS: Record<PrimitiveType, ReadonlySet<PrimitiveType>> = Object
 // The prop the compact format's quoted string maps to (ADR 0002).
 export const PRIMARY_TEXT_PROP: Partial<Record<PrimitiveType, string>> = {
   Text: "content", Button: "label", Input: "label", Image: "alt", Icon: "name",
-  Diagram: "title", Layer: "label", Node: "label", Edge: "label",
+  Diagram: "title", Layer: "label", Node: "label", Edge: "label", Project: "title",
 };
 
 /** Props the compact format always carries as arrays, even with a single element. */

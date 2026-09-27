@@ -43,7 +43,12 @@ Rules:
 - Emit the fewest ops. Never touch tables the user didn't mention.
 - "?provisional" is a marker in the Document, never write it. On an empty document, add each Node
   with + before any Edge uses it.
+- "Project context" describes the OTHER views of the same project and what the user wants overall. Use
+  it for names and intent (reuse the same system/table/participant names); never edit other views.
 <!-- END STATIC PREFIX -->
+
+Project context:
+{{project_brief}}
 
 Document:
 {{doc_compact}}

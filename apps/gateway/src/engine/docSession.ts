@@ -1,5 +1,5 @@
 import {
-  applyOp, DesignDocSchema, docKind, emptyDoc, emptyRoot, expandCompact, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
+  applyOp, DesignDocSchema, docKind, emptyProject, emptyView, expandCompact, mapOpPaths, toProject, toProjectPath, viewDoc, VIEWS, viewCount, withView, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
   lexTokens, occurrenceKeys, parseDefine, parseHeader, serializeCompact, type CompactContext, type DesignDoc, type DesignNode, type DocKind, type FeatureKey,
   type Flags, type IntentHeader, type VersionSummary, type WordMark, type OpOrigin, type PatchOp, type ServerMsg, type VocabNode, type VocabTerm,
 } from "@livecanvas/dsl";
@@ -12,9 +12,11 @@ export interface Tunables { minGapMs: number; callsPerMin: number; burst: number
 export const DEFAULT_TUNABLES: Tunables = { minGapMs: 150, callsPerMin: 20, burst: 2 };
 
 type JobKind = "typed" | "speculative" | "settle";
+const BRIEF_CHARS = 480; // ≈ 120 tokens — the project-context cap (ADR 0016 cost math)
 interface ActiveJob {
   id: string; kind: JobKind; text: string; abort: AbortController; baseDoc: DesignDoc; applied: number;
   lexOps: PatchOp[]; trigMs?: number;
+  view: DocKind; // the view the job edits — pinned, so switching views mid-call never misroutes its ops (ADR 0016)
   protectedIds: Set<string>; // nodes this job folded a re-add into — its later `-` lines must not delete them
 }
 interface Utterance {
@@ -80,7 +82,20 @@ const uncovered = (text: string, handled: Set<string>, ending = false, kind: Doc
  *  Undo mid-utterance discards the uncommitted utterance only (critique #2).
  */
 export class DocSession {
-  doc: DesignDoc;
+  /** The whole project — what versions store and the browser mirrors (ADR 0016). */
+  project: DesignDoc;
+  /** The view the user is looking at and speaking to. */
+  activeView: DocKind = "screen";
+  /** The view the engine is working on right now: `activeView`, except while a pinned job's lines apply. */
+  private focus: DocKind = "screen";
+  /** The engine works on one view doc; writes flow back into the project with structural sharing. */
+  get doc(): DesignDoc { return viewDoc(this.project, this.focus); }
+  set doc(v: DesignDoc) { this.project = withView(this.project, this.focus, v.root); }
+  /** Recent utterances across views, for the notes rewrite (ADR 0016). */
+  recent: Array<{ view: DocKind; text: string }> = [];
+  private commitsSinceNotes = 0;
+  private notesAt = -Infinity;
+  private notesRunning = false;
   tunables: Tunables = { ...DEFAULT_TUNABLES };
   private versions = new Map<number, VersionRow>();
   private current: number;
@@ -99,12 +114,16 @@ export class DocSession {
       engine: EngineConfig; // screen prompt
       engines?: Partial<Record<DocKind, EngineConfig>>; // per diagram kind (ADR 0011); falls back to `engine`
       flags?: () => Flags; // ADR 0012; absent = everything on
+      notesEngine?: EngineConfig; // ADR 0016: the project-notes rewrite (background, never on the draw path)
     },
   ) {
-    for (const v of opened.versions) this.versions.set(v.version, v);
-    if (!this.versions.has(0)) this.versions.set(0, { version: 0, parent: null, doc: emptyDoc() });
+    // Every version is upgraded on read, so old single-view docs and their history open as projects.
+    for (const v of opened.versions) this.versions.set(v.version, { ...v, doc: toProject(v.doc) });
+    if (!this.versions.has(0)) this.versions.set(0, { version: 0, parent: null, doc: emptyProject() });
     this.current = this.versions.has(opened.current) ? opened.current : 0;
-    this.doc = structuredClone(this.versions.get(this.current)!.doc);
+    this.project = structuredClone(this.versions.get(this.current)!.doc);
+    // Open on the first view with content (a fresh project opens on the screen).
+    this.activeView = this.focus = VIEWS.find((v) => viewCount(viewDoc(this.project, v.kind).root) > 0)?.kind ?? "screen";
   }
 
   /** This document's user words (ADR 0012): confirmed ones draw; at most one `proposed` awaits confirm. */
@@ -118,17 +137,42 @@ export class DocSession {
   versionInfo() {
     return { version: this.current, canUndo: this.versions.get(this.current)?.parent != null || this.dirty(), canRedo: this.redoTarget() != null };
   }
-  snapshot(): ServerMsg { return { type: "doc", doc: this.doc, ...this.versionInfo() }; }
+  snapshot(): ServerMsg { return { type: "doc", doc: this.project, ...this.versionInfo() }; }
+  viewMsg(): ServerMsg { return { type: "view", view: this.activeView }; }
   allocSeq(): number { return this.nextSeq++; }
   tune(t: Partial<Tunables>) { this.tunables = { ...this.tunables, ...t }; }
 
-  private dirty() { return JSON.stringify(this.doc) !== JSON.stringify(this.versions.get(this.current)!.doc); }
+  private dirty() { return JSON.stringify(this.project) !== JSON.stringify(this.versions.get(this.current)!.doc); }
+  /** View-doc ops → project paths of the focused view, then out to the browser. */
   private emitOps(jobId: string, origin: OpOrigin, ops: PatchOp[], trigMs?: number) {
+    const f = this.focus;
+    this.emitRaw(jobId, origin, ops.map((op) => mapOpPaths(op, (p) => toProjectPath(p, f))), trigMs);
+  }
+  private emitRaw(jobId: string, origin: OpOrigin, ops: PatchOp[], trigMs?: number) {
     if (ops.length) this.deps.send({ type: "ops", jobId, origin, ops, ...(trigMs != null ? { trigMs } : {}) });
   }
-  private restore(doc: DesignDoc, jobId: string, origin: OpOrigin) {
+  /** Puts one view back (rollback of a job in the focused view). */
+  private restoreView(doc: DesignDoc, jobId: string, origin: OpOrigin) {
     this.doc = structuredClone(doc);
     this.emitOps(jobId, origin, [{ op: "replace", path: "/root", value: this.doc.root }]);
+  }
+  /** Puts the whole project back (undo / redo / jump). */
+  private restoreProject(doc: DesignDoc, jobId: string, origin: OpOrigin) {
+    this.project = structuredClone(doc);
+    this.emitRaw(jobId, origin, [{ op: "replace", path: "/root", value: this.project.root }]);
+  }
+  /** Runs `f` with the engine focused on `view` (a pinned job's view), then back on the active view. */
+  private within<T>(view: DocKind, f: () => T): T {
+    const prev = this.focus;
+    this.focus = view;
+    try { return f(); } finally { this.focus = prev; }
+  }
+  /** Every id in the project — new ids must be unique across all four views. */
+  private projectIds(): Set<string> {
+    const ids = new Set<string>();
+    const walk = (n: DesignNode) => { ids.add(n.id); n.children?.forEach(walk); };
+    walk(this.project.root);
+    return ids;
   }
 
   /** Token bucket: `callsPerMin` sustained, `burst` at once. Every started model call spends one. */
@@ -147,17 +191,17 @@ export class DocSession {
     if (!text) return;
     if (!this.flagOn("speak_to_create")) {
       if (this.utt?.seq !== seq) { this.utt = null; this.feature("speak_to_create", "blocked"); this.deps.send({ type: "error", message: "Speaking to create is turned off" }); }
-      this.utt = { seq, baseDoc: this.doc, text, handled: new Set(), lexIds: new Set(), calledFor: new Set(), labels: new Map(), lastCallAt: -Infinity, ending: true, settled: true };
+      this.utt = { seq, baseDoc: this.project, text, handled: new Set(), lexIds: new Set(), calledFor: new Set(), labels: new Map(), lastCallAt: -Infinity, ending: true, settled: true };
       return;
     }
     if (!this.utt || this.utt.seq !== seq) {
       if (this.utt && !this.utt.settled) this.commitUtterance();
-      this.utt = { seq, baseDoc: this.doc, text: "", handled: new Set(), lexIds: new Set(), calledFor: new Set(), labels: new Map(), lastCallAt: -Infinity, ending: false, settled: false };
+      this.utt = { seq, baseDoc: this.project, text: "", handled: new Set(), lexIds: new Set(), calledFor: new Set(), labels: new Map(), lastCallAt: -Infinity, ending: false, settled: false };
     }
     const u = this.utt;
     // Speech resumed after an eager settle (Flux TurnResumed): reopen the utterance as a new part.
     if (u.settled && !isFinal && !isVocabCommand(text) && uncovered(text, u.handled, true, docKind(this.doc)).some((k) => !u.calledFor.has(k))) {
-      u.settled = false; u.ending = false; u.baseDoc = this.doc;
+      u.settled = false; u.ending = false; u.baseDoc = this.project;
     }
     if (u.settled) return;
     u.text = text;
@@ -170,8 +214,10 @@ export class DocSession {
     }
 
     // Tier 0: lexicon → provisional nodes, no model call (ADR 0001/0009).
-    const lex = lexicon(text, this.doc, u.handled, this.terms, (k) => this.flagOn(kindFeature(k)));
-    if (lex.ops[0]?.path === "/root") this.feature(kindFeature(docKind({ ...this.doc, root: (lex.ops[0] as { value: DesignNode }).value })), "used");
+    // Naming another view switches to it and draws there; nothing in the old view is touched (ADR 0016).
+    const allowed = (k: DocKind) => this.flagOn("projects") && this.flagOn(kindFeature(k));
+    let lex = lexicon(text, this.doc, u.handled, this.terms, allowed, this.projectIds());
+    if (lex.view) { this.setView(lex.view); lex = lexicon(text, this.doc, u.handled, this.terms, allowed, this.projectIds()); }
     for (const k of lex.consumed) u.handled.add(k);
     for (const c of lex.created) u.labels.set(c.key, { label: labelOf(lex.ops, c.id), mine: !!c.mine });
     if (lex.ops.length) { this.applyLexicon(lex.ops, seq, lastWordEndMs, lex.created.map((c) => c.id)); lex.created.forEach((c) => { u.lexIds.add(c.id); this.lexOrigin.add(c.id); }); }
@@ -232,7 +278,7 @@ export class DocSession {
     this.doc = next;
     const jobId = randomUUID();
     this.emitOps(jobId, "lexicon", ops, trigMs);
-    this.active?.lexOps.push(...ops); // replayed if the running job is rolled back (critique M3 #4)
+    if (this.active?.view === this.focus) this.active.lexOps.push(...ops); // replayed if the running job is rolled back (critique M3 #4)
     const { persistence } = this.deps;
     const uid = persistence.utterance(this.sessionId, seq, "voice");
     const intentId = randomUUID();
@@ -254,9 +300,13 @@ export class DocSession {
       if (n.provisional) clear.push({ op: "remove", path: `${path}/provisional` });
       n.children?.forEach((c, i) => walk(c, `${path}/children/${i}`));
     };
-    walk(this.doc.root, "/root");
-    if (clear.length) { for (const op of clear) this.doc = applyOp(this.doc, op); this.emitOps(randomUUID(), "model", clear); }
-    if (JSON.stringify(this.doc) !== JSON.stringify(u.baseDoc)) { this.writeVersion(null); this.feature("speak_to_create", "used"); }
+    walk(this.project.root, "/root"); // an utterance can span views: clear provisional flags project-wide
+    if (clear.length) { for (const op of clear) this.project = applyOp(this.project, op); this.emitRaw(randomUUID(), "model", clear); }
+    if (JSON.stringify(this.project) !== JSON.stringify(u.baseDoc)) {
+      this.writeVersion(null);
+      this.feature("speak_to_create", "used");
+      this.remember(u.text);
+    }
     const uid = this.deps.persistence.utterance(this.sessionId, u.seq, "voice");
     this.deps.persistence.latency(this.sessionId, { utteranceId: uid, stage: "settled", tMs: u.lastWordEndMs ?? 0 });
     this.announceVersion();
@@ -266,6 +316,7 @@ export class DocSession {
   async run(text: string, source: "voice" | "typed", seq: number): Promise<void> {
     this.abortActive();
     this.feature("speak_to_create", "used");
+    this.remember(text);
     await this.runJob("typed", text, seq);
   }
 
@@ -278,7 +329,7 @@ export class DocSession {
       // Restore the pre-job doc, then replay lexicon ops that landed during the job (if they still apply).
       let doc = job.baseDoc;
       for (const op of job.lexOps) { try { doc = applyOp(doc, op); } catch { /* no longer applies */ } }
-      this.restore(doc, job.id, "rollback");
+      this.within(job.view, () => this.restoreView(doc, job.id, "rollback"));
     }
     this.deps.send({ type: "job", jobId: job.id, state: "aborted", kind: job.kind, detail: reason });
     this.deps.persistence.jobEnd(this.sessionId, { id: job.id, status: "aborted" });
@@ -287,7 +338,7 @@ export class DocSession {
   private async runJob(kind: JobKind, text: string, seq: number, trigMs?: number): Promise<void> {
     const { persistence } = this.deps;
     const sid = this.sessionId;
-    const job: ActiveJob = { id: randomUUID(), kind, text, abort: new AbortController(), baseDoc: this.doc, applied: 0, lexOps: [], trigMs, protectedIds: new Set() };
+    const job: ActiveJob = { id: randomUUID(), kind, text, abort: new AbortController(), baseDoc: this.doc, applied: 0, lexOps: [], trigMs, protectedIds: new Set(), view: this.activeView };
     this.active = job;
     const utteranceId = persistence.utterance(sid, seq, kind === "typed" ? "typed" : "voice", kind === "typed" ? text : undefined);
     this.deps.send({ type: "job", jobId: job.id, state: "running", kind, text });
@@ -298,7 +349,7 @@ export class DocSession {
     const stream = this.deps.model({
       model: engine.model,
       system: engine.system,
-      user: engine.render({ doc_compact: serializeCompact(this.doc.root) || `(empty ${dk === "screen" ? "screen" : "diagram"}: root)`, partial_text: text }),
+      user: engine.render({ project_brief: this.brief(), doc_compact: serializeCompact(this.doc.root) || `(empty ${dk === "screen" ? "screen" : "diagram"}: root)`, partial_text: text }),
       signal: job.abort.signal,
     });
     const aliases = new Map<string, string>();
@@ -307,7 +358,7 @@ export class DocSession {
       assignId: (alias) => {
         const base = `n_${alias.toLowerCase().replace(/^n_/, "").replace(/[^a-z0-9_]/g, "") || "node"}`;
         let id = base, n = 2;
-        while (findNode(this.doc.root, id) || [...aliases.values()].includes(id)) id = `${base}_${n++}`;
+        while (findNode(this.project.root, id) || [...aliases.values()].includes(id)) id = `${base}_${n++}`;
         aliases.set(alias, id);
         return id;
       },
@@ -320,6 +371,8 @@ export class DocSession {
     try {
       for await (const { line, atMs } of stream.lines) {
         if (this.active !== job) return;
+        this.focus = job.view; // pinned: this line edits the job's view even if the user switched away
+        try {
         if (!header) {
           const parsed = parseHeader(line);
           header = parsed ?? { a: "add", c: 0.5, s: false, x: false, t: [] };
@@ -328,7 +381,7 @@ export class DocSession {
           persistence.jobStart(sid, { id: job.id, intentId, model: engine.model });
           if (header.a === "none") break;
           if (header.a === "undo" && header.x) { this.finish(job, "done"); this.undo(); return; }
-          if (header.a === "reset" && header.x) { this.applyValidated(job, [{ op: "replace", path: "/root", value: emptyRoot(dk) }], atMs, opSeq++); continue; }
+          if (header.a === "reset" && header.x) { this.applyValidated(job, [{ op: "replace", path: "/root", value: emptyView(dk) }], atMs, opSeq++); continue; } // "start over" clears this view only
           if (parsed) continue;
         }
         let ops: PatchOp[];
@@ -338,6 +391,7 @@ export class DocSession {
           opSeq += ops.length;
           if (firstOpMs == null) { firstOpMs = atMs; persistence.latency(sid, { jobId: job.id, stage: "first_op", tMs: atMs }); }
         }
+        } finally { this.focus = this.activeView; }
       }
       if (this.active !== job) return;
       const usage = await stream.usage;
@@ -345,7 +399,7 @@ export class DocSession {
     } catch (e) {
       if (this.active !== job) return;
       this.deps.log?.(`engine: job failed (${(e as Error).message})`);
-      if (job.applied > 0) this.restore(job.baseDoc, job.id, "rollback");
+      if (job.applied > 0) this.within(job.view, () => this.restoreView(job.baseDoc, job.id, "rollback"));
       this.finish(job, "failed", (e as Error).message);
     }
   }
@@ -434,7 +488,7 @@ export class DocSession {
 
   private writeVersion(jobId: string | null) {
     const version = Math.max(0, ...this.versions.keys()) + 1;
-    const row: VersionRow = { version, parent: this.current, doc: structuredClone(this.doc), at: new Date().toISOString() };
+    const row: VersionRow = { version, parent: this.current, doc: structuredClone(this.project), at: new Date().toISOString() };
     this.versions.set(version, row);
     this.current = version;
     this.redoHint = null; // a new edit starts a new branch
@@ -464,7 +518,7 @@ export class DocSession {
   timelineMsg(): Extract<ServerMsg, { type: "versions" }> {
     const ids = (d: DesignDoc) => {
       const m = new Map<string, string>();
-      const walk = (n: DesignNode) => { if (n.id !== "n_root" && n.type !== "Layer") m.set(n.id, JSON.stringify(n.props)); n.children?.forEach(walk); };
+      const walk = (n: DesignNode) => { if (n.id !== "n_root" && !n.id.startsWith("n_view_") && n.type !== "Layer") m.set(n.id, JSON.stringify(n.props)); n.children?.forEach(walk); };
       walk(d.root);
       return m;
     };
@@ -476,7 +530,10 @@ export class DocSession {
         let added = 0, removed = 0, changed = 0;
         for (const [id, p] of cur) { if (!par.has(id)) added++; else if (par.get(id) !== p) changed++; }
         for (const id of par.keys()) if (!cur.has(id)) removed++;
-        s = { version: v.version, parent: v.parent, ...(v.at ? { at: v.at } : {}), kind: docKind(v.doc), nodes: cur.size, added, removed, changed };
+        // The view this version changed (the first whose subtree differs from its parent's).
+        const pv = v.parent != null ? this.versions.get(v.parent)?.doc : undefined;
+        const kind = VIEWS.find((x) => !pv || JSON.stringify(viewDoc(v.doc, x.kind).root) !== JSON.stringify(viewDoc(pv, x.kind).root))?.kind ?? "screen";
+        s = { version: v.version, parent: v.parent, ...(v.at ? { at: v.at } : {}), kind, nodes: cur.size, added, removed, changed };
         this.summaries.set(v.version, s);
       }
       return s;
@@ -521,7 +578,7 @@ export class DocSession {
     if (!row) return;
     this.current = version;
     this.lexOrigin.clear(); // stale lexicon ids from another version must not become fold targets
-    this.restore(row.doc, randomUUID(), origin);
+    this.restoreProject(row.doc, randomUUID(), origin);
     this.deps.persistence.setCurrent(this.sessionId, { documentId: this.opened.documentId, version, doc: row.doc });
     this.announceVersion();
   }
@@ -531,7 +588,7 @@ export class DocSession {
     this.abortActive("undo");
     if (this.utt && !this.utt.settled) this.utt.settled = true;
     if (this.dirty()) {
-      this.restore(this.versions.get(this.current)!.doc, randomUUID(), "undo");
+      this.restoreProject(this.versions.get(this.current)!.doc, randomUUID(), "undo");
       this.announceVersion();
       return;
     }
@@ -544,17 +601,101 @@ export class DocSession {
     if (t != null) this.moveTo(t, "redo");
   }
 
-  /** New blank doc of a kind (ADR 0011): settles what's in flight, then one undoable version. */
-  newDoc(kind: DocKind) {
-    this.abortActive("new doc");
-    if (this.utt && !this.utt.settled) this.commitUtterance();
-    if (docKind(this.doc) === kind && JSON.stringify(this.doc.root) === JSON.stringify(emptyRoot(kind))) return;
-    this.doc = { ...this.doc, root: emptyRoot(kind) };
-    this.lexOrigin.clear();
-    this.emitOps(randomUUID(), "model", [{ op: "replace", path: "/root", value: this.doc.root }]);
+  /** Kept for old clients: a kind request now switches to that view (ADR 0016) — nothing is replaced. */
+  newDoc(kind: DocKind) { this.setView(kind); }
+
+  /**
+   * Switch the view the user speaks to (ADR 0016). Never destructive; a running model job keeps editing
+   * the view it started in. Triggers a project-notes rewrite (background).
+   */
+  setView(view: DocKind) {
+    if (view === this.activeView) { this.deps.send(this.viewMsg()); return; }
+    this.activeView = this.focus = view;
+    this.deps.send(this.viewMsg());
+    if (view !== "screen") this.feature(kindFeature(view), "used");
+    this.feature("projects", "used");
+    this.maybeRewriteNotes("view");
+  }
+
+  /** Sets the project title — one version, like any edit. */
+  setTitle(title: string) {
+    const t = title.trim().slice(0, 80);
+    const op: PatchOp = t ? { op: "add", path: "/root/props/title", value: t } : { op: "remove", path: "/root/props/title" };
+    if ((this.project.root.props.title ?? "") === t) return;
+    this.project = applyOp(this.project, op);
+    this.emitRaw(randomUUID(), "model", [op]);
     this.writeVersion(null);
     this.announceVersion();
-    if (kind !== "screen") this.feature(kindFeature(kind), "used");
+  }
+
+  // ── Project context (ADR 0016) ─────────────────────────────────────────────────────────────
+  /**
+   * ≤ 120 tokens prepended to every model call: title, notes, and the named elements of the OTHER
+   * views — so a call on the ERD knows the architecture's systems. Built in memory, no extra hop.
+   */
+  brief(): string {
+    const p = this.project.root.props as { title?: string; notes?: string };
+    const parts: string[] = [];
+    if (p.title) parts.push(`Project: ${p.title}`);
+    if (p.notes) parts.push(`Notes: ${p.notes}`);
+    for (const v of VIEWS) {
+      if (v.kind === this.focus) continue;
+      const names: string[] = [];
+      const walk = (n: DesignNode) => {
+        const q = n.props as Record<string, unknown>;
+        const name = n.type === "Node" ? q.label : n.type === "Text" || n.type === "Button" || n.type === "Input" ? (q.content ?? q.label) : undefined;
+        if (typeof name === "string" && name) names.push(name);
+        n.children?.forEach(walk);
+      };
+      walk(viewDoc(this.project, v.kind).root);
+      if (names.length) parts.push(`${v.label}: ${[...new Set(names)].join(", ")}`);
+    }
+    const out = parts.join("\n");
+    return out ? (out.length > BRIEF_CHARS ? `${out.slice(0, BRIEF_CHARS - 1)}…` : out) : "(nothing else yet)";
+  }
+
+  private remember(text: string) {
+    if (!text.trim()) return;
+    this.recent = [...this.recent, { view: this.activeView, text: text.trim() }].slice(-12);
+    if (++this.commitsSinceNotes >= 8) this.maybeRewriteNotes("utterances");
+  }
+
+  /**
+   * Background rewrite of `Project.props.notes` (≤ 80 tokens): what the user wants, distilled from
+   * everything said so far — so a fact said at utterance 1 still shapes utterance 20. Never on the
+   * draw path; at most one per 30 s; flag `project_notes`.
+   */
+  maybeRewriteNotes(reason: "view" | "utterances") {
+    const engine = this.deps.notesEngine;
+    if (!engine || !this.deps.model || this.notesRunning || !this.flagOn("project_notes")) return;
+    if (!this.recent.length || performance.now() - this.notesAt < 30_000) return;
+    this.notesRunning = true;
+    this.notesAt = performance.now();
+    this.commitsSinceNotes = 0;
+    const jobId = randomUUID();
+    const said = this.recent.map((r) => `[${r.view}] ${r.text}`).join("\n");
+    const stream = this.deps.model({
+      model: engine.model, system: engine.system, maxTokens: 120, signal: new AbortController().signal,
+      user: engine.render({ notes: String(this.project.root.props.notes ?? "(none)"), recent: said, project_brief: this.brief() }),
+    });
+    this.deps.send({ type: "job", jobId, state: "running", kind: "notes", text: reason });
+    void (async () => {
+      let text = "";
+      try {
+        for await (const { line } of stream.lines) text += (text ? " " : "") + line;
+        const usage = await stream.usage;
+        const notes = text.replace(/\s+/g, " ").trim().slice(0, 560);
+        if (notes && notes !== this.project.root.props.notes) {
+          const op: PatchOp = { op: "add", path: "/root/props/notes", value: notes };
+          this.project = applyOp(this.project, op);
+          this.emitRaw(jobId, "model", [op]); // becomes part of the next version, like any edit
+        }
+        this.deps.send({ type: "job", jobId, state: "done", kind: "notes", ...usage });
+      } catch (e) {
+        this.deps.log?.(`notes: rewrite failed (${(e as Error).message})`);
+        this.deps.send({ type: "job", jobId, state: "failed", kind: "notes" });
+      } finally { this.notesRunning = false; }
+    })();
   }
 
   // ── Vocabulary (ADR 0012) ────────────────────────────────────────────────────────────────

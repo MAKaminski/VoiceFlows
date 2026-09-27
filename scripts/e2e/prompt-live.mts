@@ -41,7 +41,8 @@ async function once(i: number) {
   const end = await until((m) => m.type === "job" && m.state !== "running");
   const firstOps = inbox.find((x) => x.m.type === "ops");
   const valid = DesignDocSchema.safeParse(doc).success;
-  const kids = (doc as DesignDoc | null)?.root.children?.map((n) => `${n.type}${n.props.label || n.props.content ? `(${n.props.label ?? n.props.content})` : ""}`) ?? [];
+  const r = (doc as DesignDoc | null)?.root;
+  const kids = (r?.type === "Project" ? r.children![0]! : r)?.children?.map((n) => `${n.type}${n.props.label || n.props.content ? `(${n.props.label ?? n.props.content})` : ""}`) ?? [];
   const nVersion = inbox.filter((x) => x.m.type === "version").length;
   ws.send(JSON.stringify({ type: "undo" }));
   await until((m) => m.type === "version" && m.version === 0);

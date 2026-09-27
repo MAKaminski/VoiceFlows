@@ -12,14 +12,20 @@ let boxes = new Map<string, DOMRect>();
 let reflows = new Map<string, number>();
 let utteranceSeq: number | null = null;
 
-/** Box positions are taken relative to the phone frame, so page chrome or scrolling never counts. */
+let warned = false;
+/** Box positions are taken relative to the active view's surface, so page chrome or scrolling never counts. */
 function measureReflows() {
-  const frame = (document.querySelector('[data-node-id="n_root"]')?.firstElementChild as HTMLElement | null)?.getBoundingClientRect();
-  if (!frame) return;
+  const rootWrap = document.querySelector<HTMLElement>("[data-view-root]");
+  const frame = (rootWrap?.firstElementChild as HTMLElement | null)?.getBoundingClientRect();
+  if (!frame) {
+    // ADR 0016 (plan-critic #2): a missing view root would silently zero TTFV/reflow — say so.
+    if (!warned) { warned = true; console.error("metricsTap: no [data-view-root] on the page — reflow and TTFV are not being measured"); }
+    return;
+  }
   document.querySelectorAll<HTMLElement>("[data-node-id]").forEach((wrap) => {
     const el = wrap.firstElementChild as HTMLElement | null;
     const id = wrap.dataset.nodeId!;
-    if (!el || id === "n_root") return;
+    if (!el || wrap === rootWrap) return;
     const b = el.getBoundingClientRect();
     const r = new DOMRect(b.left - frame.left, b.top - frame.top, b.width, b.height);
     const prev = boxes.get(id);

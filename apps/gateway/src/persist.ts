@@ -1,4 +1,4 @@
-import { emptyDoc, type DesignDoc, type FeatureKey, type Flags, type IntentHeader, type PatchOp, type VocabTerm } from "@livecanvas/dsl";
+import { emptyProject, type DesignDoc, type DocKind, type FeatureKey, type Flags, type IntentHeader, type PatchOp, type VocabTerm } from "@livecanvas/dsl";
 import { randomUUID } from "node:crypto";
 import type postgres from "postgres";
 
@@ -20,6 +20,8 @@ export interface Persistence {
   resumeSession(sessionId: string): Promise<OpenedSession | null>;
   /** A new session on an existing document (another tab, or a later visit) — null if it doesn't exist. */
   openOnDocument(documentId: string): Promise<OpenedSession | null>;
+  /** The document's last `n` finished utterances, oldest first (seeds project notes, ADR 0016). */
+  recentUtterances(documentId: string, n: number): Promise<Array<{ view: DocKind; text: string }>>;
   setProvider(sessionId: string, provider: string): void;
   /** Utterance row (created once per seq); returns its id immediately. */
   utterance(sessionId: string, seq: number, source: "voice" | "typed", finalText?: string): string;
@@ -70,11 +72,12 @@ export function memoryPersistence(): Persistence & { rows: Array<Segment & { ses
   return {
     rows, calls, events,
     openSession: async () => {
-      const s = { sessionId: randomUUID(), documentId: randomUUID(), versions: [{ version: 0, parent: null, doc: emptyDoc() }], current: 0 };
+      const s = { sessionId: randomUUID(), documentId: randomUUID(), versions: [{ version: 0, parent: null, doc: emptyProject() }], current: 0 };
       sessions.set(s.sessionId, s);
       return structuredClone(s);
     },
     resumeSession: async (id) => (sessions.has(id) ? structuredClone(sessions.get(id)!) : null),
+    recentUtterances: async () => [],
     openOnDocument: async (documentId) => {
       const prev = [...sessions.values()].find((x) => x.documentId === documentId);
       if (!prev) return null;
@@ -159,7 +162,7 @@ export function pgPersistence(sql: postgres.Sql, log: (e: unknown) => void = con
 
   return {
     async openSession() {
-      const doc = emptyDoc();
+      const doc = emptyProject();
       const [row] = await sql<{ session_id: string; document_id: string }[]>`
         with d as (
           insert into design_documents (user_id, current_doc, token_set_id)
@@ -172,6 +175,12 @@ export function pgPersistence(sql: postgres.Sql, log: (e: unknown) => void = con
       return { sessionId: row.session_id, documentId: row.document_id, versions: [{ version: 0, parent: null, doc }], current: 0 };
     },
     resumeSession: (sessionId) => load(sessionId).catch((e) => { log(e); return null; }),
+    async recentUtterances(documentId, n) {
+      const rows = await sql<{ text: string }[]>`
+        select u.final_text as text from utterances u join sessions s on s.id = u.session_id
+        where s.document_id = ${documentId} and u.final_text is not null order by u.created_at desc limit ${n}`;
+      return rows.reverse().map((r) => ({ view: "screen" as DocKind, text: r.text })); // view isn't stored per utterance
+    },
     async openOnDocument(documentId) {
       const [row] = await sql<{ id: string }[]>`
         insert into sessions (user_id, document_id, stt_provider)

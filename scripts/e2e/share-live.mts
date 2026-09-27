@@ -28,8 +28,8 @@ async function session() {
 }
 
 const a = await session();
-let at = a.send({ type: "new_doc", kind: "architecture" });
-await a.until((m) => m.type === "version", at);
+let at = a.send({ type: "set_view", view: "architecture" });
+await a.until((m) => m.type === "view", at);
 at = a.send({ type: "prompt", text: "a Next.js web app calls a Fastify API gateway that writes to Postgres, caches in Redis, streams audio to Deepgram and calls Claude, deployed on Railway and Vercel" });
 await a.until((m) => m.type === "job" && m.kind === "typed" && m.state !== "running", at, 60000);
 at = a.send({ type: "share_create" });
@@ -37,8 +37,8 @@ const s = await a.until((m) => m.type === "shares" && m.links.length > 0, at) as
 const { token, version } = s.links.at(-1)!;
 await new Promise((r) => setTimeout(r, 800)); // the exports row is queued behind the version row
 const res = await fetch(`${http}/share/${token}`);
-const body = await res.json() as { doc: { root: { props: { kind: string } } }; version: number };
-check(`GET /share → 200, architecture, version ${version}`, res.status === 200 && body.doc.root.props.kind === "architecture" && body.version === version);
+const body = await res.json() as { doc: { root: { type: string; children: Array<{ children: unknown[] }> } }; version: number };
+check(`GET /share → 200, a project with the architecture filled, version ${version}`, res.status === 200 && body.doc.root.type === "Project" && body.doc.root.children[1]!.children.length > 4 && body.version === version);
 check("response is no-store", res.headers.get("cache-control") === "no-store");
 
 const b = await session();

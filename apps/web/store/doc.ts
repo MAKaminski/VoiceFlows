@@ -1,11 +1,13 @@
 "use client";
-import { applyOp, emptyDoc, type DesignDoc, type PatchOp, type ServerMsg } from "@livecanvas/dsl";
+import { applyOp, emptyProject, type DesignDoc, type DocKind, type PatchOp, type ServerMsg } from "@livecanvas/dsl";
 import { create } from "zustand";
 
 export interface JobState { jobId: string; state: "running" | "done" | "aborted" | "failed"; text?: string; firstOpMs?: number; opCount?: number; detail?: string; startedAt: number }
 
 interface DocState {
+  /** The whole project (ADR 0016); `view` is the one this tab speaks to. */
   doc: DesignDoc;
+  view: DocKind;
   connected: boolean;
   version: number;
   canUndo: boolean;
@@ -20,7 +22,8 @@ interface DocState {
 }
 
 export const useDoc = create<DocState>((set, get) => ({
-  doc: emptyDoc(),
+  doc: emptyProject(),
+  view: "screen",
   connected: false,
   version: 0, canUndo: false, canRedo: false,
   job: null,
@@ -39,7 +42,9 @@ export const useDoc = create<DocState>((set, get) => ({
       case "doc": return set({ doc: m.doc, version: m.version, canUndo: m.canUndo, canRedo: m.canRedo });
       case "ops": return get().applyOps(m.ops);
       case "version": return set({ version: m.version, canUndo: m.canUndo, canRedo: m.canRedo });
+      case "view": return set({ view: m.view });
       case "job": {
+        if (m.kind === "notes") return; // background notes rewrite: not a build the user started
         const prev = get().job;
         const startedAt = m.state === "running" || prev?.jobId !== m.jobId ? performance.now() : prev.startedAt;
         return set({ job: { ...m, text: m.text ?? prev?.text, startedAt } });

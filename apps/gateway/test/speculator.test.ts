@@ -1,4 +1,4 @@
-import { DesignDocSchema, type DesignNode, type ServerMsg } from "@livecanvas/dsl";
+import { DesignDocSchema, viewDoc, type DesignNode, type ServerMsg } from "@livecanvas/dsl";
 import { describe, expect, it } from "vitest";
 import { DocSession } from "../src/engine/docSession.js";
 import { hedgedClient } from "../src/engine/model.js";
@@ -9,10 +9,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Scripted model: `reply(text)` decides the lines; tracks concurrency and every request. */
 function scripted(reply: (text: string) => string[], gapMs = 5) {
-  const stats = { calls: [] as string[], inFlight: 0, maxInFlight: 0 };
+  const stats = { calls: [] as string[], prompts: [] as string[], inFlight: 0, maxInFlight: 0 };
   const client: ModelClient = (req) => {
     const text = req.user.split("\n---\n")[1] ?? req.user;
     stats.calls.push(text);
+    stats.prompts.push(req.user);
     stats.inFlight++; stats.maxInFlight = Math.max(stats.maxInFlight, stats.inFlight);
     async function* gen() {
       try {
@@ -35,7 +36,7 @@ async function session(reply: (t: string) => string[], gapMs = 5) {
   const m = scripted(reply, gapMs);
   const d = new DocSession(opened, {
     persistence, model: m.client, send: (x) => sent.push(x),
-    engine: { model: "fake-haiku", system: "s", render: (v) => `${v.doc_compact}\n---\n${v.partial_text}` },
+    engine: { model: "fake-haiku", system: "s", render: (v) => `${v.project_brief}\n${v.doc_compact}\n---\n${v.partial_text}` },
   });
   return { d, sent, stats: m.stats, persistence };
 }
@@ -235,15 +236,63 @@ describe("diagrams (ADR 0011)", () => {
     expect(d.doc.root.children!.filter((c) => c.type === "Edge")).toHaveLength(1);
   });
 
-  it("new_doc is an undoable version; 'start over' keeps the diagram kind", async () => {
-    const { d, sent } = await session(() => ["reset 1 x"]);
-    d.newDoc("erd");
-    expect(d.doc.root.props.kind).toBe("erd");
-    expect(sent.filter((m) => m.type === "version").at(-1)).toMatchObject({ version: 1, canUndo: true });
+  it("switching views is not a version; 'start over' clears only the view you're in", async () => {
+    const { d, sent } = await session((t) => t.includes("start over") ? ["reset 1 x"] : ["add .9", '+Text t >root v=title "Hi"']);
+    await d.run("a title", "typed", d.allocSeq());          // v1: the screen has a title
+    d.setView("erd");
+    expect(sent.filter((m) => m.type === "version").at(-1)).toMatchObject({ version: 1 });
+    expect(sent.at(-1)).toMatchObject({ type: "view", view: "erd" });
+    d.onTranscript(0, "users and orders", true, 300);
+    expect(d.doc.root.children!.length).toBe(2);
     await d.run("start over", "typed", d.allocSeq());
-    expect(d.doc.root).toMatchObject({ type: "Diagram", props: { kind: "erd" } });
-    d.undo(); d.undo();
-    expect(d.doc.root.type).toBe("Frame");
+    expect(d.doc.root).toMatchObject({ id: "n_view_erd", type: "Diagram", children: [] });
+    expect(JSON.stringify(viewDoc(d.project, "screen"))).toContain('"Hi"'); // the screen is untouched
+  });
+
+  it("speak in architecture, name the ERD: both views kept, one timeline, undo across the switch", async () => {
+    const { d, sent } = await session(() => ["none 0"]);
+    await speak(d, "an architecture where the api writes to postgres", 0);
+    await speak(d, "and in the erd users have many orders", 1);
+    expect(d.activeView).toBe("erd");
+    expect(labels(viewDoc(d.project, "architecture").root).sort()).toEqual(["API", "Postgres"]);
+    expect(labels(viewDoc(d.project, "erd").root)).toEqual(["users", "orders"]);
+    const tl = sent.filter((m) => m.type === "versions").at(-1) as Extract<ServerMsg, { type: "versions" }>;
+    expect(tl.items.map((v) => v.kind)).toEqual(["screen", "architecture", "erd"]);
+    d.undo();
+    expect(labels(viewDoc(d.project, "erd").root)).toEqual([]);
+    expect(labels(viewDoc(d.project, "architecture").root).sort()).toEqual(["API", "Postgres"]);
+  });
+
+  it("the model call for the ERD carries the architecture's names (project brief)", async () => {
+    const { d, stats } = await session(() => ["none 0"]);
+    await speak(d, "architecture with salesforce and mulesoft and a backend called shaw", 0);
+    d.setView("erd");
+    await d.run("customers have many cases", "typed", d.allocSeq());
+    expect(stats.prompts.at(-1)).toContain("Architecture: Salesforce, MuleSoft");
+    expect(stats.calls.at(-1)).toContain("customers have many cases");
+  });
+
+  it("a fact said early survives into later calls through the project notes", async () => {
+    const persistence = memoryPersistence();
+    const opened = await persistence.openSession();
+    const prompts: string[] = [];
+    const model: ModelClient = (req) => {
+      prompts.push(req.user);
+      const lines = req.system === "NOTES" ? ["Contact-center platform: Genesys bot hands off to agents; Shaw is the backend."] : ["none 0"];
+      async function* gen() { for (const line of lines) { await sleep(2); yield { line, atMs: 0 }; } }
+      return { lines: gen(), usage: Promise.resolve({ inputTokens: 600, outputTokens: 20 }) };
+    };
+    const d = new DocSession(opened, {
+      persistence, model, send: () => {},
+      engine: { model: "fake-haiku", system: "s", render: (v) => `${v.project_brief}\n---\n${v.partial_text}` },
+      notesEngine: { model: "fake-haiku", system: "NOTES", render: (v) => v.recent ?? "" },
+    });
+    await d.run("the genesys bot hands off to agents and shaw is our backend", "typed", d.allocSeq());
+    d.setView("architecture"); // a view switch rewrites the notes (background)
+    await sleep(40);
+    expect(d.project.root.props.notes).toContain("Shaw is the backend");
+    for (let i = 0; i < 18; i++) await d.run(`tweak ${i}`, "typed", d.allocSeq());
+    expect(prompts.at(-1)).toContain("Shaw is the backend"); // utterance 20 still sees utterance 1
   });
 
   it("filler speech in a diagram does not call the model", async () => {
@@ -262,18 +311,20 @@ describe("version timeline (ADR 0015)", () => {
     const { d, sent } = await session((t) => t.includes("button") ? ["add .9", '+Button b >root "Go"'] : ["add .9", '+Text t >root v=title "Hi"']);
     await d.run("a title", "typed", d.allocSeq());          // v1: +Text
     await d.run("a button", "typed", d.allocSeq());         // v2: +Button
-    d.newDoc("architecture");                               // v3: new diagram
+    d.setView("architecture");
+    d.onTranscript(9, "and stripe", true, 300);             // v3: a node in the architecture view (lexicon only)
     let tl = last(sent);
     expect(tl.items.map((v) => [v.version, v.parent, v.kind])).toEqual([[0, null, "screen"], [1, 0, "screen"], [2, 1, "screen"], [3, 2, "architecture"]]);
     expect(tl.items[2]).toMatchObject({ added: 1, removed: 0, nodes: 2 });
-    expect(tl.items[3]).toMatchObject({ removed: 2, nodes: 0 }); // the lanes don't count as elements
+    expect(tl.items[3]).toMatchObject({ added: 1, removed: 0, nodes: 3 }); // lanes and view roots don't count
 
     d.gotoVersion(1);
     tl = last(sent);
     expect(tl.current).toBe(1);
     expect(tl.path).toEqual([0, 1, 2, 3]); // ancestors + the redo chain back to v3
-    expect(d.doc.root.type).toBe("Frame");
+    expect(JSON.stringify(viewDoc(d.project, "architecture").root)).not.toContain("Stripe");
 
+    d.setView("screen");
     await d.run("a button", "typed", d.allocSeq());         // v4 branches from v1
     tl = last(sent);
     expect(tl.items.at(-1)).toMatchObject({ version: 4, parent: 1 });
@@ -289,12 +340,10 @@ describe("version timeline (ADR 0015)", () => {
 
   it("a jump discards an uncommitted utterance, like undo", async () => {
     const { d } = await session(() => ["none 0"]);
-    d.newDoc("architecture");
+    d.setView("architecture");
     d.onTranscript(0, "the api writes to postgres", false, 300);
     expect(JSON.stringify(d.doc)).toContain("Postgres");
     d.gotoVersion(0);
-    expect(d.doc.root.type).toBe("Frame");
-    d.gotoVersion(1);
-    expect(JSON.stringify(d.doc)).not.toContain("Postgres");
+    expect(JSON.stringify(d.project)).not.toContain("Postgres");
   });
 });

@@ -52,7 +52,12 @@ add .9 s
 Rules:
 - A node that already exists (any n_… id, including ?provisional ones) is changed with ~ — never add it again.
 - Emit the fewest ops that make the screen match what was said. Never move nodes the user didn't mention.
+- "Project context" describes the OTHER views of the same project and what the user wants overall. Use
+  it for names and intent (reuse the same system/table/participant names); never edit other views.
 <!-- END STATIC PREFIX -->
+
+Project context:
+{{project_brief}}
 
 Document:
 {{doc_compact}}

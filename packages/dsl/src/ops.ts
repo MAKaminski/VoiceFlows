@@ -108,3 +108,8 @@ function resolveAppend(before: unknown, path: string): string {
   const arr = get(before, path.slice(0, -2)) as unknown[];
   return `${path.slice(0, -2)}/${arr.length}`;
 }
+
+/** Rewrites an op's pointer(s) — used to move ops between a view doc and its project (ADR 0016). */
+export function mapOpPaths(op: PatchOp, f: (path: string) => string): PatchOp {
+  return "from" in op ? { ...op, path: f(op.path), from: f(op.from) } : { ...op, path: f(op.path) };
+}

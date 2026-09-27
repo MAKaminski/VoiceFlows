@@ -58,3 +58,13 @@
   the jump, other branches faded; flag `version_timeline`.
 - Plan-critic fixes taken: goto op origin, redo toward the jump origin, clear lexicon fold targets, cap 200.
 - Tests: gateway 50/50 incl. Postgres; dsl 41/41; web build passes.
+
+## M6 — Projects: four views, context kept (2026-09-27)
+- ADR 0016 / D28: one project document with Screen · Architecture · ERD · Sequence views; engine on a view
+  doc with path rewrite; jobs pinned to their view; naming a view switches without replacing; project
+  brief (≤120 tokens) + background notes; enterprise systems, extra lanes, owner badges; flags
+  `projects`, `project_notes`; old docs/versions/share links upgrade on read.
+- Plan-critic blockers fixed first: brief cost capped (math in ADR), metrics tap measures the view root
+  and errors if missing, the kind switch can no longer wipe a view.
+- Tests: dsl 46/46; gateway 53/53 incl. Postgres (cross-view speech, brief carries other views' names,
+  a fact at utterance 1 reaches utterance 20 via notes, start-over clears only its view).

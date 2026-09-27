@@ -114,7 +114,7 @@ async function callModel(model: string, format: "compact" | "jsonpatch", i: numb
   const sc = SCENARIOS[i]!;
   const system = format === "compact" ? fused.system : patch.system;
   const user = format === "compact"
-    ? fused.render({ doc_compact: serializeCompact(doc.root) || "(empty frame: root)", partial_text: sc.text })
+    ? fused.render({ project_brief: "(nothing else yet)", doc_compact: serializeCompact(doc.root) || "(empty frame: root)", partial_text: sc.text })
     : patch.render({ doc_json: JSON.stringify(doc), intent_json: JSON.stringify(sc.intent) });
   const dispatcher = fresh ? new Agent({ keepAliveTimeout: 1, connections: 1 }) : keepAlive;
   const t0 = performance.now();

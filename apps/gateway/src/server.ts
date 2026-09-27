@@ -1,6 +1,6 @@
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
-import { ClientMsg, FEATURES, FeatureKey, kindFeature, ShareToken, type DocKind, type ServerMsg } from "@livecanvas/dsl";
+import { ClientMsg, FEATURES, FeatureKey, kindFeature, ShareToken, toProject, type DocKind, type ServerMsg } from "@livecanvas/dsl";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FlagService } from "./flags.js";
 import Fastify from "fastify";
@@ -20,6 +20,7 @@ export interface Deps {
   model: ModelClient | null;
   engine: EngineConfig;
   engines?: Partial<Record<DocKind, EngineConfig>>;
+  notesEngine?: EngineConfig; // ADR 0016
   flags?: FlagService;
 }
 
@@ -42,6 +43,7 @@ export function defaultDeps(config: Config): Deps {
       erd: engineFor("diagram_erd", config),
       sequence: engineFor("diagram_sequence", config),
     },
+    notesEngine: engineFor("project_notes", config),
   };
 }
 
@@ -91,7 +93,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
     }
     const seen = `${token.data}:${req.ip}`;
     if (!viewed.has(seen) && viewed.size < 50_000) { viewed.add(seen); deps.persistence.featureEvent(null, "share_links", "exposed"); }
-    return shared;
+    return { ...shared, doc: toProject(shared.doc) }; // links made before projects (ADR 0016)
   });
 
   // ── Admin API (ADR 0012) ───────────────────────────────────────────────────────────────────
@@ -225,8 +227,9 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
                 const opened = (target ? await deps.persistence.openOnDocument(target) : null) ?? (await deps.persistence.openSession());
                 resumed = opened.documentId === target;
                 const created: LiveDoc = { doc: null as unknown as DocSession, owner: null, release: null, shareLinks: [] };
-                created.doc = new DocSession(opened, { persistence: deps.persistence, model: deps.model, engine: deps.engine, engines: deps.engines, flags: () => flags.all(), send: toOwner(created), log: (m) => app.log.warn(m) });
+                created.doc = new DocSession(opened, { persistence: deps.persistence, model: deps.model, engine: deps.engine, engines: deps.engines, notesEngine: deps.notesEngine, flags: () => flags.all(), send: toOwner(created), log: (m) => app.log.warn(m) });
                 created.doc.terms = await deps.persistence.listVocab(opened.documentId).catch(() => []);
+                created.doc.recent = await deps.persistence.recentUtterances(opened.documentId, 8).catch(() => []);
                 created.shareLinks = await deps.persistence.listShares(opened.documentId).catch(() => []);
                 e = live.get(opened.documentId); // another tab may have opened it while we awaited
                 if (e) deps.persistence.endSession(opened.sessionId); // keep the one that won
@@ -246,6 +249,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
               app.log.info({ sessionId: doc.sessionId, ms: Math.round(performance.now() - t0), resumed }, "session: opened");
               send({ type: "welcome", sessionId: doc.sessionId, documentId: doc.documentId, version: doc.versionInfo().version, resumed, flags: flags.all() });
               send(doc.snapshot());
+              send(doc.viewMsg());
               send({ type: "vocab", terms: doc.terms });
               if (flags.on("version_timeline")) send(doc.timelineMsg());
               if (flags.on("share_links")) send({ type: "shares", links: e.shareLinks });
@@ -289,9 +293,16 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
             return doc!.undo();
           case "redo":
             return doc!.redo();
-          case "new_doc":
-            if (!permit(kindFeature(msg.kind))) return;
-            return doc!.newDoc(msg.kind);
+          case "new_doc": // old clients: now a view switch (ADR 0016)
+          case "set_view": {
+            const view = msg.type === "set_view" ? msg.view : msg.kind;
+            if (view !== doc!.activeView && !permit("projects")) return;
+            if (!permit(kindFeature(view))) return;
+            return doc!.setView(view);
+          }
+          case "set_title":
+            if (!permit("projects")) return;
+            return doc!.setTitle(msg.title);
           case "vocab_define":
             if (!permit("custom_vocabulary")) return;
             return void doc!.defineTerm(msg.kind, msg.phrase, msg.node, msg.confirm ?? true);

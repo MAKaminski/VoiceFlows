@@ -12,12 +12,9 @@ import { KeywordRail } from "@/components/KeywordRail";
 import { SharePopover } from "@/components/SharePopover";
 import { VersionTimeline } from "@/components/VersionTimeline";
 import { useFeatures } from "@/store/features";
-import { docKind, kindFeature, type DocKind } from "@livecanvas/dsl";
+import { kindFeature, viewCount, viewDoc, VIEWS } from "@livecanvas/dsl";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 
-const KINDS: Array<{ kind: DocKind; label: string }> = [
-  { kind: "screen", label: "Screen" }, { kind: "architecture", label: "Architecture" }, { kind: "erd", label: "ERD" }, { kind: "sequence", label: "Sequence" },
-];
 
 const MODE_LABEL = { direct: "Deepgram Flux · direct", relay: "Deepgram Flux · via gateway", webspeech: "Browser speech (dev)" } as const;
 
@@ -27,7 +24,9 @@ const pill = (bg: string, fg = "#fff"): CSSProperties => ({
 });
 
 export default function Studio() {
-  const { doc, connected, version, canUndo, canRedo, job } = useDoc();
+  const { doc: project, view, connected, version, canUndo, canRedo, job } = useDoc();
+  const doc = project.root.type === "Project" ? viewDoc(project, view) : project; // the view this tab speaks to (ADR 0016)
+  const [title, setTitle] = useState<string | null>(null);
   const { status, detail, mode, setStatus, setMode, push, reset, countFrame } = useVoice();
   const session = useRef<{ stop(): void } | null>(null);
   const [prompt, setPrompt] = useState("");
@@ -77,7 +76,9 @@ export default function Studio() {
   };
 
   const listening = status === "listening" || status === "connecting";
-  const kind = docKind(doc);
+  const kind = view;
+  const projectTitle = String(project.root.props.title ?? "");
+  const notes = project.root.props.notes as string | undefined;
   const { flags, notice, takenOver } = useFeatures();
   useEffect(() => { if (takenOver) stop(); }, [takenOver, stop]);
   const canCreate = flags.speak_to_create;
@@ -91,6 +92,13 @@ export default function Studio() {
     <main style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       <header style={{ padding: "12px 24px", borderBottom: "1px solid var(--lc-chrome-border)", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <strong>LiveCanvas</strong>
+        {flags.projects && (
+          <input aria-label="Project name" data-testid="project-title" placeholder="Untitled project" value={title ?? projectTitle}
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={() => { if (title != null && title !== projectTitle) gateway.send({ type: "set_title", title }); setTitle(null); }}
+            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+            style={{ font: "inherit", fontWeight: 600, width: 170, padding: "6px 10px", borderRadius: 8, border: "1px solid transparent", background: "transparent", color: "inherit" }} />
+        )}
         <button type="button" onClick={listening ? stop : start} data-testid="mic" disabled={!canCreate && !listening} title={canCreate ? undefined : "Speaking to create is turned off"} style={{ ...pill(listening ? "#dc2626" : "#2563eb"), opacity: canCreate || listening ? 1 : 0.4 }}>
           {status === "connecting" ? "Connecting…" : listening ? "Stop listening" : "Start talking"}
         </button>
@@ -100,17 +108,23 @@ export default function Studio() {
             style={{ flex: 1, minWidth: 0, font: "inherit", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--lc-chrome-border)", background: "transparent", color: "inherit" }} />
           <button type="submit" disabled={!connected || !prompt.trim() || !canCreate} style={{ ...pill("#0f172a"), opacity: connected && prompt.trim() && canCreate ? 1 : 0.5 }}>Build</button>
         </form>
-        <div role="tablist" aria-label="Diagram kind" style={{ display: "flex", padding: 3, gap: 2, borderRadius: 999, border: "1px solid var(--lc-chrome-border)" }}>
-          {KINDS.filter((k) => k.kind === kind || flags[kindFeature(k.kind)]).map((k) => (
-            <button key={k.kind} type="button" role="tab" aria-selected={kind === k.kind} data-testid={`kind-${k.kind}`}
-              onClick={() => kind !== k.kind && gateway.send({ type: "new_doc", kind: k.kind })}
-              style={{ font: "inherit", fontSize: 13, fontWeight: 600, padding: "6px 12px", borderRadius: 999, border: "none", cursor: "pointer",
-                background: kind === k.kind ? "#0f172a" : "transparent", color: kind === k.kind ? "#fff" : "inherit" }}>{k.label}</button>
-          ))}
+        {/* The project's four views (ADR 0016): switching never replaces anything. */}
+        <div role="tablist" aria-label="Views" style={{ display: "flex", padding: 3, gap: 2, borderRadius: 999, border: "1px solid var(--lc-chrome-border)" }}>
+          {VIEWS.filter((v) => v.kind === kind || (flags.projects && flags[kindFeature(v.kind)])).map((v) => {
+            const n = project.root.type === "Project" ? viewCount(viewDoc(project, v.kind).root) : 0;
+            return (
+              <button key={v.kind} type="button" role="tab" aria-selected={kind === v.kind} data-testid={`kind-${v.kind}`}
+                onClick={() => kind !== v.kind && gateway.send({ type: "set_view", view: v.kind })}
+                style={{ font: "inherit", fontSize: 13, fontWeight: 600, padding: "6px 12px", borderRadius: 999, border: "none", cursor: "pointer",
+                  background: kind === v.kind ? "#0f172a" : "transparent", color: kind === v.kind ? "#fff" : "inherit" }}>
+                {v.label}{n > 0 && <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.65 }}>{n}</span>}
+              </button>
+            );
+          })}
         </div>
         <SharePopover />
         {flags.remember_document && (
-          <button type="button" data-testid="new-document" title="Start a blank document (this one stays reachable from its share links)"
+          <button type="button" data-testid="new-document" title="Start a new project (this one stays reachable from its share links)"
             onClick={() => { stop(); gateway.newDocument(); }} style={pill("transparent", "inherit")}>New</button>
         )}
         <button type="button" data-testid="undo" onClick={() => gateway.send({ type: "undo" })} disabled={!canUndo} title="Undo (⌘Z)" style={{ ...pill("transparent", "inherit"), opacity: canUndo ? 1 : 0.4 }}>Undo</button>
@@ -130,6 +144,11 @@ export default function Studio() {
         </div>
       )}
       <VersionTimeline />
+      {notes && flags.project_notes && (
+        <div data-testid="project-notes" title={notes} style={{ padding: "4px 24px", fontSize: 12, opacity: 0.75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", borderBottom: "1px solid var(--lc-chrome-border)" }}>
+          <strong style={{ fontWeight: 600 }}>Understood so far:</strong> {notes}
+        </div>
+      )}
       {kind !== "screen" && <KeywordRail kind={kind} />}
       <div style={{ flex: 1 }}><Canvas doc={doc} /></div>
       <TranscriptStrip />

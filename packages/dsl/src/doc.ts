@@ -37,6 +37,26 @@ export const DesignNodeSchema: z.ZodType<DesignNode> = z.lazy(() =>
  * Edge points at two existing Nodes (the gateway prunes edges whose endpoint was removed).
  */
 function checkTree(root: DesignNode): string | null {
+  if (root.type === "Project") {
+    // ADR 0016: exactly the four view roots, in order, each valid on its own; ids unique project-wide.
+    const kids = root.children ?? [];
+    if (kids.length !== VIEWS.length) return `Project needs ${VIEWS.length} views, got ${kids.length}`;
+    for (const [i, v] of VIEWS.entries()) {
+      const c = kids[i]!;
+      if (c.id !== v.id || (v.kind === "screen" ? c.type !== "Frame" : c.type !== "Diagram" || c.props.kind !== v.kind)) return `view ${i} must be ${v.id}`;
+      const err = checkTree(c);
+      if (err) return `${v.kind}: ${err}`;
+    }
+    const seen = new Set<string>();
+    const dup = (n: DesignNode): string | null => {
+      if (seen.has(n.id)) return n.id;
+      seen.add(n.id);
+      for (const c of n.children ?? []) { const d = dup(c); if (d) return d; }
+      return null;
+    };
+    const d = dup(root);
+    return d ? `duplicate id ${d}` : null;
+  }
   if (root.type !== "Frame" && root.type !== "Diagram") return `root must be Frame or Diagram, got ${root.type}`;
   const nodeIds = new Set<string>();
   const edges: DesignNode[] = [];
@@ -81,7 +101,59 @@ export type DesignDoc = z.infer<typeof DesignDocSchema>;
 export const DocKind = z.enum(["screen", ...DiagramKind.options]);
 export type DocKind = z.infer<typeof DocKind>;
 
+/** Kind of a view doc (a Frame or Diagram root). A project doc has four — see `VIEWS`. */
 export const docKind = (doc: DesignDoc): DocKind => (doc.root.type === "Diagram" ? (doc.root.props.kind as DocKind) : "screen");
+
+// ── Projects (ADR 0016): one document, four views ─────────────────────────────────────────────────
+export const VIEWS: ReadonlyArray<{ kind: DocKind; id: string; label: string }> = [
+  { kind: "screen", id: "n_view_screen", label: "Screen" },
+  { kind: "architecture", id: "n_view_architecture", label: "Architecture" },
+  { kind: "erd", id: "n_view_erd", label: "ERD" },
+  { kind: "sequence", id: "n_view_sequence", label: "Sequence" },
+];
+export const viewIndex = (kind: DocKind) => VIEWS.findIndex((v) => v.kind === kind);
+
+/** An empty view root with its project id. */
+export const emptyView = (kind: DocKind): DesignNode => ({ ...emptyRoot(kind), id: VIEWS[viewIndex(kind)]!.id });
+
+export function emptyProject(id = "doc"): DesignDoc {
+  return { id, tokens: "default", root: { id: "n_root", type: "Project", props: {}, children: VIEWS.map((v) => emptyView(v.kind)) } };
+}
+
+/** Upgrades a single-view doc (pre-M6) into a project; that view keeps its content. Idempotent. */
+export function toProject(doc: DesignDoc): DesignDoc {
+  if (doc.root.type === "Project") return doc;
+  const kind = docKind(doc);
+  return { ...doc, root: { id: "n_root", type: "Project", props: {}, children: VIEWS.map((v) => (v.kind === kind ? { ...doc.root, id: v.id } : emptyView(v.kind))) } };
+}
+
+/** The view doc the engine works on: same doc, root = that view's root. */
+export function viewDoc(project: DesignDoc, kind: DocKind): DesignDoc {
+  return { ...project, root: project.root.children![viewIndex(kind)]! };
+}
+
+/** Writes a view root back into the project (structural sharing: only the root and its children array copy). */
+export function withView(project: DesignDoc, kind: DocKind, root: DesignNode): DesignDoc {
+  const children = project.root.children!.slice();
+  children[viewIndex(kind)] = root;
+  return { ...project, root: { ...project.root, children } };
+}
+
+/** `/root…` in a view doc ↔ `/root/children/<i>…` in the project. */
+export const toProjectPath = (path: string, kind: DocKind) => `/root/children/${viewIndex(kind)}${path.slice("/root".length)}`;
+export function fromProjectPath(path: string, kind: DocKind): string | null {
+  const prefix = `/root/children/${viewIndex(kind)}`;
+  if (path !== prefix && !path.startsWith(`${prefix}/`)) return null;
+  return `/root${path.slice(prefix.length)}`;
+}
+
+/** Element count of a view (what the view tabs show). */
+export function viewCount(root: DesignNode): number {
+  let n = 0;
+  const walk = (x: DesignNode) => { for (const c of x.children ?? []) { if (c.type !== "Layer") n++; walk(c); } };
+  walk(root);
+  return n;
+}
 
 /** Architecture lanes, top to bottom — fixed ids so the model and lexicon address them directly. */
 export const LANES: ReadonlyArray<{ id: string; tier: Tier; label: string }> = [

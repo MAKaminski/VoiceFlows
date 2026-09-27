@@ -80,6 +80,9 @@ async function start(extra: Record<string, string> = {}, model: ModelClient = fa
   return { app, persistence, provider, port };
 }
 
+/** The screen view of a project doc (ADR 0016) — the M3 tests speak to the screen. */
+const screenOf = (doc: DesignDoc | null) => (doc!.root.type === "Project" ? doc!.root.children![0]! : doc!.root);
+
 /** Test client = the browser's replica: applies `doc` snapshots and `ops` batches in arrival order. */
 function client(port: number) {
   const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
@@ -200,10 +203,10 @@ describe.skipIf(!DB)("engine → Postgres FK chain (M3)", () => {
     expect(j).toEqual({ status: "done", model: "fake-haiku", input_tokens: 700, path: "haiku", action: "add", committed: true });
     const ops = await sql`select op, primitive from patch_ops po join generation_jobs j on j.id = po.job_id where j.session_id = ${opened.sessionId} order by seq`;
     expect(ops.map((o) => [o.op, o.primitive])).toEqual([["add", "Text"], ["add", "Input"], ["add", "Input"], ["add", "Button"]]);
-    const versions = await sql`select version, parent_version, job_id is not null as has_job, jsonb_array_length(doc->'root'->'children') as kids
+    const versions = await sql`select version, parent_version, job_id is not null as has_job, jsonb_array_length(doc->'root'->'children'->0->'children') as kids
                                from design_versions where document_id = ${opened.documentId} order by version`;
     expect(versions.map((v) => [v.version, v.parent_version, v.has_job, v.kids])).toEqual([[0, null, false, 0], [1, 0, true, 4]]);
-    const [doc] = await sql`select current_version, jsonb_array_length(current_doc->'root'->'children') as kids from design_documents where id = ${opened.documentId}`;
+    const [doc] = await sql`select current_version, jsonb_array_length(current_doc->'root'->'children'->0->'children') as kids from design_documents where id = ${opened.documentId}`;
     expect(doc).toEqual({ current_version: 0, kids: 0 }); // after undo
     const resumed = await p.resumeSession(opened.sessionId);
     expect(resumed!.current).toBe(0);
@@ -256,7 +259,7 @@ describe("patch engine, versions, undo (M3)", () => {
     expect(firstOps).toBeLessThan(c.inbox.indexOf(end)); // first op before the stream ended
     expect(end).toMatchObject({ state: "done", opCount: 4 });
     expect(DesignDocSchema.safeParse(c.replica.doc).success).toBe(true);
-    expect(c.replica.doc!.root.children!.map((n) => [n.id, n.type])).toEqual([["n_title", "Text"], ["n_email", "Input"], ["n_password", "Input"], ["n_signin", "Button"]]);
+    expect(screenOf(c.replica.doc).children!.map((n) => [n.id, n.type])).toEqual([["n_title", "Text"], ["n_email", "Input"], ["n_password", "Input"], ["n_signin", "Button"]]);
     expect(await c.next((m) => m.type === "version")).toMatchObject({ version: 1, canUndo: true, canRedo: false });
     const methods = persistence.calls.map((x) => x.method);
     expect(methods.filter((m) => m === "op")).toHaveLength(4);
@@ -268,7 +271,7 @@ describe("patch engine, versions, undo (M3)", () => {
     const { app, c } = await session(fakeModel(["add .8 btn", "+Widget w >root", "~ghost c=primary", "+Button b >root c=#ff0000 \"Bad\"", '+Button ok >root "Ok"']));
     c.ws.send(JSON.stringify({ type: "prompt", text: "add a button" }));
     expect(await c.next(done)).toMatchObject({ state: "done", opCount: 1 });
-    expect(c.replica.doc!.root.children!.map((n) => n.id)).toEqual(["n_ok"]);
+    expect(screenOf(c.replica.doc).children!.map((n) => n.id)).toEqual(["n_ok"]);
     c.ws.close(); await app.close();
   });
 
@@ -312,7 +315,7 @@ describe("patch engine, versions, undo (M3)", () => {
     c.ws.send(JSON.stringify({ type: "prompt", text: "add a login form, please" }));
     const states = [await c.nth(done, 1), await c.nth(done, 2)].map((m) => (m as { state: string }).state);
     expect(states).toEqual(["aborted", "done"]);
-    expect(c.replica.doc!.root.children!.map((n) => n.id)).toEqual(["n_title", "n_email", "n_password", "n_signin"]);
+    expect(screenOf(c.replica.doc).children!.map((n) => n.id)).toEqual(["n_title", "n_email", "n_password", "n_signin"]);
     c.ws.close(); await app.close();
   });
 
@@ -384,10 +387,10 @@ describe("feature flags + admin + vocabulary (ADR 0012)", () => {
     c.ws.send(JSON.stringify({ type: "new_doc", kind: "sequence" }));
     const err = await c.next((m) => m.type === "error");
     expect((err as any).message).toMatch(/turned off/);
-    expect(c.replica.doc!.root.type).toBe("Frame");
+    expect(c.count((m) => m.type === "view" && m.view === "sequence")).toBe(0);
     expect(persistence.events.some((e) => e.key === "diagram_sequence" && e.action === "blocked")).toBe(true);
-    c.ws.send(JSON.stringify({ type: "new_doc", kind: "architecture" }));
-    await c.next((m) => m.type === "version");
+    c.ws.send(JSON.stringify({ type: "set_view", view: "architecture" }));
+    await c.next((m) => m.type === "view" && m.view === "architecture");
     expect(persistence.events.some((e) => e.key === "diagram_architecture" && e.action === "used")).toBe(true);
     c.ws.close(); await app.close();
   });
@@ -396,8 +399,8 @@ describe("feature flags + admin + vocabulary (ADR 0012)", () => {
     const model = fakeModel(["none 0"]);
     const { app, port } = await start({}, model);
     const c = await hello(port);
-    c.ws.send(JSON.stringify({ type: "new_doc", kind: "architecture" }));
-    await c.next((m) => m.type === "version");
+    c.ws.send(JSON.stringify({ type: "set_view", view: "architecture" }));
+    await c.next((m) => m.type === "view" && m.view === "architecture");
     c.ws.send(JSON.stringify({ type: "stt_start", mode: "direct" }));
     const say = (seq: number, text: string, isFinal = false) => c.ws.send(JSON.stringify({ type: "partial", utteranceSeq: seq, text, isFinal, tMs: 0 }));
     const words = "define ledger as a queue".split(" ");
@@ -493,14 +496,15 @@ describe("share links (ADR 0013)", () => {
     const s2 = await c.nth((m) => m.type === "shares", 3) as Extract<ServerMsg, { type: "shares" }>;
     expect(s2.links.map((l) => l.token)).toEqual([token]);
 
-    c.ws.send(JSON.stringify({ type: "new_doc", kind: "erd" })); // the author moves on …
+    c.ws.send(JSON.stringify({ type: "set_title", title: "Moved on" })); // the author keeps editing …
     await c.next((m) => m.type === "version" && m.version === 2);
     const view = await fetch(`http://127.0.0.1:${port}/share/${token}`);
     expect(view.status).toBe(200);
     expect(view.headers.get("cache-control")).toBe("no-store");
     const body = await view.json() as any;
     expect(body.version).toBe(1); // … but the link still shows what was shared
-    expect(body.doc.root.children.some((n: any) => n.type === "Button")).toBe(true);
+    expect(body.doc.root.children[0].children.some((n: any) => n.type === "Button")).toBe(true);
+    expect(body.doc.root.props.title).toBeUndefined(); // the title came later
 
     c.ws.send(JSON.stringify({ type: "share_revoke", token }));
     await c.nth((m) => m.type === "shares", 4);
@@ -574,7 +578,7 @@ describe("remember the document across tabs (ADR 0014)", () => {
     const b = await hello(port, { documentId: a.w.documentId });
     expect(b.w).toMatchObject({ documentId: a.w.documentId, version: 1, resumed: true });
     expect(b.w.sessionId).not.toBe(a.w.sessionId); // every open is a fresh session row
-    expect(b.c.replica.doc!.root.children!.some((n) => n.type === "Button")).toBe(true);
+    expect(screenOf(b.c.replica.doc).children!.some((n) => n.type === "Button")).toBe(true);
     b.c.ws.close(); await app.close();
   });
 
@@ -634,7 +638,7 @@ describe.skipIf(!DB)("reload race against Postgres (ADR 0014)", () => {
     const b = client(port); await b.open; b.ws.send(JSON.stringify({ type: "hello", documentId: w.documentId }));
     const w2 = await b.next((m) => m.type === "welcome") as Extract<ServerMsg, { type: "welcome" }>;
     expect(w2.version).toBe(1);
-    b.ws.send(JSON.stringify({ type: "new_doc", kind: "erd" }));
+    b.ws.send(JSON.stringify({ type: "set_title", title: "Reopened" }));
     await b.next((m) => m.type === "version" && m.version === 2);
     b.ws.close();
     await persistence.flush();

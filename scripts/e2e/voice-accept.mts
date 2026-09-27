@@ -57,7 +57,8 @@ async function run(i: number) {
       const after = pos(doc);
       // Reflow proxy: an existing node pushed down (higher index) or moved to another parent. Whole-root
       // restores (undo/rollback) are not reflows of the user's utterance.
-      if (!(m.ops.length === 1 && m.ops[0]!.path === "/root")) {
+      // (A view restore is `replace /root/children/<i>` since projects, ADR 0016.)
+      if (!(m.ops.length === 1 && m.ops[0]!.op === "replace" && /^\/root(\/children\/\d)?$/.test(m.ops[0]!.path))) {
         for (const [id, p] of after) {
           const b = before.get(id);
           if (!b) continue;
@@ -107,7 +108,8 @@ async function run(i: number) {
   const jobs = inbox.filter((x) => x.m.type === "job" && x.m.state === "running").map((x) => (x.m as { kind?: string }).kind);
   const tokens = inbox.filter((x) => x.m.type === "job" && (x.m as { inputTokens?: number }).inputTokens != null)
     .reduce((a, x) => { const j = x.m as { inputTokens: number; outputTokens?: number }; return { in: a.in + j.inputTokens, out: a.out + (j.outputTokens ?? 0) }; }, { in: 0, out: 0 });
-  const kids = (doc as DesignDoc | null)?.root.children ?? [];
+  const root = (doc as DesignDoc | null)?.root;
+  const kids = (root?.type === "Project" ? root.children![0]!.children : root?.children) ?? []; // the screen view
   const has = (f: (n: DesignNode) => boolean) => { let ok = false; const w = (n: DesignNode) => { if (f(n)) ok = true; n.children?.forEach(w); }; kids.forEach(w); return ok; };
   const anyProvisional = (() => { let p = false; const w = (n: DesignNode) => { if (n.provisional) p = true; n.children?.forEach(w); }; kids.forEach(w); return p; })();
   const layoutOk = kids[0]?.type === "Image" && has(KEYWORD_KIND.email!) && has(KEYWORD_KIND.password!)

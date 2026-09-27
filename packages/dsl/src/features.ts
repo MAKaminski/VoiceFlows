@@ -6,6 +6,8 @@ import type { DocKind } from "./doc.js";
  * an admin can switch it off. Seeded into `feature_flags` by migrate (never overwriting `enabled`).
  */
 export const FEATURES = {
+  projects: { default: true, description: "Projects: Screen, Architecture, ERD and Sequence together — speak to any view" },
+  project_notes: { default: true, description: "Project notes: a running summary of what you've said, kept as context for every view" },
   speak_to_create: { default: true, description: "Speak or type to create and edit — the core loop" },
   diagram_architecture: { default: true, description: "Architecture diagrams (Frontend · APIs · Database · Infrastructure)" },
   diagram_erd: { default: true, description: "Entity-relationship diagrams" },

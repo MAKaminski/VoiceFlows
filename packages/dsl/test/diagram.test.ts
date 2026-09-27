@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyOp, architectureDoc, DesignDocSchema, docKind, emptyDoc, erdDoc, expandCompact, findNode, kitchenSinkDoc, layoutDiagram,
-  defaultFlags, isConfirm, kindFeature, lexicon, parseDefine, sequenceDoc, type CompactContext, type DesignDoc, type Rect, type VocabTerm,
+  defaultFlags, emptyProject, fromProjectPath, isConfirm, kindFeature, lexicon, mapOpPaths, toProject, toProjectPath, viewDoc, withView, parseDefine, sequenceDoc, type CompactContext, type DesignDoc, type Rect, type VocabTerm,
 } from "../src/index.js";
 
 const valid = (d: DesignDoc) => DesignDocSchema.safeParse(d);
@@ -17,19 +17,26 @@ function ctxFor(doc: () => DesignDoc): CompactContext {
   };
 }
 
-/** Replays a sentence word by word through the lexicon, like STT partials. */
+/** Replays a sentence word by word through the lexicon, like STT partials, on a project (ADR 0016):
+ *  a `view` result switches the active view and re-runs there. Returns the active view doc. */
 function speak(sentence: string, start: DesignDoc = emptyDoc()) {
-  let doc = start;
+  let project = toProject(start);
+  let view = docKind(start);
   const drawn = new Set<string>();
   const words = sentence.split(" ");
   for (let n = 1; n <= words.length; n++) {
-    const r = lexicon(words.slice(0, n).join(" "), doc, drawn);
-    for (const op of r.ops) doc = applyOp(doc, op);
+    let r = lexicon(words.slice(0, n).join(" "), viewDoc(project, view), drawn);
+    if (r.view) { view = r.view; r = lexicon(words.slice(0, n).join(" "), viewDoc(project, view), drawn); }
+    let d = viewDoc(project, view);
+    for (const op of r.ops) d = applyOp(d, op);
+    project = withView(project, view, d.root);
     r.consumed.forEach((k) => drawn.add(k));
-    expect(valid(doc).success).toBe(true);
+    expect(valid(project).success).toBe(true);
   }
-  return doc;
+  lastProject = project;
+  return viewDoc(project, view);
 }
+let lastProject: DesignDoc;
 const labelsIn = (doc: DesignDoc, laneId: string) => findNode(doc.root, laneId)!.node.children!.map((c) => c.props.label);
 
 describe("diagram docs (ADR 0011)", () => {
@@ -105,10 +112,10 @@ describe("diagram lexicon", () => {
     expect(doc.root.children!.map((c) => c.props.label)).toEqual(["User", "Web app", "API", "Postgres"]);
   });
 
-  it("does not switch kind once the doc has content", () => {
+  it("a loose phrase never leaves a view with content; a strong one switches without touching it", () => {
     const arch = speak("architecture with postgres");
-    const after = lexicon("and a database schema", arch);
-    expect(after.ops.some((o) => o.path === "/root")).toBe(false);
+    expect(lexicon("and a database schema", arch).view).toBeUndefined();
+    expect(lexicon("now the erd with users", arch).view).toBe("erd");
   });
 
   it("leaves screen mode alone", () => {
@@ -214,5 +221,49 @@ describe("transcript highlighting support (ADR 0012)", () => {
     const s = lexicon("a big blue sign in button", emptyDoc());
     expect(s.created[0]!.key).toBe("button#1");
     expect(s.consumed).toEqual(expect.arrayContaining(["button#1", "big#1", "blue#1"]));
+  });
+});
+
+describe("projects (ADR 0016)", () => {
+  it("every fixture upgrades to a valid project, idempotently, keeping its view", () => {
+    for (const d of [architectureDoc, erdDoc, sequenceDoc, kitchenSinkDoc, emptyDoc()]) {
+      const p = toProject(d);
+      expect(valid(p).success).toBe(true);
+      expect(toProject(p)).toBe(p);
+      expect(viewDoc(p, docKind(d)).root.children).toEqual(d.root.children);
+    }
+    expect(valid(emptyProject()).success).toBe(true);
+  });
+
+  it("naming another view mid-sentence keeps what was drawn in the first view", () => {
+    const erd = speak("an architecture with a fastify api and postgres and then the erd with users and orders");
+    expect(docKind(erd)).toBe("erd");
+    expect(erd.root.children!.map((c) => c.props.label)).toEqual(["users", "orders"]);
+    const arch = viewDoc(lastProject, "architecture");
+    expect(JSON.stringify(arch)).toContain('"Postgres"');
+    expect(JSON.stringify(arch)).toContain('"API"');
+  });
+
+  it("path rewrite round-trips, including move ops", () => {
+    const op = { op: "move" as const, from: "/root/children/0/children/1", path: "/root/children/2/children/-" };
+    const up = mapOpPaths(op, (p) => toProjectPath(p, "architecture"));
+    expect(up).toEqual({ op: "move", from: "/root/children/1/children/0/children/1", path: "/root/children/1/children/2/children/-" });
+    expect(mapOpPaths(up, (p) => fromProjectPath(p, "architecture")!)).toEqual(op);
+    expect(toProjectPath("/root", "erd")).toBe("/root/children/2");
+    expect(fromProjectPath("/root/children/3/children/0", "erd")).toBeNull();
+  });
+
+  it("ids stay unique across views: the lexicon avoids ids used in other views", () => {
+    const seq = lexicon("the api", emptyDoc({ kind: "sequence" }), new Set(), [], () => true, new Set(["n_p_api"]));
+    expect(seq.created[0]!.id).toBe("n_p_api_2");
+    const p = withView(withView(emptyProject(), "architecture", { ...architectureDoc.root, id: "n_view_architecture" }), "sequence", { ...sequenceDoc.root, id: "n_view_sequence" });
+    expect(valid(p).success).toBe(true);
+    const clash = withView(p, "erd", { id: "n_view_erd", type: "Diagram", props: { kind: "erd" }, children: [{ id: "n_gateway", type: "Node", props: { label: "x", kind: "entity" } }] });
+    expect(valid(clash).success).toBe(false); // n_gateway is already in the architecture
+  });
+
+  it("enterprise systems draw in the right lane from the lexicon alone", () => {
+    const d = speak("an architecture where mulesoft connects salesforce and genesys with a genesys bot and observe ai");
+    expect(labelsIn(d, "n_api")).toEqual(["MuleSoft", "Salesforce", "Genesys", "Genesys bot", "Observe.AI"]);
   });
 });

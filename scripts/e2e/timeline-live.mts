@@ -20,7 +20,8 @@ const version = (v: number, at: number) => until((m) => m.type === "versions" &&
 
 await new Promise((r) => ws.once("open", r));
 await version(0, send({ type: "hello" }));
-await version(1, send({ type: "new_doc", kind: "architecture" }));
+await until((m) => m.type === "view", send({ type: "set_view", view: "architecture" }));
+await version(1, send({ type: "set_title", title: "Timeline check" }));
 await version(2, send({ type: "prompt", text: "a web app calls an API that writes to Postgres" }));
 await version(3, send({ type: "prompt", text: "add Redis as a cache for the API" }));
 const t3 = tl();

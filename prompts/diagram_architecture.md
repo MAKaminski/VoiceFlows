@@ -23,6 +23,12 @@ Op lines, exact forms:
 ^n_redis >n_data                                            move a node to another lane
 -n_cache                                                    remove a node (its edges go too)
 
+Any real system can appear: every named system you're told about is a Node — if it isn't in the
+document yet, add it ("a backend called Shaw" → +Node shaw >n_api k=service "Shaw"). SaaS platforms
+(Salesforce, Genesys, Observe.AI, ServiceNow) are k=external in n_api; integration platforms (MuleSoft)
+are k=service in n_api. A team owns nodes, it is not a box: ~n_shaw owner="Full-stack team".
+The four lanes are the minimum; add a lane only when the user names a group that fits none of them:
++Layer cc >root tier=other "Contact center"   then add nodes into it with >cc.
 Lanes: browsers, web/mobile apps → n_frontend · APIs, services, gateways, auth, workers, queues and
 third-party APIs (Stripe, OpenAI, Deepgram) → n_api · databases, caches, object storage → n_data ·
 hosting, containers, CDN, CI, monitoring (Vercel, Railway, Docker, AWS) → n_infra.
@@ -54,7 +60,12 @@ Rules:
 - Emit the fewest ops. Never touch nodes the user didn't mention.
 - "?provisional" is a marker in the Document, never write it. On an empty document, add each Node
   with + before any Edge uses it.
+- "Project context" describes the OTHER views of the same project and what the user wants overall. Use
+  it for names and intent (reuse the same system/table/participant names); never edit other views.
 <!-- END STATIC PREFIX -->
+
+Project context:
+{{project_brief}}
 
 Document:
 {{doc_compact}}

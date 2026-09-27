@@ -17,6 +17,7 @@ const TONES: Record<string, Tone> = {
   api: { accent: "#7c3aed", tint: "#f5f3ff", border: "#ddd6fe" },
   data: { accent: "#059669", tint: "#ecfdf5", border: "#a7f3d0" },
   infra: { accent: "#d97706", tint: "#fffbeb", border: "#fde68a" },
+  other: { accent: "#475569", tint: "#f8fafc", border: "#cbd5e1" }, // a named extra lane (ADR 0016)
 };
 const KIND_TIER: Record<string, keyof typeof TONES> = {
   user: "frontend", client: "frontend", service: "api", auth: "api", worker: "api", queue: "api", external: "api",
@@ -41,7 +42,7 @@ export function DiagramCanvas({ doc }: { doc: DesignDoc }) {
   const empty = !Object.keys(layout.nodes).length;
 
   return (
-    <div data-node-id="n_root" data-type="Diagram" style={{ display: "contents" }}>
+    <div data-node-id={doc.root.id} data-type="Diagram" data-view-root="" style={{ display: "contents" }}>
       <div style={{
         position: "relative", width: layout.width, height: layout.height, flex: "none",
         background: "#fff", borderRadius: 20, boxShadow: "0 1px 2px rgba(15,23,42,.06), 0 20px 50px rgba(15,23,42,.12)",
@@ -116,6 +117,10 @@ const Box = memo(function Box({ node, rect, tone }: { node: DesignNode; rect: Re
           <span style={{ fontSize: 14, fontWeight: 650, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{String(node.props.label)}</span>
           {tech && <span style={{ fontSize: 12, color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{tech}</span>}
         </span>
+        {typeof node.props.owner === "string" && (
+          <span title={`Owned by ${node.props.owner}`} style={{ position: "absolute", top: -9, right: 10, maxWidth: 150, fontSize: 10.5, fontWeight: 600,
+            padding: "1px 7px", borderRadius: 999, background: "#0f172a", color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{String(node.props.owner)}</span>
+        )}
       </div>
     </div>
   );
