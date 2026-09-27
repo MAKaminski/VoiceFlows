@@ -5,8 +5,8 @@ _Generated from the TypeScript AST by `pnpm codemap` — do not edit by hand; CI
 | Measure | Count |
 |---|---|
 | Modules | 53 |
-| Lines | 5138 |
-| Top-level symbols | 382 |
+| Lines | 5152 |
+| Top-level symbols | 383 |
 | Exported symbols | 187 |
 | Exported names defined in 2+ modules | 1 |
 
@@ -42,7 +42,7 @@ flowchart LR
 | [fixtures.ts](../packages/dsl/src/fixtures.ts) | 99 | `kitchenSinkDoc` const · `architectureDoc` const · `erdDoc` const · `sequenceDoc` const |
 | [index.ts](../packages/dsl/src/index.ts) | 13 | — |
 | [intent.ts](../packages/dsl/src/intent.ts) | 68 | `IntentAction` const · `Intent` const · `Intent` type · `IntentHeader` const · `IntentHeader` type · `DELTA_WEIGHTS` const · `deltaScore` function · `parseHeader` function |
-| [layout.ts](../packages/dsl/src/layout.ts) | 329 | `Rect` interface · `EdgeStyle` type · `EndMark` type · `EdgeRoute` interface · `LaneBox` interface · `Lifeline` interface · `DiagramLayout` interface · `ARCH` const · `ERD` const · `SEQ` const · `layoutDiagram` function · `simplify` function · `labelPoint` function · `roundedPath` function |
+| [layout.ts](../packages/dsl/src/layout.ts) | 331 | `Rect` interface · `EdgeStyle` type · `EndMark` type · `EdgeRoute` interface · `LaneBox` interface · `Lifeline` interface · `DiagramLayout` interface · `ARCH` const · `ERD` const · `SEQ` const · `layoutDiagram` function · `simplify` function · `labelPoint` function · `roundedPath` function |
 | [lexicon.ts](../packages/dsl/src/lexicon.ts) | 377 | `LexiconResult` interface · `occurrenceKeys` function · `isModifier` const · `lexTokens` const · `kindKey` function · `lexicon` function · `requestedKind` function · `VocabEntry` interface · `diagramVocabulary` function |
 | [ops.ts](../packages/dsl/src/ops.ts) | 111 | `PatchOp` const · `PatchOp` type · `applyOp` function · `invertOp` function |
 | [primitives.ts](../packages/dsl/src/primitives.ts) | 129 | `SCREEN_TYPES` const · `DIAGRAM_TYPES` const · `PRIMITIVE_TYPES` const · `PrimitiveType` const · `PrimitiveType` type · `DiagramKind` const · `DiagramKind` type · `Tier` const · `Tier` type · `NodeKind` const · `NodeKind` type · `ColumnSpec` const · `propSchemas` const · `CONTAINER_TYPES` const · `PARENTS` const · `PRIMARY_TEXT_PROP` const · `ARRAY_PROPS` const |
@@ -94,7 +94,7 @@ flowchart LR
 | [components/canvas/CanvasNode.tsx](../apps/web/components/canvas/CanvasNode.tsx) | 19 | `CanvasNode` const |
 | [components/canvas/primitives.tsx](../apps/web/components/canvas/primitives.tsx) | 111 | `renderers` const |
 | [components/canvas/tokens.ts](../apps/web/components/canvas/tokens.ts) | 16 | `tokenVars` function · `color` const · `space` const · `radius` const |
-| [components/diagram/DiagramCanvas.tsx](../apps/web/components/diagram/DiagramCanvas.tsx) | 200 | `DiagramCanvas` function |
+| [components/diagram/DiagramCanvas.tsx](../apps/web/components/diagram/DiagramCanvas.tsx) | 212 | `DiagramCanvas` function |
 | [lib/gateway.ts](../apps/web/lib/gateway.ts) | 65 | `WS_URL` const · `HTTP_BASE` const · `gateway` const |
 | [lib/metricsTap.ts](../apps/web/lib/metricsTap.ts) | 78 | `currentMaxReflows` const · `installMetricsTap` function · `tapLocalTranscript` function |
 | [lib/voice/capture.ts](../apps/web/lib/voice/capture.ts) | 26 | `Capture` interface · `startCapture` function |

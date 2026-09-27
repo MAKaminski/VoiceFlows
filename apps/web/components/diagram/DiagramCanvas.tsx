@@ -51,6 +51,7 @@ export function DiagramCanvas({ doc }: { doc: DesignDoc }) {
         {title && <div style={{ position: "absolute", left: 24, top: -34, fontSize: 18, fontWeight: 650, letterSpacing: -0.2 }}>{title}</div>}
         {layout.lanes.map((l) => <Lane key={l.id} lane={l} count={byId.get(l.id)?.children?.length ?? 0} />)}
         <Edges layout={layout} />
+        <EdgeLabels layout={layout} />
         {Object.entries(layout.nodes).map(([id, r]) => {
           const n = byId.get(id);
           if (!n) return null;
@@ -102,7 +103,8 @@ const cardBase: CSSProperties = {
 
 const Box = memo(function Box({ node, rect, tone }: { node: DesignNode; rect: Rect; tone: Tone }) {
   const Icon = KIND_ICON[String(node.props.kind)] ?? Server;
-  const tech = node.props.tech as string | undefined;
+  const raw = node.props.tech as string | undefined;
+  const tech = raw && raw.toLowerCase() !== String(node.props.label).toLowerCase() ? raw : undefined; // "Postgres / Postgres" reads as noise
   return (
     <div data-node-id={node.id} data-type="Node" style={{ display: "contents" }}>
       <div className={node.provisional ? "lc-provisional" : undefined} style={{ ...cardBase, left: rect.x, top: rect.y, width: rect.w, height: rect.h,
@@ -174,7 +176,6 @@ const MARK: Record<string, string | undefined> = { arrow: "url(#lc-arrow)", one:
 const EdgePath = memo(function EdgePath({ e, seq }: { e: EdgeRoute; seq: boolean }) {
   const dashed = e.style !== "sync";
   const end = e.end === "arrow" && e.style === "async" ? "url(#lc-arrow-open)" : MARK[e.end];
-  const labelW = e.label ? Math.min(220, e.label.length * 6.6 + 16) : 0;
   const [sx, sy] = e.points[0]!;
   const self = e.from === e.to;
   const rightward = !self && (e.points[1]?.[0] ?? sx) >= sx;
@@ -182,12 +183,6 @@ const EdgePath = memo(function EdgePath({ e, seq }: { e: EdgeRoute; seq: boolean
     <g data-edge-id={e.id} style={{ animation: "lc-fade .2s ease-out" }}>
       <path d={e.d} fill="none" stroke={EDGE} strokeWidth={1.6} strokeDasharray={dashed ? "6 5" : undefined}
         strokeLinecap="round" strokeLinejoin="round" markerStart={MARK[e.start]} markerEnd={end} />
-      {e.label && (
-        <g transform={`translate(${e.labelX}, ${e.labelY})`}>
-          <rect x={-labelW / 2} y={-10} width={labelW} height={20} rx={10} fill="#fff" stroke="#e2e8f0" />
-          <text textAnchor="middle" dy="4" fontSize={11.5} fill={INK} fontWeight={500} style={{ fontFamily: "inherit" }}>{e.label}</text>
-        </g>
-      )}
       {seq && e.step != null && (
         <g transform={`translate(${sx + (rightward ? 14 : -14)}, ${sy})`}>
           <circle r={9} fill="#2563eb" />
@@ -197,3 +192,20 @@ const EdgePath = memo(function EdgePath({ e, seq }: { e: EdgeRoute; seq: boolean
     </g>
   );
 });
+
+/** Edge labels on their own layer above the cards, so a label is never hidden behind a box. */
+function EdgeLabels({ layout }: { layout: DiagramLayout }) {
+  return (
+    <svg width={layout.width} height={layout.height} style={{ position: "absolute", inset: 0, zIndex: 3, overflow: "visible", pointerEvents: "none" }}>
+      {layout.edges.filter((e) => e.label).map((e) => {
+        const w = Math.min(220, e.label!.length * 6.6 + 16);
+        return (
+          <g key={e.id} transform={`translate(${e.labelX}, ${e.labelY})`} style={{ animation: "lc-fade .2s ease-out" }}>
+            <rect x={-w / 2} y={-10} width={w} height={20} rx={10} fill="#fff" stroke="#e2e8f0" />
+            <text textAnchor="middle" dy="4" fontSize={11.5} fill={INK} fontWeight={500} style={{ fontFamily: "inherit" }}>{e.label}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}

@@ -129,7 +129,9 @@ function layoutArchitecture(root: DesignNode): DiagramLayout {
       }
     }
     pts = simplify(pts);
-    const [lx, ly] = labelPoint(pts);
+    let [lx, ly] = labelPoint(pts);
+    // Neighbours sit a column gap apart — too narrow for a label: lift it into the lane padding above.
+    if (p.aSide === "left" || p.aSide === "right") { lx = (s[0] + t[0]) / 2; ly = Math.min(p.a.rect.y, p.b.rect.y) - LANE_PAD / 2 + 1; }
     return {
       id: p.e.id, from: String(p.e.props.from), to: String(p.e.props.to), points: pts, d: roundedPath(pts),
       ...(p.e.props.label ? { label: String(p.e.props.label) } : {}), labelX: lx, labelY: ly,
