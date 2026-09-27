@@ -10,7 +10,7 @@
 | M1 — Skeleton + static render | **Done 2026-09-26** | `docker compose up`: all 4 services · `/playground` renders all 12 primitives · schema = ERD (13 tables, 16 FKs) · WS hello→welcome · dsl tests · typecheck clean |
 | Deploy (pulled forward) | **Live 2026-09-26** | Vercel `live-canvas` ↔ Railway gateway (sfo) `/healthz` 200, WS verified; Postgres schema applied by pre-deploy migrate (13 tables, 16 FKs); Redis online |
 
-## M5a — Spoken diagrams: Architecture · ERD · Sequence (2026-09-27) — built, live check pending deploy
+## M5a — Spoken diagrams: Architecture · ERD · Sequence (2026-09-27) — DONE
 - ADR 0011 / D23: `Diagram`/`Layer`/`Node`/`Edge` primitives, 4 seeded architecture lanes, append-stable
   `layoutDiagram`, per-kind lexicon + prompt + call allowlist, `new_doc`, vocabulary rail.
 - Plan-critic blockers fixed before build: exact-key folds for diagram nodes, lane-aware lexicon,
@@ -18,4 +18,4 @@
   object was spoken (edge lost) → verbs wait for their object.
 - Tests: dsl 35/35 (layout: no overlaps, edges avoid boxes, append-stable), gateway 28 + 3 pg-skipped.
 - Visual check: /playground?kind=architecture|erd|sequence.
-- Pending: deploy gateway, live model check per kind, M4 10-run regression (screen mode unchanged in code paths except folds).
+- Live (Railway): diagram prompts 6/6; screen regression 10/10, TTFV-1 817 ms adj., $0.0113/min. ADR 0011 §Result.
