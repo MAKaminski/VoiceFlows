@@ -12,7 +12,8 @@ appended Edge happens next). Ops:
 +Edge m1 >root from=user to=web "Clicks sign in"   message; ≤ 4 words, sentence case
   style=return (dashed reply, only when the user says what comes back) · style=async (fire-and-forget)
   from= and to= the same node for a self-call
-~n_m2 "401 Unauthorized"   relabel · -n_m3   remove
+~n_m2 "401 Unauthorized"   relabel
+-n_m3   remove
 
 Existing participants and messages (any n_… id, including ?provisional ones just drawn from speech)
 are used by id — never re-add or remove them; never write "?provisional". Add a Node before a message

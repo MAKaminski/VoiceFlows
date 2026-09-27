@@ -10,7 +10,8 @@ Ops:
 +Node orders >root k=entity cols=id:uuid:pk,user_id:uuid:fk,total:numeric "orders"   add a table
 ~n_orders cols=id:uuid:pk,user_id:uuid:fk,status:text   set the FULL column list (repeat existing ones)
 +Edge r1 >root from=users to=orders card=1:n "places"   relationship; from= is the "one" side
-~n_users "accounts"   rename · -n_orders   remove (its edges go too)
+~n_users "accounts"   rename
+-n_orders   remove (its edges go too)
 
 Columns: name:type[:pk|:fk], snake_case, comma-separated, no spaces; types uuid text int bigint
 numeric bool timestamptz date jsonb; id:uuid:pk first. Tables: lowercase plural snake_case.
