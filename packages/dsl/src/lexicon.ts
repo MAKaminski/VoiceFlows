@@ -18,7 +18,8 @@ import { isVocabCommand, type VocabTerm } from "./vocabulary.js";
 
 export interface LexiconResult {
   ops: PatchOp[];
-  created: Array<{ id: string; word: string; kind: string }>;
+  /** `key` = the noun's occurrence key (`button#1`); `mine` = drawn from the user's own word (ADR 0012). */
+  created: Array<{ id: string; word: string; kind: string; key: string; mine?: boolean }>;
   /** Occurrence keys (`button#1` = first "button" in the utterance) this call turned into nodes —
    *  nouns plus the modifiers attached to them. Stable under Flux revisions ("sign and" → "sign in"). */
   consumed: string[];
@@ -178,7 +179,7 @@ function screenLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<s
     ops.push({ op: "add", path: `/root/children/${index}`, value: node });
     rootKids.splice(index, 0, node);
     kinds.add(key); kinds.add(`type:${spec.type}`); ids.add(id);
-    created.push({ id, word: w, kind: key });
+    created.push({ id, word: w, kind: key, key: occ[i]! });
     consumed.push(occ[i]!, ...usedMods.map((j) => occ[j]!));
   });
   return { ops, created, consumed };
@@ -299,26 +300,30 @@ function diagramLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<
   const counts = new Map<string, number>(); // children per lane path, updated as we add
   const kidsOf = (path: string, n: DesignNode) => counts.get(path) ?? n.children?.length ?? 0;
   let nodeAt = (doc.root.children ?? []).map((c) => c.type).lastIndexOf("Node") + 1;
+  let prevNounEnd = 0;
 
   const ops: PatchOp[] = [];
   const created: LexiconResult["created"] = [];
   const consumed: string[] = [];
   for (let i = 0; i < words.length; i++) {
-    let hit: { len: number; noun: DiagramNoun } | null = null;
-    for (const [phrase, noun] of table) {
-      if (i + phrase.length <= words.length && phrase.every((w, k) => words[i + k] === w)) { hit = { len: phrase.length, noun }; break; }
+    let hit: { len: number; noun: DiagramNoun; mine?: boolean } | null = null;
+    for (const [ti, [phrase, noun]] of table.entries()) {
+      if (i + phrase.length <= words.length && phrase.every((w, k) => words[i + k] === w)) { hit = { len: phrase.length, noun, mine: ti < mine.length }; break; }
     }
     if (!hit && kind === "erd" && TABLE_WORD.has(words[i + 1] ?? "") && !STOP.has(words[i]!) && !TABLE_WORD.has(words[i]!) && /^[a-z][a-z_]{2,}$/.test(words[i]!)) {
       hit = { len: 1, noun: { label: SINGULAR[words[i]!] ?? words[i]!, kind: "entity" } };
     }
     if (!hit) continue;
     const keys = occ.slice(i, i + hit.len);
+    const definite = words.slice(Math.max(i - 3, prevNounEnd), i).some((w) => DEFINITE.has(w));
     i += hit.len - 1;
+    prevNounEnd = i + 1;
     if (keys.some((k) => drawn.has(k))) continue;
     const { noun } = hit;
     if (labels.has(noun.label.toLowerCase())) continue;
-    // "the app" after "web app": a definite reference to something of that kind already drawn.
-    if (isReference(words, i - hit.len + 1) && kinds.has(noun.kind)) continue;
+    // "the app" after "web app": a definite reference to something of that kind already drawn. Only
+    // the words since the previous noun count — in "the ledger and postgres" the "the" is the ledger's.
+    if (definite && kinds.has(noun.kind)) continue;
     const alias = noun.label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "node";
     let id = `n_p_${alias}`, n = 2;
     while (ids.has(id)) id = `n_p_${alias}_${n++}`;
@@ -333,13 +338,13 @@ function diagramLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<
       // Nodes before Edges: a new entity/actor goes right after the last Node, so edge order is untouched.
       ops.push({ op: "add", path: `/root/children/${nodeAt}`, value: node });
       nodeAt++;
-      ids.add(id); labels.add(noun.label.toLowerCase()); kinds.add(noun.kind); created.push({ id, word: words[i]!, kind: kindKey(node) }); consumed.push(...keys);
+      ids.add(id); labels.add(noun.label.toLowerCase()); kinds.add(noun.kind); created.push({ id, word: words[i]!, kind: kindKey(node), key: keys[0]!, ...(hit.mine ? { mine: true } : {}) }); consumed.push(...keys);
       continue;
     }
     const at = kidsOf(parentPath, parent);
     ops.push({ op: "add", path: `${parentPath}/children/${at}`, value: node });
     counts.set(parentPath, at + 1);
-    ids.add(id); labels.add(noun.label.toLowerCase()); kinds.add(noun.kind); created.push({ id, word: words[i]!, kind: kindKey(node) }); consumed.push(...keys);
+    ids.add(id); labels.add(noun.label.toLowerCase()); kinds.add(noun.kind); created.push({ id, word: words[i]!, kind: kindKey(node), key: keys[0]!, ...(hit.mine ? { mine: true } : {}) }); consumed.push(...keys);
   }
   return { ops, created, consumed };
 }

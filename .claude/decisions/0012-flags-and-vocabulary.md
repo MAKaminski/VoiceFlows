@@ -32,6 +32,14 @@ obscure logic.
    `parseDefine`.
 6. **Explainability**: every rail chip's tooltip is the rule itself ("draws “Postgres” · Database lane").
 
+7. **Transcript highlighting** (flag `transcript_highlight`, added 2026-09-27): after each transcript the
+   gateway sends `words {utteranceSeq, marks}` — occurrence keys the lexicon drew (with what they
+   drew, and whether it was the user's word) and the content words sent to the model — only when the
+   marks change. The strip maps keys onto the words it shows: blue = drawn instantly, green = your
+   word, violet dotted = sent to the model. Zero model cost; one small message per change.
+   Found while testing: in "the ledger and postgres" the "the" was read as referring to Postgres, which was then
+   not drawn — definite references now only count words since the previous noun.
+
 ## Consequences
 + Adding a feature = one registry line + a `permit(key)` at its entry point + a `used` event.
 + Zero hot-path cost: flag reads are in-memory; events are queued.

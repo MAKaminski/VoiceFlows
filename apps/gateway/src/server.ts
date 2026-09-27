@@ -131,6 +131,8 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
       // Voice utterance numbers are gateway-owned: each listening session's client/relay seq maps to a fresh one.
       let seqMap = new Map<number, number>();
       let relaySeq = 0;
+      let lastMarks = ""; // only send word marks when they change
+      let highlightUsed = false; // one "used" event per session
       const voiceSeq = (clientSeq: number) => {
         if (!seqMap.has(clientSeq)) seqMap.set(clientSeq, doc!.allocSeq());
         return seqMap.get(clientSeq)!;
@@ -140,6 +142,15 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
         const seq = voiceSeq(t.utteranceSeq);
         deps.persistence.record(doc.sessionId, { utteranceSeq: seq, text: t.text, isFinal: t.isFinal, tMs: t.tMs });
         doc.onTranscript(seq, t.text, t.isFinal, t.lastWordEndMs, t.eager); // M4: lexicon + speculative jobs + settle
+        if (flags.on("transcript_highlight")) {
+          const marks = doc.wordMarks();
+          const sig = `${t.utteranceSeq}:${JSON.stringify(marks)}`;
+          if (sig !== lastMarks) {
+            lastMarks = sig;
+            send({ type: "words", utteranceSeq: t.utteranceSeq, marks });
+            if (marks.length && !highlightUsed) { highlightUsed = true; deps.persistence.featureEvent(doc.sessionId, "transcript_highlight", "used"); }
+          }
+        }
       };
       const stopRelay = async () => {
         const r = relay; relay = null; // (the connect queue, if any, is left for the new relay)

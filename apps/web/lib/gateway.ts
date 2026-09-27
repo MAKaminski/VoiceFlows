@@ -2,6 +2,7 @@
 import { ServerMsg, type ClientMsg } from "@livecanvas/dsl";
 import { useDoc } from "@/store/doc";
 import { useFeatures } from "@/store/features";
+import { useVoice } from "@/store/voice";
 
 export const WS_URL = process.env.NEXT_PUBLIC_GATEWAY_WS ?? "ws://localhost:8787/ws";
 export const HTTP_BASE = WS_URL.replace(/^ws/, "http").replace(/\/ws$/, "");
@@ -44,6 +45,7 @@ class Gateway {
         }
         useDoc.getState().applyServer(m);
         useFeatures.getState().applyServer(m);
+        if (m.type === "words") useVoice.getState().setMarks(m.utteranceSeq, m.marks);
         this.listeners.forEach((l) => l(m));
         // Dev/E2E ring buffer of what the gateway said (never shipped to any server).
         const w = window as unknown as { __lcMsgLog?: unknown[] };

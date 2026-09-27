@@ -448,3 +448,27 @@ describe.skipIf(!DB)("flags, usage and vocabulary in Postgres (ADR 0012)", () =>
     expect(await p.listVocab(did)).toEqual([]);
   });
 });
+
+describe("transcript highlighting (ADR 0012)", () => {
+  it("marks drawn words with what they drew and the words sent to the model, keyed by the client's utterance", async () => {
+    const { app, port, persistence } = await start({}, fakeModel(["add .9", '^n_p_logo >root @0']));
+    const c = client(port); await c.open;
+    c.ws.send(JSON.stringify({ type: "hello" }));
+    await c.next((m) => m.type === "vocab");
+    c.ws.send(JSON.stringify({ type: "stt_start", mode: "direct" }));
+    const text = "a login screen with email and password big blue sign in button logo on top";
+    const w = text.split(" ");
+    for (let n = 1; n <= w.length; n++) c.ws.send(JSON.stringify({ type: "partial", utteranceSeq: 7, text: w.slice(0, n).join(" "), isFinal: n === w.length, tMs: n * 300 }));
+    await new Promise((r) => setTimeout(r, 200));
+    const last = c.inbox.filter((m) => m.type === "words").at(-1) as Extract<ServerMsg, { type: "words" }>;
+    expect(last.utteranceSeq).toBe(7);
+    const by = Object.fromEntries(last.marks.map((m) => [m.key, m]));
+    expect(by["email#1"]).toMatchObject({ as: "drawn", label: "Email" });
+    expect(by["button#1"]).toMatchObject({ as: "drawn", label: "Sign in" });
+    expect(by["blue#1"]).toMatchObject({ as: "drawn" }); // a modifier attached to the button
+    expect(by["top#1"]).toMatchObject({ as: "model" });
+    expect(by["with#1"]).toBeUndefined();
+    expect(persistence.events.filter((e) => e.key === "transcript_highlight" && e.action === "used")).toHaveLength(1);
+    c.ws.close(); await app.close();
+  });
+});

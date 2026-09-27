@@ -52,6 +52,10 @@ export type ClientMsg = z.infer<typeof ClientMsg>;
 export const OpOrigin = z.enum(["model", "lexicon", "undo", "redo", "rollback"]);
 export type OpOrigin = z.infer<typeof OpOrigin>;
 
+/** drawn = the lexicon drew it (0 ms) · yours = drawn from the user's own word · model = sent to the model. */
+export const WordMark = z.object({ key: z.string(), as: z.enum(["drawn", "yours", "model"]), label: z.string().optional() });
+export type WordMark = z.infer<typeof WordMark>;
+
 const VersionInfo = { version: z.number().int().nonnegative(), canUndo: z.boolean(), canRedo: z.boolean() };
 
 // Gateway → client. The gateway is the only writer of the doc (ADR 0009); the browser applies ops in order.
@@ -60,6 +64,8 @@ export const ServerMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("flags"), flags: Flags }), // an admin flipped a flag (ADR 0012)
   z.object({ type: z.literal("vocab"), terms: z.array(VocabTerm) }), // this document's words, after any change
   z.object({ type: z.literal("vocab_proposed"), term: VocabTerm }), // a spoken "define … as …" awaiting confirm
+  // Transcript highlighting: which words of the client's utterance did what (occurrence keys, `word#k`).
+  z.object({ type: z.literal("words"), utteranceSeq: z.number().int().nonnegative(), marks: z.array(WordMark) }),
   z.object({ type: z.literal("doc"), doc: DesignDocSchema, ...VersionInfo }), // full snapshot on welcome/resume
   z.object({ type: z.literal("transcript"), ...Transcript }), // relay mode
   // trigMs: audio-clock time of the word that caused this batch (TTFV = render time − trigMs).

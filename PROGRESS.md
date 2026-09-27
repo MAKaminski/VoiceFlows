@@ -32,3 +32,9 @@
   "ledger" drew in Database lane); diagrams 3/3; screen regression batches 7/10 then 10/10 (27/30 across
   the three post-M5 batches; the screen path is unchanged — the miss is model-latency variance).
   Watch: TTFV-1 adj. p50 trending 817 → 835 → 859 ms against the 870 ms bar.
+
+## M5c — Transcript word highlighting (2026-09-27)
+- Flag `transcript_highlight`; gateway `words` marks (drawn / yours / model) keyed by occurrence;
+  strip styles words with tooltips ("Drew “Postgres” instantly", "Sent to the model …"). ADR 0012 §7.
+- Fixed a lexicon bug found by its test: a definite article from the previous noun suppressed the next one.
+- Tests: dsl 41/41, gateway 38/38 incl. Postgres.

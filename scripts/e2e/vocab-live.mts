@@ -4,7 +4,7 @@
  * "confirm" locks it in · the next "ledger" draws in the Database lane · delete cleans up.
  *   pnpm tsx scripts/e2e/vocab-live.mts wss://gateway-production-1c11.up.railway.app/ws
  */
-import { applyOp, ServerMsg, type DesignDoc } from "../../packages/dsl/src/index.js";
+import { applyOp, FEATURES, ServerMsg, type DesignDoc } from "../../packages/dsl/src/index.js";
 import WebSocket from "ws";
 
 const ws = new WebSocket(process.argv[2] ?? "ws://localhost:8787/ws");
@@ -19,7 +19,7 @@ const check = (name: string, ok: boolean) => { console.log(`${ok ? "PASS" : "FAI
 await new Promise((r) => ws.once("open", r));
 send({ type: "hello" });
 const welcome = await until((m) => m.type === "welcome") as Extract<ServerMsg, { type: "welcome" }>;
-check("welcome carries 7 flags", Object.keys(welcome.flags ?? {}).length === 7);
+check("welcome carries every flag", Object.keys(welcome.flags ?? {}).length === Object.keys(FEATURES).length);
 await until((m) => m.type === "vocab");
 send({ type: "new_doc", kind: "architecture" });
 await until((m) => m.type === "version");
@@ -35,6 +35,8 @@ say(2, "the api writes to the ledger", true);
 await new Promise((r) => setTimeout(r, 1500));
 const lane = doc!.root.children!.find((c) => c.id === "n_data")!;
 check("next 'ledger' draws in the Database lane", lane.children!.some((c) => c.props.label === "Ledger"));
+const marks = inbox.filter((m) => m.type === "words" && m.utteranceSeq === 2).at(-1) as Extract<ServerMsg, { type: "words" }> | undefined;
+check("transcript marks: 'ledger' is yours, 'api' drawn", !!marks?.marks.some((m) => m.key === "ledger#1" && m.as === "yours") && !!marks?.marks.some((m) => m.key === "api#1" && m.as === "drawn"));
 send({ type: "vocab_delete", id: p.term.id });
 await until((m) => m.type === "vocab" && m.terms.length === 0);
 check("delete cleans up", true);

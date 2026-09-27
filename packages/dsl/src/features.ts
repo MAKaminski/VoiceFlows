@@ -12,6 +12,7 @@ export const FEATURES = {
   diagram_sequence: { default: true, description: "Sequence diagrams" },
   vocabulary_rail: { default: true, description: "Keyword rail: the words each diagram kind draws instantly, with tooltips" },
   custom_vocabulary: { default: true, description: "Users define and confirm their own words" },
+  transcript_highlight: { default: true, description: "Highlight words in the live transcript: drawn instantly, sent to the model, or your own" },
   diagram_metrics: { default: false, description: "Teaser: duration / throughput annotations on edges (not built yet)" },
 } as const;
 

@@ -1,7 +1,7 @@
 import {
   applyOp, DesignDocSchema, docKind, emptyDoc, emptyRoot, expandCompact, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
   lexTokens, occurrenceKeys, parseDefine, parseHeader, serializeCompact, type CompactContext, type DesignDoc, type DesignNode, type DocKind, type FeatureKey,
-  type Flags, type IntentHeader, type OpOrigin, type PatchOp, type ServerMsg, type VocabNode, type VocabTerm,
+  type Flags, type IntentHeader, type WordMark, type OpOrigin, type PatchOp, type ServerMsg, type VocabNode, type VocabTerm,
 } from "@livecanvas/dsl";
 import { randomUUID } from "node:crypto";
 import type { OpenedSession, Persistence, VersionRow } from "../persist.js";
@@ -22,6 +22,7 @@ interface Utterance {
   handled: Set<string>; // occurrence keys (`button#1`) the lexicon turned into nodes this utterance
   lexIds: Set<string>; // nodes the lexicon drew this utterance (fold targets even after commit clears provisional)
   calledFor: Set<string>; // uncovered content words already sent to the model
+  labels: Map<string, { label: string; mine: boolean }>; // noun occurrence key → what it drew (transcript highlighting)
   lastCallAt: number; ending: boolean; settled: boolean;
 }
 
@@ -146,12 +147,12 @@ export class DocSession {
     if (!text) return;
     if (!this.flagOn("speak_to_create")) {
       if (this.utt?.seq !== seq) { this.utt = null; this.feature("speak_to_create", "blocked"); this.deps.send({ type: "error", message: "Speaking to create is turned off" }); }
-      this.utt = { seq, baseDoc: this.doc, text, handled: new Set(), lexIds: new Set(), calledFor: new Set(), lastCallAt: -Infinity, ending: true, settled: true };
+      this.utt = { seq, baseDoc: this.doc, text, handled: new Set(), lexIds: new Set(), calledFor: new Set(), labels: new Map(), lastCallAt: -Infinity, ending: true, settled: true };
       return;
     }
     if (!this.utt || this.utt.seq !== seq) {
       if (this.utt && !this.utt.settled) this.commitUtterance();
-      this.utt = { seq, baseDoc: this.doc, text: "", handled: new Set(), lexIds: new Set(), calledFor: new Set(), lastCallAt: -Infinity, ending: false, settled: false };
+      this.utt = { seq, baseDoc: this.doc, text: "", handled: new Set(), lexIds: new Set(), calledFor: new Set(), labels: new Map(), lastCallAt: -Infinity, ending: false, settled: false };
     }
     const u = this.utt;
     // Speech resumed after an eager settle (Flux TurnResumed): reopen the utterance as a new part.
@@ -172,11 +173,28 @@ export class DocSession {
     const lex = lexicon(text, this.doc, u.handled, this.terms, (k) => this.flagOn(kindFeature(k)));
     if (lex.ops[0]?.path === "/root") this.feature(kindFeature(docKind({ ...this.doc, root: (lex.ops[0] as { value: DesignNode }).value })), "used");
     for (const k of lex.consumed) u.handled.add(k);
+    for (const c of lex.created) u.labels.set(c.key, { label: labelOf(lex.ops, c.id), mine: !!c.mine });
     if (lex.ops.length) { this.applyLexicon(lex.ops, seq, lastWordEndMs, lex.created.map((c) => c.id)); lex.created.forEach((c) => { u.lexIds.add(c.id); this.lexOrigin.add(c.id); }); }
 
     // Final or Flux EagerEndOfTurn: the speaker (probably) stopped — settle as soon as nothing is pending.
     if (isFinal || eager) { u.ending = true; this.settleIfReady(); return; }
     this.maybeSpeculate();
+  }
+
+  /**
+   * What each word of the current utterance did, for transcript highlighting (no model, no DB):
+   * nouns and their modifiers the lexicon drew, and the content words sent to the model.
+   */
+  wordMarks(): WordMark[] {
+    const u = this.utt;
+    if (!u) return [];
+    const marks: WordMark[] = [];
+    for (const k of u.handled) {
+      const l = u.labels.get(k);
+      marks.push({ key: k, as: l?.mine ? "yours" : "drawn", ...(l ? { label: l.label } : {}) });
+    }
+    for (const k of u.calledFor) if (!u.handled.has(k)) marks.push({ key: k, as: "model" });
+    return marks;
   }
 
   private pending(u: Utterance) { return uncovered(u.text, u.handled, u.ending, docKind(this.doc)).filter((k) => !u.calledFor.has(k)); }
@@ -529,6 +547,15 @@ export class DocSession {
     this.deps.persistence.deleteVocab(this.sessionId, this.documentId, id);
     this.deps.send({ type: "vocab", terms: this.terms });
   }
+}
+
+/** Display label of a node an op batch added (label, text, alt…), for transcript tooltips. */
+function labelOf(ops: PatchOp[], id: string): string {
+  for (const op of ops) {
+    const v = op.op === "add" ? (op.value as DesignNode) : null;
+    if (v?.id === id) { const p = v.props; return String(p.label ?? p.content ?? p.alt ?? p.name ?? v.type) || v.type; }
+  }
+  return "";
 }
 
 const edgeIds = (doc: DesignDoc) => new Set((doc.root.children ?? []).filter((c) => c.type === "Edge").map((c) => c.id));

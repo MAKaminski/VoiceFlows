@@ -205,3 +205,14 @@ describe("vocabulary (ADR 0012)", () => {
     expect(kindFeature("screen")).toBe("speak_to_create");
   });
 });
+
+describe("transcript highlighting support (ADR 0012)", () => {
+  it("lexicon results carry the noun's occurrence key and whether it was the user's word", () => {
+    const terms: VocabTerm[] = [{ id: "t", kind: "architecture", phrase: "ledger", node: { label: "Ledger", kind: "db", tier: "data" }, status: "confirmed" }];
+    const r = lexicon("the api writes to the ledger and postgres", emptyDoc({ kind: "architecture" }), new Set(), terms);
+    expect(r.created.map((c) => [c.key, !!c.mine])).toEqual([["api#1", false], ["ledger#1", true], ["postgres#1", false]]);
+    const s = lexicon("a big blue sign in button", emptyDoc());
+    expect(s.created[0]!.key).toBe("button#1");
+    expect(s.consumed).toEqual(expect.arrayContaining(["button#1", "big#1", "blue#1"]));
+  });
+});

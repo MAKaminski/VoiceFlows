@@ -1,5 +1,5 @@
 "use client";
-import type { SttGrant } from "@livecanvas/dsl";
+import type { SttGrant, WordMark } from "@livecanvas/dsl";
 import { create } from "zustand";
 import type { Transcript } from "@/lib/voice/session";
 
@@ -13,6 +13,9 @@ interface VoiceState {
   utterances: Record<number, { text: string; isFinal: boolean }>;
   /** Every transcript event with its audio-clock time — read by the E2E latency harness. */
   log: Transcript[];
+  /** utteranceSeq → what each word did (occurrence key → mark), from the gateway (transcript highlighting). */
+  marks: Record<number, Record<string, WordMark>>;
+  setMarks(seq: number, marks: WordMark[]): void;
   framesSent: number;
   /** Peak |sample| of recent audio, 0–1 — drives the mic meter; 0 means silence reached the worklet. */
   level: number;
@@ -24,7 +27,8 @@ interface VoiceState {
 }
 
 export const useVoice = create<VoiceState>((set) => ({
-  status: "idle", detail: null, mode: null, utterances: {}, log: [], framesSent: 0, level: 0,
+  status: "idle", detail: null, mode: null, utterances: {}, marks: {}, log: [], framesSent: 0, level: 0,
+  setMarks: (seq, marks) => set((s) => ({ marks: { ...s.marks, [seq]: Object.fromEntries(marks.map((m) => [m.key, m])) } })),
   countFrame: (level) => set((s) => ({ framesSent: s.framesSent + 1, level: Math.max(level, s.level * 0.8) })),
   setStatus: (status, detail) => set({ status, detail: detail ?? null }),
   setMode: (mode) => set({ mode }),
@@ -32,5 +36,5 @@ export const useVoice = create<VoiceState>((set) => ({
     utterances: s.utterances[t.utteranceSeq]?.isFinal ? s.utterances : { ...s.utterances, [t.utteranceSeq]: { text: t.text, isFinal: t.isFinal } },
     log: [...s.log, t],
   })),
-  reset: () => set({ utterances: {}, log: [], detail: null, framesSent: 0 }),
+  reset: () => set({ utterances: {}, marks: {}, log: [], detail: null, framesSent: 0 }),
 }));
