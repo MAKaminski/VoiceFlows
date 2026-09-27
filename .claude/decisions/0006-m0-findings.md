@@ -29,8 +29,7 @@ plan's worst-case margin at the 200-minute cap from 46% to 60%.
 ```arch
 {
   "notes": [
-    {"on":"deepgram","text":"M0: partial every 979 ms, word lag 502 ms p50 — bake-off in M2"},
-    {"on":"fused-engine","text":"M0: first op 788 ms p50, 100% valid, $0.001/call"}
+        {"on":"fused-engine","text":"M0: first op 788 ms p50, 100% valid, $0.001/call"}
   ]
 }
 ```

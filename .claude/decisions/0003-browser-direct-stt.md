@@ -10,7 +10,7 @@ Deepgram `vad_events`/`speech_final` relayed by the client.
 ```arch
 {
   "components": [
-    {"id":"deepgram","label":"Deepgram Nova-3 streaming STT","layer":"middleware"}
+    {"id":"deepgram","label":"Deepgram streaming STT","layer":"middleware"}
   ],
   "flows": [
     {"from":"@livecanvas/gateway","to":"@livecanvas/web","label":"short-lived STT token"},

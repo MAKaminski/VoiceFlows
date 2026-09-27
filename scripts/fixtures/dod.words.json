@@ -1,0 +1,96 @@
+{
+ "source": "deepgram nova-3 prerecorded, 2026-09-26; word 11 corrected 'and'\u2192'in' to match the spoken script (timing unchanged); 'end' = last 10 ms frame within 35 dB of peak before the next word starts (energy-based), 'end_dg' = Deepgram's padded end",
+ "audioMs": 6235,
+ "words": [
+  {
+   "word": "a",
+   "start": 0,
+   "end": 160,
+   "end_dg": 160
+  },
+  {
+   "word": "login",
+   "start": 160,
+   "end": 480,
+   "end_dg": 480
+  },
+  {
+   "word": "screen",
+   "start": 480,
+   "end": 960,
+   "end_dg": 960
+  },
+  {
+   "word": "with",
+   "start": 960,
+   "end": 1190,
+   "end_dg": 1200
+  },
+  {
+   "word": "email",
+   "start": 1200,
+   "end": 1600,
+   "end_dg": 1600
+  },
+  {
+   "word": "and",
+   "start": 1600,
+   "end": 1910,
+   "end_dg": 1920
+  },
+  {
+   "word": "password",
+   "start": 1920,
+   "end": 2710,
+   "end_dg": 2880
+  },
+  {
+   "word": "big",
+   "start": 2880,
+   "end": 3120,
+   "end_dg": 3120
+  },
+  {
+   "word": "blue",
+   "start": 3120,
+   "end": 3440,
+   "end_dg": 3440
+  },
+  {
+   "word": "sign",
+   "start": 3440,
+   "end": 3920,
+   "end_dg": 3920
+  },
+  {
+   "word": "in",
+   "start": 3920,
+   "end": 4080,
+   "end_dg": 4080
+  },
+  {
+   "word": "button",
+   "start": 4080,
+   "end": 4800,
+   "end_dg": 4800
+  },
+  {
+   "word": "logo",
+   "start": 5040,
+   "end": 5520,
+   "end_dg": 5520
+  },
+  {
+   "word": "on",
+   "start": 5520,
+   "end": 5840,
+   "end_dg": 5840
+  },
+  {
+   "word": "top",
+   "start": 5840,
+   "end": 6160,
+   "end_dg": 6160
+  }
+ ]
+}

@@ -146,7 +146,7 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Tables with no FK either way | 0 |
 | Distinct error types | 1 |
 | Symbol names defined 3+ times | 0 |
-| ARDs on record | 7 (7 contributing to the diagram) |
+| ARDs on record | 8 (8 contributing to the diagram) |
 | Components declared by ARDs | 10 |
 | Features declared by ARDs | 7 |
 <!-- arch:end:counts -->
@@ -184,7 +184,7 @@ flowchart TB
     _livecanvas_prompts["@livecanvas/prompts"]
     anthropic["Anthropic Messages API (Haiku 4.5 · Sonnet 5)<br/><small>ARD 0000</small>"]
     compact_expander["Compact op expander → RFC 6902 (packages/dsl)<br/><small>ARD 0002</small>"]
-    deepgram["Deepgram Nova-3 streaming STT<br/><small>ARD 0003</small><br/><small>M0: partial every 979 ms, word lag 502 ms p50 — bake-off in M2</small>"]
+    deepgram["Deepgram Flux streaming STT (flux-general-en)<br/><small>ARD 0007</small><br/><small>M2 bake-off: word lag 91 ms p50 (sfo), update every 240 ms — ADR 0007</small>"]
     fused_engine["Fused intent+patch engine — header-first, single in-flight<br/><small>ARD 0001</small><br/><small>TTFV-1 target ≤ 1,000 ms p50</small>"]
     stripe["Stripe metered billing (M5, planned)<br/><small>ARD 0004</small><br/><small>$20 incl. 200 speaking min · BYOK $10</small>"]
   end
@@ -288,7 +288,7 @@ row you plan to reach — both are account-specific.
 |---|---|---|---|---|---|
 | TTFV-0 — first visible change | ≤ 400 ms | ≤ 600 ms | **607 ms ❌** | p50 regresses > 15% | client: Deepgram word-end → render |
 | TTFV-1 — first model change | ≤ 1,000 ms | ≤ 1,500 ms | **1,515 ms ❌** | p50 regresses > 15% | client: word-end → render of model op |
-| STT word-end → partial | ≤ 295 ms | — | **502 ms ❌** | — | spike / client |
+| STT word-end → partial | ≤ 295 ms | — | 502 ms Nova-3 ❌ → **91 ms Flux ✅** (ADR 0007) | — | bake-off / client |
 | Haiku first valid op | ≤ 640 ms | — | **788 ms** | — | spike / `latency_events` first_op |
 | Settle after speech stops | ≤ 1,200 ms | ≤ 2,000 ms | — (M4) | p50 > 1,500 ms | `latency_events` final → settled |
 | Reflows per element per utterance | < 3 | — | — (M4) | ≥ 3 in > 2/10 runs | ResizeObserver, bbox move > 4 px |

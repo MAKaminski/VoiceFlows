@@ -1,4 +1,4 @@
-# Latency budget — measured (M0, 2026-09-26)
+# Latency budget — measured (M0 + M2 STT bake-off, 2026-09-26)
 
 Metric that matters: **TTFV**, the time from a spoken word ending to a visible canvas change.
 - **TTFV-0** is the first visible change: the client lexicon draws provisional nodes (ADR 0001).
@@ -65,3 +65,17 @@ Projected, if the levers land:
 Write a `latency_events` row per stage: `frame_rx, partial, extract_start, intent_ready, commit,
 first_op, first_render, final, settled, reflow`. TTFV is measured on the client, from the
 Deepgram word-end offset to render. The dev HUD shows rolling p50/p95.
+
+## M2 STT bake-off (ADR 0007) — Deepgram Flux adopted
+
+| Provider | Where | Word lag p50 / p95 | Update interval | Pass |
+|---|---|---|---|---|
+| Deepgram Nova-3 | sfo · Mac | 397 / 838 · 433 / 895 ms | 982 · 979 ms | ❌ |
+| **Deepgram Flux** | sfo · Mac | **91 / 411 · 51 / 372 ms** | **240 · 240 ms** | ✅ |
+
+Scored against one ground-truth alignment (`scripts/fixtures/dod.words.json`); raw data in `docs/m2/`.
+
+| TTFV | With Nova-3 (M0) | With Flux | With Flux + header + trigger (ADR 0006) | Target |
+|---|---|---|---|---|
+| TTFV-0 | 607 ms | 40 + 91 + 5 + 60 = **196 ms ✅** | 196 ms ✅ | ≤ 400 |
+| TTFV-1 | 1,515 ms | 40 + 91 + 20 + 75 + 788 + 30 + 60 = 1,104 ms ❌ | 40 + 91 + 20 + 0 + 638 + 30 + 60 = **879 ms ✅** | ≤ 1,000 |

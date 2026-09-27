@@ -1,6 +1,6 @@
 {
-  "ards": 7,
-  "ards_contributing": 7,
+  "ards": 8,
+  "ards_contributing": 8,
   "components_from_code": 4,
   "components_from_ards": 10,
   "flows_from_ards": 16,
@@ -53,6 +53,13 @@
       "num": "0006",
       "file": "0006-m0-findings.md",
       "title": "ADR 0006 \u2014 M0 findings: STT is the bottleneck; header, trigger and settle changes",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0007",
+      "file": "0007-stt-deepgram-flux.md",
+      "title": "ADR 0007 \u2014 Speech-to-text: Deepgram Flux (flux-general-en)",
       "status": "accepted",
       "contributes": true
     }
