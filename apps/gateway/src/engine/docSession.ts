@@ -349,7 +349,7 @@ export class DocSession {
     const stream = this.deps.model({
       model: engine.model,
       system: engine.system,
-      user: engine.render({ project_brief: this.brief(), doc_compact: serializeCompact(this.doc.root) || `(empty ${dk === "screen" ? "screen" : "diagram"}: root)`, partial_text: text }),
+      user: engine.render({ project_brief: this.brief(), doc_compact: compactFor(this.doc) || `(empty ${dk === "screen" ? "screen" : "diagram"}: root)`, partial_text: text }),
       signal: job.abort.signal,
     });
     const aliases = new Map<string, string>();
@@ -748,6 +748,12 @@ export class DocSession {
     this.deps.persistence.deleteVocab(this.sessionId, this.documentId, id);
     this.deps.send({ type: "vocab", terms: this.terms });
   }
+}
+
+/** The four standard lanes are named in the architecture prompt; re-sending them costs ~60 tokens a call. */
+const STANDARD_LANE = /^\+Layer n_(frontend|api|data|infra) >root /;
+function compactFor(doc: DesignDoc): string {
+  return serializeCompact(doc.root).split("\n").filter((l) => !STANDARD_LANE.test(l)).join("\n");
 }
 
 /** Display label of a node an op batch added (label, text, alt…), for transcript tooltips. */

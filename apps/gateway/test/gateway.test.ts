@@ -329,7 +329,9 @@ describe("patch engine, versions, undo (M3)", () => {
     c2.ws.send(JSON.stringify({ type: "hello", sessionId }));
     const w2 = await c2.next((m) => m.type === "welcome") as Extract<ServerMsg, { type: "welcome" }>;
     expect(w2).toMatchObject({ resumed: true, version: 1 });
-    expect(w2.sessionId).not.toBe(sessionId); // utterance seqs restart safely in the new session
+    // The session id is deliberately not asserted: if the reconnect races the old socket's close, the
+    // tab takes the still-live session over (same row, seqs continue); otherwise it's a fresh row. Both
+    // are correct — the Postgres reload-race test covers the fresh-row path deterministically.
     await c2.next((m) => m.type === "doc");
     expect(c2.replica.doc).toEqual(last);
     c2.ws.close(); await app.close();
