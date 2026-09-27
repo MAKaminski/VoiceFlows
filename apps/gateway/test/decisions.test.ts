@@ -149,17 +149,17 @@ describe("DocSession with Jev (ADR 0017)", () => {
 });
 
 describe("label refresh after STT revisions (ADR 0017)", () => {
-  it("'sign and button' revised to 'sign in button' relabels the provisional button without the model", async () => {
+  it("a revised word ('log button' → 'log in button') relabels the provisional button without the model", async () => {
     const persistence = memoryPersistence();
     let calls = 0;
     const model: ModelClient = () => { calls++; return { lines: (async function* () { yield { line: "none 0", atMs: 1 }; })(), usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }) }; };
     const d = new DocSession(await persistence.openSession(), { persistence, model, send: () => {}, jev: async () => ({ ms: 1, inputTokens: 1, answers: {} }),
       engine: { model: "m", system: "s", render: () => "" } });
-    d.onTranscript(0, "a big blue sign and button", false, 300);
+    d.onTranscript(0, "a big blue log button", false, 300);
     expect(d.doc.root.children!.find((c) => c.type === "Button")!.props.label).toBe("Button");
-    d.onTranscript(0, "a big blue sign in button", true, 600);
+    d.onTranscript(0, "a big blue log in button", true, 600);
     await sleep(20);
-    expect(d.doc.root.children!.find((c) => c.type === "Button")!.props.label).toBe("Sign in");
+    expect(d.doc.root.children!.find((c) => c.type === "Button")!.props.label).toBe("Log in");
     expect(calls).toBe(0);
   });
 });
