@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyOp, architectureDoc, DesignDocSchema, docKind, emptyDoc, erdDoc, expandCompact, findNode, kitchenSinkDoc, layoutDiagram,
-  lexicon, sequenceDoc, type CompactContext, type DesignDoc, type Rect,
+  defaultFlags, isConfirm, kindFeature, lexicon, parseDefine, sequenceDoc, type CompactContext, type DesignDoc, type Rect, type VocabTerm,
 } from "../src/index.js";
 
 const valid = (d: DesignDoc) => DesignDocSchema.safeParse(d);
@@ -165,5 +165,43 @@ describe("live-run regressions (2026-09-27)", () => {
     const doc = emptyDoc({ kind: "sequence" });
     const [op] = expandCompact(`+Node n_p_user >root k=user "User" ?provisional`, ctxFor(() => doc));
     expect(valid(applyOp(doc, op!)).success).toBe(true);
+  });
+});
+
+describe("vocabulary (ADR 0012)", () => {
+  it("parses define commands onto known kind words only", () => {
+    expect(parseDefine("define kafka as a queue", "architecture")).toEqual({ phrase: "kafka", node: { label: "Kafka", kind: "queue", tier: "api" } });
+    expect(parseDefine("so treat billing service as an external", "architecture")?.node).toEqual({ label: "Billing Service", kind: "external", tier: "api" });
+    expect(parseDefine("define ledger as a table", "erd")).toEqual({ phrase: "ledger", node: { label: "ledger", kind: "entity" } });
+    expect(parseDefine("the api should define kafka as a queue", "architecture")).toBeNull(); // commands start the utterance
+    expect(parseDefine("define kafka as a banana", "architecture")).toBeNull();
+    expect(parseDefine("the api calls postgres", "architecture")).toBeNull();
+    expect(isConfirm("yes confirm")).toBe(true);
+    expect(isConfirm("lock it in.")).toBe(true);
+    expect(isConfirm("confirm the email is sent")).toBe(false);
+  });
+
+  it("a confirmed user word draws like a built-in and wins over it; proposed words don't draw", () => {
+    const terms: VocabTerm[] = [
+      { id: "t1", kind: "architecture", phrase: "ledger", node: { label: "Ledger", kind: "db", tier: "data" }, status: "confirmed" },
+      { id: "t2", kind: "architecture", phrase: "redis", node: { label: "Session store", kind: "cache", tier: "data" }, status: "confirmed" },
+      { id: "t3", kind: "architecture", phrase: "nimbus", node: { label: "Nimbus", kind: "service", tier: "infra" }, status: "proposed" },
+    ];
+    const doc = emptyDoc({ kind: "architecture" });
+    const r = lexicon("the api writes to the ledger and redis on nimbus", doc, new Set(), terms);
+    let d = doc; for (const op of r.ops) d = applyOp(d, op);
+    expect(labelsIn(d, "n_data")).toEqual(["Ledger", "Session store"]);
+    expect(labelsIn(d, "n_infra")).toEqual([]);
+  });
+
+  it("a define command draws nothing", () => {
+    expect(lexicon("define kafka as a queue", emptyDoc({ kind: "architecture" })).ops).toEqual([]);
+  });
+
+  it("feature registry: every key has a default; diagram kinds map to their flag", () => {
+    expect(defaultFlags().speak_to_create).toBe(true);
+    expect(defaultFlags().diagram_metrics).toBe(false);
+    expect(kindFeature("erd")).toBe("diagram_erd");
+    expect(kindFeature("screen")).toBe("speak_to_create");
   });
 });

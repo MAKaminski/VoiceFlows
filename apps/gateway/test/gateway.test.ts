@@ -341,3 +341,110 @@ describe("patch engine, versions, undo (M3)", () => {
     c.ws.close(); await app.close();
   });
 });
+
+describe("feature flags + admin + vocabulary (ADR 0012)", () => {
+  const TOKEN = "t".repeat(32);
+  const hello = async (port: number) => { const c = client(port); await c.open; c.ws.send(JSON.stringify({ type: "hello" })); await c.next((m) => m.type === "vocab"); return c; };
+
+  it("admin API: 503 without ADMIN_TOKEN, 401 on a wrong token, flips a flag and broadcasts it", async () => {
+    const off = await start();
+    expect((await fetch(`http://127.0.0.1:${off.port}/admin/flags`)).status).toBe(503);
+    await off.app.close();
+
+    const { app, port } = await start({ ADMIN_TOKEN: TOKEN });
+    const c = await hello(port);
+    expect((c.inbox.find((m) => m.type === "welcome") as any).flags.diagram_erd).toBe(true);
+    expect((await fetch(`http://127.0.0.1:${port}/admin/flags`, { headers: { authorization: "Bearer nope" } })).status).toBe(401);
+    const put = await fetch(`http://127.0.0.1:${port}/admin/flags/diagram_erd`, { method: "PUT", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ enabled: false }) });
+    expect(put.status).toBe(200);
+    const pushed = await c.next((m) => m.type === "flags");
+    expect((pushed as any).flags.diagram_erd).toBe(false);
+    const list = await (await fetch(`http://127.0.0.1:${port}/admin/flags`, { headers: { authorization: `Bearer ${TOKEN}` } })).json() as any;
+    expect(list.flags.find((f: any) => f.key === "diagram_erd")).toMatchObject({ enabled: false, default: true });
+    expect(list.flags.find((f: any) => f.key === "speak_to_create").last7d.exposed).toBeGreaterThanOrEqual(1);
+    c.ws.close(); await app.close();
+  });
+
+  it("admin CORS answers only the admin origins, never the preview pattern", async () => {
+    const { app, port } = await start({ ADMIN_TOKEN: TOKEN, ADMIN_ORIGINS: "https://app.example" });
+    const pre = (origin: string) => fetch(`http://127.0.0.1:${port}/admin/flags/diagram_erd`, { method: "OPTIONS", headers: { origin, "access-control-request-method": "PUT", "access-control-request-headers": "authorization" } });
+    const ok = await pre("https://app.example");
+    expect(ok.headers.get("access-control-allow-origin")).toBe("https://app.example");
+    expect(ok.headers.get("access-control-allow-methods")).toContain("PUT");
+    expect((await pre("https://pr-12.example")).headers.get("access-control-allow-origin")).toBeNull();
+    await app.close();
+  });
+
+  it("the gateway rejects a disabled diagram kind and records it as blocked", async () => {
+    const { app, port, persistence } = await start({ ADMIN_TOKEN: TOKEN });
+    await fetch(`http://127.0.0.1:${port}/admin/flags/diagram_sequence`, { method: "PUT", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ enabled: false }) });
+    const c = await hello(port);
+    c.ws.send(JSON.stringify({ type: "new_doc", kind: "sequence" }));
+    const err = await c.next((m) => m.type === "error");
+    expect((err as any).message).toMatch(/turned off/);
+    expect(c.replica.doc!.root.type).toBe("Frame");
+    expect(persistence.events.some((e) => e.key === "diagram_sequence" && e.action === "blocked")).toBe(true);
+    c.ws.send(JSON.stringify({ type: "new_doc", kind: "architecture" }));
+    await c.next((m) => m.type === "version");
+    expect(persistence.events.some((e) => e.key === "diagram_architecture" && e.action === "used")).toBe(true);
+    c.ws.close(); await app.close();
+  });
+
+  it("voice: 'define kafka as a queue' proposes (draws nothing, no model call); 'confirm' locks it in; the next 'kafka' draws it", async () => {
+    const model = fakeModel(["none 0"]);
+    const { app, port } = await start({}, model);
+    const c = await hello(port);
+    c.ws.send(JSON.stringify({ type: "new_doc", kind: "architecture" }));
+    await c.next((m) => m.type === "version");
+    c.ws.send(JSON.stringify({ type: "stt_start", mode: "direct" }));
+    const say = (seq: number, text: string, isFinal = false) => c.ws.send(JSON.stringify({ type: "partial", utteranceSeq: seq, text, isFinal, tMs: 0 }));
+    const words = "define ledger as a queue".split(" ");
+    for (let n = 1; n <= words.length; n++) say(0, words.slice(0, n).join(" "), n === words.length);
+    const proposed = await c.next((m) => m.type === "vocab_proposed");
+    expect((proposed as any).term).toMatchObject({ phrase: "ledger", status: "proposed", node: { label: "Ledger", kind: "queue", tier: "api" } });
+    say(1, "confirm", true);
+    await c.nth((m) => m.type === "vocab" && (m as any).terms.some((t: any) => t.status === "confirmed"), 1);
+    for (const [i, t] of ["the api", "the api writes to the ledger"].entries()) say(2, t, i === 1);
+    await new Promise((r) => setTimeout(r, 150));
+    const labels = JSON.stringify(c.replica.doc);
+    expect(labels).toContain('"Ledger"');
+    expect(c.count((m) => m.type === "ops" && m.origin === "lexicon" && JSON.stringify(m.ops).includes('"Queue"'))).toBe(0); // "queue" in the command drew nothing
+    expect(model.requests.some((r) => r.includes("define"))).toBe(false);
+    c.ws.close(); await app.close();
+  });
+
+  it("vocabulary messages are rejected when custom_vocabulary is off", async () => {
+    const { app, port } = await start({ ADMIN_TOKEN: TOKEN });
+    await fetch(`http://127.0.0.1:${port}/admin/flags/custom_vocabulary`, { method: "PUT", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ enabled: false }) });
+    const c = await hello(port);
+    c.ws.send(JSON.stringify({ type: "vocab_define", kind: "architecture", phrase: "kafka", node: { label: "Kafka", kind: "queue", tier: "api" } }));
+    expect(((await c.next((m) => m.type === "error")) as any).message).toMatch(/turned off/);
+    c.ws.close(); await app.close();
+  });
+});
+
+describe.skipIf(!DB)("flags, usage and vocabulary in Postgres (ADR 0012)", () => {
+  const sql = postgres(DB ?? "", { max: 2, onnotice: () => {} });
+  afterAll(() => sql.end());
+  it("round-trips flags, counts feature events, and upserts/deletes vocabulary per document", async () => {
+    const p = pgPersistence(sql, (e) => { throw e; });
+    const { sessionId: sid, documentId: did } = await p.openSession();
+    const before = (await p.loadFlags()).diagram_metrics;
+    await p.setFlag("diagram_metrics", true);
+    expect((await p.loadFlags()).diagram_metrics).toBe(true);
+    await p.setFlag("diagram_metrics", before ?? false);
+    const n0 = (await p.flagStats(1)).custom_vocabulary?.used ?? 0;
+    p.featureEvent(sid, "custom_vocabulary", "used");
+    const term = { id: crypto.randomUUID(), kind: "architecture" as const, phrase: "ledger", node: { label: "Ledger", kind: "queue" as const, tier: "api" as const }, status: "proposed" as const };
+    p.putVocab(sid, did, term);
+    p.putVocab(sid, did, { ...term, id: crypto.randomUUID(), status: "confirmed" }); // same phrase: upsert, new id wins
+    await p.flush();
+    expect((await p.flagStats(1)).custom_vocabulary?.used).toBe(n0 + 1);
+    const list = await p.listVocab(did);
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ phrase: "ledger", status: "confirmed", node: { label: "Ledger" } });
+    p.deleteVocab(sid, did, list[0]!.id);
+    await p.flush();
+    expect(await p.listVocab(did)).toEqual([]);
+  });
+});

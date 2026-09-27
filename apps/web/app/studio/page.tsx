@@ -8,7 +8,9 @@ import { gateway } from "@/lib/gateway";
 import { startVoice } from "@/lib/voice/session";
 import { useDoc } from "@/store/doc";
 import { useVoice } from "@/store/voice";
-import { diagramVocabulary, docKind, type DocKind } from "@livecanvas/dsl";
+import { KeywordRail } from "@/components/KeywordRail";
+import { useFeatures } from "@/store/features";
+import { docKind, kindFeature, type DocKind } from "@livecanvas/dsl";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 
 const KINDS: Array<{ kind: DocKind; label: string }> = [
@@ -74,7 +76,8 @@ export default function Studio() {
 
   const listening = status === "listening" || status === "connecting";
   const kind = docKind(doc);
-  const vocab = kind === "screen" ? null : diagramVocabulary(kind);
+  const { flags, notice } = useFeatures();
+  const canCreate = flags.speak_to_create;
   const jobLabel = !job ? null
     : job.state === "running" ? `Building: “${job.text}”…`
     : job.state === "done" ? `Done: ${job.opCount ?? 0} change${job.opCount === 1 ? "" : "s"}${job.firstOpMs != null ? ` · first in ${Math.round(job.firstOpMs)} ms` : ""}`
@@ -85,17 +88,17 @@ export default function Studio() {
     <main style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       <header style={{ padding: "12px 24px", borderBottom: "1px solid var(--lc-chrome-border)", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <strong>LiveCanvas</strong>
-        <button type="button" onClick={listening ? stop : start} data-testid="mic" style={pill(listening ? "#dc2626" : "#2563eb")}>
+        <button type="button" onClick={listening ? stop : start} data-testid="mic" disabled={!canCreate && !listening} title={canCreate ? undefined : "Speaking to create is turned off"} style={{ ...pill(listening ? "#dc2626" : "#2563eb"), opacity: canCreate || listening ? 1 : 0.4 }}>
           {status === "connecting" ? "Connecting…" : listening ? "Stop listening" : "Start talking"}
         </button>
         <form onSubmit={submit} style={{ display: "flex", gap: 8, flex: "1 1 320px", minWidth: 0 }}>
           <label htmlFor="prompt" style={{ position: "absolute", left: -9999 }}>Describe a change</label>
           <input id="prompt" data-testid="prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Or type it: add a login form"
             style={{ flex: 1, minWidth: 0, font: "inherit", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--lc-chrome-border)", background: "transparent", color: "inherit" }} />
-          <button type="submit" disabled={!connected || !prompt.trim()} style={{ ...pill("#0f172a"), opacity: connected && prompt.trim() ? 1 : 0.5 }}>Build</button>
+          <button type="submit" disabled={!connected || !prompt.trim() || !canCreate} style={{ ...pill("#0f172a"), opacity: connected && prompt.trim() && canCreate ? 1 : 0.5 }}>Build</button>
         </form>
         <div role="tablist" aria-label="Diagram kind" style={{ display: "flex", padding: 3, gap: 2, borderRadius: 999, border: "1px solid var(--lc-chrome-border)" }}>
-          {KINDS.map((k) => (
+          {KINDS.filter((k) => k.kind === kind || flags[kindFeature(k.kind)]).map((k) => (
             <button key={k.kind} type="button" role="tab" aria-selected={kind === k.kind} data-testid={`kind-${k.kind}`}
               onClick={() => kind !== k.kind && gateway.send({ type: "new_doc", kind: k.kind })}
               style={{ font: "inherit", fontSize: 13, fontWeight: 600, padding: "6px 12px", borderRadius: 999, border: "none", cursor: "pointer",
@@ -109,16 +112,10 @@ export default function Studio() {
       <div style={{ padding: "0 24px", height: 28, lineHeight: "28px", fontSize: 13, opacity: 0.8, display: "flex", gap: 16, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
         <span data-testid="status">{mode ? MODE_LABEL[mode] : "mic off"} · {status}{detail ? ` — ${detail}` : ""}</span>
         <span data-testid="conn">{connError ? `Gateway: ${connError}` : connected ? `Version ${version}` : "Connecting to gateway…"}</span>
-        {jobLabel && <span data-testid="job" style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{jobLabel}</span>}
+        {notice ? <span data-testid="notice" style={{ color: "#b45309", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{notice}</span>
+          : jobLabel && <span data-testid="job" style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{jobLabel}</span>}
       </div>
-      {/* Vocabulary rail: the words this kind draws instantly — steers speech toward standard terms. */}
-      {vocab && (
-        <div data-testid="vocab" style={{ padding: "0 24px", height: 34, display: "flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap", overflowX: "auto", borderBottom: "1px solid var(--lc-chrome-border)" }}>
-          <span style={{ opacity: 0.6, marginRight: 4 }}>Try “{vocab.example}”</span>
-          {vocab.relations.map((w) => <span key={w} style={{ padding: "2px 8px", borderRadius: 999, background: "#f5f3ff", color: "#6d28d9", fontWeight: 600 }}>{w}</span>)}
-          {vocab.nouns.map((w) => <span key={w} style={{ padding: "2px 8px", borderRadius: 999, background: "#eff6ff", color: "#1d4ed8" }}>{w}</span>)}
-        </div>
-      )}
+      {kind !== "screen" && <KeywordRail kind={kind} />}
       <div style={{ flex: 1 }}><Canvas doc={doc} /></div>
       <TranscriptStrip />
       {hud && <Hud />}

@@ -1,6 +1,7 @@
 import { docKind, emptyRoot, isBlank, type DesignDoc, type DesignNode, type DocKind } from "./doc.js";
 import { applyOp, type PatchOp } from "./ops.js";
 import type { NodeKind, PrimitiveType, Tier } from "./primitives.js";
+import { isVocabCommand, type VocabTerm } from "./vocabulary.js";
 
 /**
  * Lexicon tier (ADR 0001, runs in the gateway per ADR 0009): turns the running transcript of an
@@ -128,15 +129,18 @@ const isReference = (words: string[], i: number) => words.slice(Math.max(0, i - 
  * `drawn`: occurrence keys already turned into nodes earlier in this utterance — never drawn again,
  * even if the transcript was revised so the label or kind now reads differently.
  */
-export function lexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<string> = new Set()): LexiconResult {
+export function lexicon(
+  runningText: string, doc: DesignDoc, drawn: ReadonlySet<string> = new Set(), terms: readonly VocabTerm[] = [],
+  kindAllowed: (k: DocKind) => boolean = () => true, // feature flags (ADR 0012): a disabled kind is never switched to
+): LexiconResult {
   // A diagram request on a blank doc switches kind first (ADR 0011), then draws against the new root.
   const want = requestedKind(lexTokens(runningText));
-  if (want && want !== docKind(doc) && isBlank(doc)) {
+  if (want && want !== docKind(doc) && isBlank(doc) && kindAllowed(want)) {
     const sw: PatchOp = { op: "replace", path: "/root", value: emptyRoot(want) };
-    const rest = lexicon(runningText, applyOp(doc, sw), drawn);
+    const rest = lexicon(runningText, applyOp(doc, sw), drawn, terms, kindAllowed);
     return { ops: [sw, ...rest.ops], created: rest.created, consumed: rest.consumed };
   }
-  if (doc.root.type === "Diagram") return diagramLexicon(runningText, doc, drawn);
+  if (doc.root.type === "Diagram") return diagramLexicon(runningText, doc, drawn, terms);
   return screenLexicon(runningText, doc, drawn);
 }
 
@@ -273,10 +277,15 @@ const STOP = new Set(["a", "an", "the", "and", "with", "of", "for", "to", "that"
  * entities and actors append to the diagram in the order spoken (append-stable, so nothing drawn
  * earlier moves). Edges, columns and labels are the model's job.
  */
-function diagramLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<string>): LexiconResult {
+function diagramLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<string>, terms: readonly VocabTerm[]): LexiconResult {
   const kind = docKind(doc) as Exclude<DocKind, "screen">;
-  const table = NOUN_TABLES[kind];
+  // Confirmed user words come first, longest first, so a user's definition wins over a built-in (ADR 0012).
+  const mine: NounTable = terms.filter((t) => t.kind === kind && t.status === "confirmed")
+    .map((t): [string[], DiagramNoun] => [t.phrase.split(" "), { label: t.node.label, kind: t.node.kind, ...(t.node.tier ? { tier: t.node.tier } : {}) }])
+    .sort((a, b) => b[0].length - a[0].length);
+  const table = [...mine, ...NOUN_TABLES[kind]];
   const words = lexTokens(runningText);
+  if (isVocabCommand(runningText)) return { ops: [], created: [], consumed: [] }; // a vocabulary command, not a drawing
   const occ = occurrenceKeys(words);
   const labels = new Set<string>();
   const kinds = new Set<string>();
@@ -339,15 +348,24 @@ function diagramLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<
  * The words each diagram kind understands, for the UI's vocabulary rail — steering speech toward
  * terms the lexicon draws instantly (0 ms, no model call) keeps diagrams fast and predictable.
  */
-export function diagramVocabulary(kind: Exclude<DocKind, "screen">): { nouns: string[]; relations: string[]; example: string } {
+export interface VocabEntry { phrase: string; label: string; kind: NodeKind; tier?: Tier }
+
+/**
+ * The words each diagram kind understands, for the keyword rail — steering speech toward terms the
+ * lexicon draws instantly (0 ms, no model call) keeps diagrams fast and predictable (ADR 0012).
+ * Each entry says exactly what it draws, so the tooltip is the rule itself.
+ */
+export function diagramVocabulary(kind: Exclude<DocKind, "screen">): { terms: VocabEntry[]; relations: string[]; example: string } {
   const seen = new Set<string>();
-  const nouns = NOUN_TABLES[kind].map(([p]) => p.join(" ")).filter((w) => w.length > 2 && !seen.has(w) && (seen.add(w), true));
+  const terms = NOUN_TABLES[kind]
+    .map(([p, n]): VocabEntry => ({ phrase: p.join(" "), label: n.label, kind: n.kind, ...(n.tier ? { tier: n.tier } : {}) }))
+    .filter((t) => t.phrase.length > 2 && !seen.has(t.label) && (seen.add(t.label), true));
   return {
-    architecture: { nouns: nouns.slice(0, 28), relations: ["calls", "writes to", "reads from", "publishes to", "deployed on", "behind"],
+    architecture: { terms, relations: ["calls", "writes to", "reads from", "publishes to", "deployed on", "behind"],
       example: "a Next.js web app calls a Fastify API that writes to Postgres and Redis, deployed on Railway" },
-    erd: { nouns: ENTITY_WORDS.slice(0, 20), relations: ["has many", "belongs to", "with a … column", "one-to-one", "join table"],
+    erd: { terms, relations: ["has many", "belongs to", "with a … column", "one-to-one", "join table"],
       example: "users with an email, each user has many orders, orders have a total and a status" },
-    sequence: { nouns: nouns.slice(0, 22), relations: ["sends", "calls", "returns", "validates", "saves", "then"],
+    sequence: { terms, relations: ["sends", "calls", "returns", "validates", "saves", "then"],
       example: "the user logs in on the web app, the app posts credentials to the API, the API checks Postgres and returns a token" },
   }[kind];
 }

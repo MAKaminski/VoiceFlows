@@ -1,6 +1,7 @@
 "use client";
 import { ServerMsg, type ClientMsg } from "@livecanvas/dsl";
 import { useDoc } from "@/store/doc";
+import { useFeatures } from "@/store/features";
 
 export const WS_URL = process.env.NEXT_PUBLIC_GATEWAY_WS ?? "ws://localhost:8787/ws";
 export const HTTP_BASE = WS_URL.replace(/^ws/, "http").replace(/\/ws$/, "");
@@ -42,6 +43,7 @@ class Gateway {
           resolve();
         }
         useDoc.getState().applyServer(m);
+        useFeatures.getState().applyServer(m);
         this.listeners.forEach((l) => l(m));
         // Dev/E2E ring buffer of what the gateway said (never shipped to any server).
         const w = window as unknown as { __lcMsgLog?: unknown[] };

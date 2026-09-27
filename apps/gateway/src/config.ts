@@ -24,6 +24,10 @@ const Env = z.object({
   // Browser origins allowed to call POST /stt/token (comma list) plus an optional regex for preview deploys.
   CORS_ORIGINS: z.string().default("http://localhost:3000"),
   CORS_ORIGIN_PATTERN: z.string().optional(),
+  // Admin API (ADR 0012): bearer token (unset → /admin returns 503) and the ONLY browser origins allowed
+  // to call it — never the preview-deploy pattern.
+  ADMIN_TOKEN: z.string().min(24).optional(),
+  ADMIN_ORIGINS: z.string().default("https://live-canvas-three.vercel.app,http://localhost:3000"),
 });
 
 export type Config = z.infer<typeof Env>;

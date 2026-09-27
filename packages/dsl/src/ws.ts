@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { DesignDocSchema, DocKind } from "./doc.js";
 import { PatchOp } from "./ops.js";
+import { Flags } from "./features.js";
+import { DiagramKind } from "./primitives.js";
+import { VocabNode, VocabTerm } from "./vocabulary.js";
 
 /** Response of `POST /stt/token` (ADR 0008): how this browser should get speech-to-text. */
 export const SttGrant = z.discriminatedUnion("mode", [
@@ -38,6 +41,10 @@ export const ClientMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("redo") }),
   // Start a new blank doc of a kind (screen or one of the three diagrams, ADR 0011). Undoable.
   z.object({ type: z.literal("new_doc"), kind: DocKind }),
+  // User vocabulary (ADR 0012). UI adds are confirmed at once; voice definitions arrive as proposals.
+  z.object({ type: z.literal("vocab_define"), kind: DiagramKind, phrase: z.string().min(1).max(40), node: VocabNode, confirm: z.boolean().optional() }),
+  z.object({ type: z.literal("vocab_confirm"), id: z.string() }),
+  z.object({ type: z.literal("vocab_delete"), id: z.string() }),
 ]);
 export type ClientMsg = z.infer<typeof ClientMsg>;
 
@@ -49,7 +56,10 @@ const VersionInfo = { version: z.number().int().nonnegative(), canUndo: z.boolea
 
 // Gateway → client. The gateway is the only writer of the doc (ADR 0009); the browser applies ops in order.
 export const ServerMsg = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("welcome"), sessionId: z.string(), version: z.number().int(), resumed: z.boolean().optional() }),
+  z.object({ type: z.literal("welcome"), sessionId: z.string(), version: z.number().int(), resumed: z.boolean().optional(), flags: Flags.optional() }),
+  z.object({ type: z.literal("flags"), flags: Flags }), // an admin flipped a flag (ADR 0012)
+  z.object({ type: z.literal("vocab"), terms: z.array(VocabTerm) }), // this document's words, after any change
+  z.object({ type: z.literal("vocab_proposed"), term: VocabTerm }), // a spoken "define … as …" awaiting confirm
   z.object({ type: z.literal("doc"), doc: DesignDocSchema, ...VersionInfo }), // full snapshot on welcome/resume
   z.object({ type: z.literal("transcript"), ...Transcript }), // relay mode
   // trigMs: audio-clock time of the word that caused this batch (TTFV = render time − trigMs).

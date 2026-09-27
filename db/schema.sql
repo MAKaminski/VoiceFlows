@@ -131,6 +131,34 @@ CREATE TABLE latency_events (
   CHECK (job_id IS NOT NULL OR utterance_id IS NOT NULL)
 );
 
+CREATE TABLE feature_flags (
+  key text PRIMARY KEY,
+  enabled boolean NOT NULL,
+  description text NOT NULL,
+  updated_by uuid REFERENCES users(id),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE feature_events (
+  id bigserial PRIMARY KEY,
+  feature_key text NOT NULL REFERENCES feature_flags(key),
+  session_id uuid REFERENCES sessions(id),
+  action text NOT NULL CHECK (action IN ('exposed','used','blocked')),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE vocabulary_terms (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id uuid NOT NULL REFERENCES design_documents(id),
+  kind text NOT NULL CHECK (kind IN ('architecture','erd','sequence')),
+  phrase text NOT NULL,
+  node jsonb NOT NULL,
+  status text NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','confirmed')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  confirmed_at timestamptz,
+  UNIQUE (document_id, kind, phrase)
+);
+
 CREATE INDEX ON transcript_segments (utterance_id, t_ms);
 
 CREATE INDEX ON intents (utterance_id, t_ms);
@@ -140,3 +168,5 @@ CREATE INDEX ON patch_ops (job_id, seq);
 CREATE INDEX ON latency_events (job_id, stage);
 
 CREATE INDEX ON latency_events (utterance_id, stage);
+
+CREATE INDEX ON feature_events (feature_key, created_at);

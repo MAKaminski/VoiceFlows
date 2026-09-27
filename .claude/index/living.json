@@ -1,10 +1,10 @@
 {
-  "ards": 12,
-  "ards_contributing": 12,
+  "ards": 13,
+  "ards_contributing": 13,
   "components_from_code": 4,
-  "components_from_ards": 13,
-  "flows_from_ards": 22,
-  "features": 9,
+  "components_from_ards": 17,
+  "flows_from_ards": 25,
+  "features": 11,
   "notes": 10,
   "index": [
     {
@@ -88,6 +88,13 @@
       "num": "0011",
       "file": "0011-diagram-kinds.md",
       "title": "ADR 0011 \u2014 Three diagram kinds: Architecture, ERD, Sequence",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0012",
+      "file": "0012-flags-and-vocabulary.md",
+      "title": "ADR 0012 \u2014 Feature flags, usage measurement, admin screen, user vocabulary",
       "status": "accepted",
       "contributes": true
     }

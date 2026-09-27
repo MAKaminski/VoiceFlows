@@ -4,6 +4,9 @@ erDiagram
     design_documents ||--o{ design_versions : document_id
     generation_jobs ||--o{ design_versions : job_id
     design_versions ||--o{ exports : version_id
+    feature_flags ||--o{ feature_events : feature_key
+    sessions ||--o{ feature_events : session_id
+    users ||--o{ feature_flags : updated_by
     intents ||--o{ generation_jobs : intent_id
     sessions ||--o{ generation_jobs : session_id
     utterances ||--o{ intents : utterance_id
@@ -15,3 +18,4 @@ erDiagram
     users ||--o{ sessions : user_id
     utterances ||--o{ transcript_segments : utterance_id
     sessions ||--o{ utterances : session_id
+    design_documents ||--o{ vocabulary_terms : document_id

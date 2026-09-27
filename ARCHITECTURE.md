@@ -37,6 +37,8 @@ flowchart LR
     F_billing["Plans · quota · BYOK (M5, planned)<br/><small>ARD 0004</small>"]
     F_documents["Design documents · versions · undo<br/><small>ARD 0009</small>"]
     F_diagrams["Spoken diagrams: Architecture · ERD · Sequence<br/><small>ARD 0011</small>"]
+    F_feature_flags["Feature flags &amp; usage<br/><small>ARD 0012</small>"]
+    F_vocabulary["Vocabulary: keywords + user words<br/><small>ARD 0012</small>"]
   end
   subgraph uses["Components"]
     direction TB
@@ -108,7 +110,7 @@ flowchart LR
   classDef feat fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef comp fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef tab fill:#eaf1ec,stroke:#2C6249,color:#12191B;
-  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams feat;
+  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary feat;
   class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_doc_session,C_postgres,C_redis,C_stripe comp;
   class T_design_documents,T_design_versions,T_exports,T_generation_jobs,T_intents,T_latency_events,T_patch_ops,T_plans,T_primitives,T_provider_keys,T_sessions,T_token_sets,T_transcript_segments,T_usage_periods,T_users,T_utterances tab;
 ```
@@ -135,6 +137,16 @@ Uses `@livecanvas/dsl` (`Diagram`/`Layer`/`Node`/`Edge`, `layoutDiagram`, diagra
 a `design_versions.doc` whose root is a `Diagram` — it reads and writes through 2.1/2.2 like a screen.
 New primitive rows arrive through the `primitives` seed (2.3).
 
+### 2.3b Feature flags & usage — ADR 0012
+Uses `@livecanvas/dsl` (`FEATURES` registry), `@livecanvas/gateway` (`FlagService`, `/admin/flags`,
+`permit()` at every feature entry point) and `@livecanvas/web` (`/admin`, `store/features.ts`).
+**Owns** `feature_flags`, `feature_events`. Every other feature writes `feature_events` rows through
+the persistence queue; none reads them.
+
+### 2.3c Vocabulary: keywords + user words — ADR 0012
+Uses `@livecanvas/dsl` (`diagramVocabulary`, `parseDefine`, lexicon `terms`), `DocSession`
+(define/confirm/delete) and `KeywordRail`. **Owns** `vocabulary_terms` (per `design_documents` row).
+
 ### 2.4 Latency telemetry & HUD — ADR 0001
 Uses web (client-measured TTFV, reflow observer) + gateway (stage events). **Owns**
 `latency_events`. Reads `generation_jobs`, `utterances`.
@@ -155,14 +167,14 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Measure | Count |
 |---|---|
 | Components | 4 |
-| Tables | 13 |
-| Foreign keys | 16 |
+| Tables | 16 |
+| Foreign keys | 20 |
 | Tables with no FK either way | 0 |
 | Distinct error types | 1 |
 | Symbol names defined 3+ times | 0 |
-| ARDs on record | 12 (12 contributing to the diagram) |
-| Components declared by ARDs | 13 |
-| Features declared by ARDs | 9 |
+| ARDs on record | 13 (13 contributing to the diagram) |
+| Components declared by ARDs | 17 |
+| Features declared by ARDs | 11 |
 <!-- arch:end:counts -->
 
 | Component | Layer | Owns | Pattern (§6) |
@@ -189,12 +201,15 @@ One diagram, grown one decision at a time. **Solid** boxes were discovered in th
 flowchart TB
   subgraph frontend["Front-end · user interface"]
     direction LR
+    admin_page["/admin page<br/><small>ARD 0012</small>"]
     _livecanvas_web["@livecanvas/web"]
     diagram_canvas["DiagramCanvas<br/><small>ARD 0011</small>"]
+    keyword_rail["KeywordRail<br/><small>ARD 0012</small>"]
     diagram_layout["layoutDiagram<br/><small>ARD 0011</small>"]
   end
   subgraph middleware["Middleware · APIs"]
     direction LR
+    admin_api["/admin/flags<br/><small>ARD 0012</small>"]
     _livecanvas_dsl["@livecanvas/dsl"]
     _livecanvas_gateway["@livecanvas/gateway<br/><small>TypeScript; Rust hot path only if self-time > 20 ms p95 (ADR 0005)</small>"]
     _livecanvas_prompts["@livecanvas/prompts"]
@@ -202,6 +217,7 @@ flowchart TB
     compact_expander["Compact op expander → RFC 6902 (packages/dsl)<br/><small>ARD 0002</small>"]
     deepgram["Deepgram Flux streaming STT (flux-general-en)<br/><small>ARD 0007</small><br/><small>M2 bake-off: word lag 91 ms p50 (sfo), update every 240 ms — ADR 0007</small>"]
     doc_session["DocSession — single writer: doc, job controller, versions/undo<br/><small>ARD 0009</small><br/><small>M4: 9/10 · 1 model call/utterance · TTFV-1 756 ms · settle 697 ms · $0.0111/min</small>"]
+    flag_service["FlagService<br/><small>ARD 0012</small>"]
     fused_engine["Fused intent+patch engine — header-first, single in-flight<br/><small>ARD 0001</small><br/><small>TTFV-1 target ≤ 1,000 ms p50</small>"]
     client_lexicon["Lexicon — provisional nodes (gateway, M4)<br/><small>ARD 0009</small><br/><small>TTFV-0 target ≤ 400 ms p50</small>"]
     stripe["Stripe metered billing (M5, planned)<br/><small>ARD 0004</small><br/><small>$20 incl. 200 speaking min · BYOK $10</small>"]
@@ -238,16 +254,19 @@ flowchart TB
   doc_session -.->|"doc snapshot · ops batches (origin + jobId) · version · job · ARD 0009"| _livecanvas_web
   doc_session -.->|"intent → job → patch_ops → design_versions (async) · ARD 0009"| postgres
   diagram_layout -.->|"rects + edge routes · ARD 0011"| diagram_canvas
+  admin_page -.->|"GET/PUT flags · ARD 0012"| admin_api
+  admin_api -.->|"set → broadcast · ARD 0012"| flag_service
+  keyword_rail -.->|"vocab_define / confirm · ARD 0012"| doc_session
   classDef declared stroke-dasharray:5 4,stroke-width:2px;
   classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef be fill:#eaf1ec,stroke:#2C6249,color:#12191B;
   classDef inf fill:#f4efe6,stroke:#8A6210,color:#12191B;
-  class _livecanvas_web,diagram_layout,diagram_canvas fe;
-  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session mw;
+  class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail fe;
+  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,flag_service,admin_api mw;
   class postgres,redis be;
   class vercel,railway inf;
-  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas declared;
+  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail declared;
 ```
 <!-- arch:end:components -->
 
@@ -337,6 +356,9 @@ erDiagram
     design_documents ||--o{ design_versions : document_id
     generation_jobs ||--o{ design_versions : job_id
     design_versions ||--o{ exports : version_id
+    feature_flags ||--o{ feature_events : feature_key
+    sessions ||--o{ feature_events : session_id
+    users ||--o{ feature_flags : updated_by
     intents ||--o{ generation_jobs : intent_id
     sessions ||--o{ generation_jobs : session_id
     utterances ||--o{ intents : utterance_id
@@ -348,6 +370,7 @@ erDiagram
     users ||--o{ sessions : user_id
     utterances ||--o{ transcript_segments : utterance_id
     sessions ||--o{ utterances : session_id
+    design_documents ||--o{ vocabulary_terms : document_id
 ```
 <!-- arch:end:erd -->
 
@@ -416,8 +439,8 @@ Generated. Every item here is a candidate for consolidation — the goal is **fe
 
 | Measure | Count |
 |---|---|
-| Tables | 13 |
-| Foreign keys | 16 |
+| Tables | 16 |
+| Foreign keys | 20 |
 | Tables with no FK in or out | 0 |
 | Components (workspace members) | 4 |
 | Components nothing depends on | 0 |

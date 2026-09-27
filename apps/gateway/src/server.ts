@@ -1,6 +1,8 @@
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
-import { ClientMsg, type DocKind, type ServerMsg } from "@livecanvas/dsl";
+import { ClientMsg, FEATURES, FeatureKey, kindFeature, type DocKind, type ServerMsg } from "@livecanvas/dsl";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { FlagService } from "./flags.js";
 import Fastify from "fastify";
 import { loadConfig, type Config } from "./config.js";
 import { getSql } from "./db.js";
@@ -18,12 +20,15 @@ export interface Deps {
   model: ModelClient | null;
   engine: EngineConfig;
   engines?: Partial<Record<DocKind, EngineConfig>>;
+  flags?: FlagService;
 }
 
 export function defaultDeps(config: Config): Deps {
   const sql = getSql(config.DATABASE_URL);
+  const persistence = sql ? pgPersistence(sql, console.error, (m) => console.log(m)) : memoryPersistence();
   return {
-    persistence: sql ? pgPersistence(sql, console.error, (m) => console.log(m)) : memoryPersistence(),
+    persistence,
+    flags: new FlagService(persistence, (m) => console.log(m)),
     sttGrant: createSttGrant(config),
     relayProvider: PROVIDERS["deepgram-flux"]!,
     model: config.ANTHROPIC_API_KEY
@@ -49,8 +54,50 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
   const allowed = new Set(config.CORS_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean));
   const pattern = config.CORS_ORIGIN_PATTERN ? new RegExp(config.CORS_ORIGIN_PATTERN) : null;
-  app.register(cors, { origin: (origin, cb) => cb(null, !origin || allowed.has(origin) || !!pattern?.test(origin)), methods: ["POST"] });
+  const adminOrigins = new Set(config.ADMIN_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean));
+  // Route-aware CORS: /admin answers only the production web origin (never preview deploys), with
+  // GET/PUT + Authorization; everything else keeps the app policy (plan-critic M5b #2).
+  app.register(cors, () => (req: { url?: string }, cb: (e: Error | null, o: object) => void) => {
+    if (req.url?.startsWith("/admin")) {
+      return cb(null, { origin: (o: string | undefined, c: (e: Error | null, ok: boolean) => void) => c(null, !o || adminOrigins.has(o)), methods: ["GET", "PUT"], allowedHeaders: ["authorization", "content-type"] });
+    }
+    cb(null, { origin: (o: string | undefined, c: (e: Error | null, ok: boolean) => void) => c(null, !o || allowed.has(o) || !!pattern?.test(o)), methods: ["POST"] });
+  });
   app.register(websocket);
+
+  const flags = deps.flags ?? new FlagService(deps.persistence);
+  app.addHook("onReady", () => flags.load());
+  const sockets = new Set<(m: ServerMsg) => void>();
+  flags.subscribe((f) => { for (const s of sockets) s({ type: "flags", flags: f }); });
+
+  // ── Admin API (ADR 0012) ───────────────────────────────────────────────────────────────────
+  const digest = (s: string) => createHash("sha256").update(s).digest();
+  const failures = new Map<string, { n: number; since: number }>();
+  const admin = async (req: { headers: Record<string, unknown>; ip: string }, reply: { code(n: number): { send(b: unknown): unknown } }) => {
+    if (!config.ADMIN_TOKEN) return reply.code(503).send({ error: "admin disabled: set ADMIN_TOKEN" });
+    const f = failures.get(req.ip);
+    if (f && Date.now() - f.since < 10 * 60_000 && f.n >= 10) return reply.code(429).send({ error: "too many attempts" });
+    const got = String(req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+    if (!timingSafeEqual(digest(got), digest(config.ADMIN_TOKEN))) {
+      failures.set(req.ip, f && Date.now() - f.since < 10 * 60_000 ? { n: f.n + 1, since: f.since } : { n: 1, since: Date.now() });
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    return null;
+  };
+  app.get("/admin/flags", async (req, reply) => {
+    const denied = await admin(req, reply); if (denied) return denied;
+    const stats = await deps.persistence.flagStats(7);
+    const on = flags.all();
+    return { flags: Object.entries(FEATURES).map(([key, f]) => ({ key, description: f.description, default: f.default, enabled: on[key as FeatureKey], last7d: stats[key as FeatureKey] ?? { exposed: 0, used: 0, blocked: 0 } })) };
+  });
+  app.put<{ Params: { key: string }; Body: { enabled?: unknown } }>("/admin/flags/:key", async (req, reply) => {
+    const denied = await admin(req, reply); if (denied) return denied;
+    const key = FeatureKey.safeParse(req.params.key);
+    if (!key.success || typeof req.body?.enabled !== "boolean") return reply.code(400).send({ error: "need a known key and {enabled: boolean}" });
+    await flags.set(key.data, req.body.enabled);
+    app.log.info({ key: key.data, enabled: req.body.enabled, ip: req.ip }, "admin: flag flipped");
+    return { key: key.data, enabled: req.body.enabled };
+  });
 
   app.get("/healthz", async () => ({
     ok: true,
@@ -66,6 +113,14 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
   app.register(async (scoped) => {
     scoped.get("/ws", { websocket: true }, (socket) => {
       const send = (msg: ServerMsg) => { if (socket.readyState === 1) socket.send(JSON.stringify(msg)); };
+      sockets.add(send);
+      /** Gateway-side enforcement: the UI hides disabled features, but the gateway is what says no. */
+      const permit = (key: FeatureKey) => {
+        if (flags.on(key)) return true;
+        if (doc) deps.persistence.featureEvent(doc.sessionId, key, "blocked");
+        send({ type: "error", message: `${FEATURES[key].description.split(/[:(—]/)[0]!.trim()} is turned off` });
+        return false;
+      };
       const fail = (message: string, e?: unknown) => { if (e) app.log.error(e); send({ type: "error", message }); };
       let doc: DocSession | null = null;
       let relay: SttSession | null = null;
@@ -111,9 +166,12 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
               const t0 = performance.now();
               const opened = (msg.sessionId && (await deps.persistence.resumeSession(msg.sessionId))) || (await deps.persistence.openSession());
               app.log.info({ sessionId: opened.sessionId, ms: Math.round(performance.now() - t0), resumed: opened.sessionId === msg.sessionId }, "session: opened");
-              doc = new DocSession(opened, { persistence: deps.persistence, model: deps.model, engine: deps.engine, engines: deps.engines, send, log: (m) => app.log.warn(m) });
-              send({ type: "welcome", sessionId: doc.sessionId, version: doc.versionInfo().version, resumed: opened.sessionId === msg.sessionId });
+              doc = new DocSession(opened, { persistence: deps.persistence, model: deps.model, engine: deps.engine, engines: deps.engines, flags: () => flags.all(), send, log: (m) => app.log.warn(m) });
+              doc.terms = await deps.persistence.listVocab(opened.documentId).catch(() => []);
+              send({ type: "welcome", sessionId: doc.sessionId, version: doc.versionInfo().version, resumed: opened.sessionId === msg.sessionId, flags: flags.all() });
               send(doc.snapshot());
+              send({ type: "vocab", terms: doc.terms });
+              for (const [k, on] of Object.entries(flags.all())) if (on) deps.persistence.featureEvent(doc.sessionId, k as FeatureKey, "exposed");
             } catch (e) { fail("could not open session", e); }
             return;
           }
@@ -147,13 +205,24 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
           case "partial": // direct / webspeech: the browser already has the text
             return onTranscript(msg);
           case "prompt":
+            if (!permit("speak_to_create")) return;
             return void doc!.run(msg.text, "typed", doc!.allocSeq());
           case "undo":
             return doc!.undo();
           case "redo":
             return doc!.redo();
           case "new_doc":
+            if (!permit(kindFeature(msg.kind))) return;
             return doc!.newDoc(msg.kind);
+          case "vocab_define":
+            if (!permit("custom_vocabulary")) return;
+            return void doc!.defineTerm(msg.kind, msg.phrase, msg.node, msg.confirm ?? true);
+          case "vocab_confirm":
+            if (!permit("custom_vocabulary")) return;
+            return doc!.confirmTerm(msg.id);
+          case "vocab_delete":
+            if (!permit("custom_vocabulary")) return;
+            return doc!.deleteTerm(msg.id);
           case "tune":
             return doc!.tune({ ...(msg.minGapMs != null ? { minGapMs: msg.minGapMs } : {}), ...(msg.callsPerMin != null ? { callsPerMin: msg.callsPerMin } : {}) });
           case "metrics": {
@@ -167,6 +236,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
         }
       });
       socket.on("close", () => {
+        sockets.delete(send);
         void stopRelay();
         if (doc) { doc.abortActive("disconnected"); deps.persistence.endSession(doc.sessionId); }
       });

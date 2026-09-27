@@ -4,6 +4,9 @@ erDiagram
     design_documents ||--o{ design_versions : document_id
     generation_jobs ||--o{ design_versions : job_id
     design_versions ||--o{ exports : version_id
+    feature_flags ||--o{ feature_events : feature_key
+    sessions ||--o{ feature_events : session_id
+    users ||--o{ feature_flags : updated_by
     intents ||--o{ generation_jobs : intent_id
     sessions ||--o{ generation_jobs : session_id
     utterances ||--o{ intents : utterance_id
@@ -15,6 +18,7 @@ erDiagram
     users ||--o{ sessions : user_id
     utterances ||--o{ transcript_segments : utterance_id
     sessions ||--o{ utterances : session_id
+    design_documents ||--o{ vocabulary_terms : document_id
     design_documents {
         uuid id PK
         uuid user_id FK
@@ -39,6 +43,20 @@ erDiagram
         text format
         text uri
         timestamptz created_at
+    }
+    feature_events {
+        bigserial id PK
+        text feature_key FK
+        uuid session_id FK
+        text action
+        timestamptz created_at
+    }
+    feature_flags {
+        text key PK
+        uuid updated_by FK
+        boolean enabled
+        text description
+        timestamptz updated_at
     }
     generation_jobs {
         uuid id PK
@@ -123,4 +141,14 @@ erDiagram
         timestamptz finalized_at
         text final_text
         timestamptz created_at
+    }
+    vocabulary_terms {
+        uuid id PK
+        uuid document_id FK
+        text kind
+        text phrase
+        jsonb node
+        text status
+        timestamptz created_at
+        timestamptz confirmed_at
     }

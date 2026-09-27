@@ -1,4 +1,4 @@
-import { emptyDoc, type DesignDoc, type IntentHeader, type PatchOp } from "@livecanvas/dsl";
+import { emptyDoc, type DesignDoc, type FeatureKey, type Flags, type IntentHeader, type PatchOp, type VocabTerm } from "@livecanvas/dsl";
 import { randomUUID } from "node:crypto";
 import type postgres from "postgres";
 
@@ -32,19 +32,32 @@ export interface Persistence {
   latency(sessionId: string, r: { jobId?: string; utteranceId?: string; stage: string; tMs: number }): void;
   endSession(sessionId: string): void;
   flush(): Promise<void>;
+  // ── Flags & usage (ADR 0012). Reads run at boot, session open and in admin calls — never mid-speech.
+  loadFlags(): Promise<Partial<Flags>>;
+  setFlag(key: FeatureKey, enabled: boolean): Promise<void>;
+  featureEvent(sessionId: string | null, key: FeatureKey, action: FeatureAction): void;
+  flagStats(days: number): Promise<Partial<Record<FeatureKey, Record<FeatureAction, number>>>>;
+  // ── Vocabulary, scoped to a document until accounts exist.
+  listVocab(documentId: string): Promise<VocabTerm[]>;
+  putVocab(sessionId: string, documentId: string, t: VocabTerm): void;
+  deleteVocab(sessionId: string, documentId: string, id: string): void;
 }
+export type FeatureAction = "exposed" | "used" | "blocked";
 
 type Call = { method: string; args: unknown[] };
 
 /** In-memory persistence for tests and DB-less dev; `calls` records every write in order. */
-export function memoryPersistence(): Persistence & { rows: Array<Segment & { sessionId: string }>; calls: Call[] } {
+export function memoryPersistence(): Persistence & { rows: Array<Segment & { sessionId: string }>; calls: Call[]; events: Array<{ sessionId: string | null; key: FeatureKey; action: FeatureAction }> } {
   const rows: Array<Segment & { sessionId: string }> = [];
   const calls: Call[] = [];
   const sessions = new Map<string, OpenedSession>();
   const ids = new Map<string, string>();
   const log = (method: string) => (...args: unknown[]) => void calls.push({ method, args });
+  const flags: Partial<Flags> = {};
+  const events: Array<{ sessionId: string | null; key: FeatureKey; action: FeatureAction }> = [];
+  const vocab = new Map<string, VocabTerm[]>();
   return {
-    rows, calls,
+    rows, calls, events,
     openSession: async () => {
       const s = { sessionId: randomUUID(), documentId: randomUUID(), versions: [{ version: 0, parent: null, doc: emptyDoc() }], current: 0 };
       sessions.set(s.sessionId, s);
@@ -75,6 +88,20 @@ export function memoryPersistence(): Persistence & { rows: Array<Segment & { ses
     latency: log("latency"),
     endSession: log("endSession"),
     flush: async () => {},
+    loadFlags: async () => ({ ...flags }),
+    setFlag: async (key, enabled) => { flags[key] = enabled; },
+    featureEvent: (sessionId, key, action) => void events.push({ sessionId, key, action }),
+    flagStats: async () => {
+      const out: Partial<Record<FeatureKey, Record<FeatureAction, number>>> = {};
+      for (const e of events) { const r = (out[e.key] ??= { exposed: 0, used: 0, blocked: 0 }); r[e.action]++; }
+      return out;
+    },
+    listVocab: async (documentId) => structuredClone(vocab.get(documentId) ?? []),
+    putVocab: (_s, documentId, t) => {
+      const list = (vocab.get(documentId) ?? []).filter((x) => x.id !== t.id && !(x.kind === t.kind && x.phrase === t.phrase));
+      vocab.set(documentId, [...list, structuredClone(t)]);
+    },
+    deleteVocab: (_s, documentId, id) => void vocab.set(documentId, (vocab.get(documentId) ?? []).filter((x) => x.id !== id)),
   };
 }
 
@@ -186,6 +213,39 @@ export function pgPersistence(sql: postgres.Sql, log: (e: unknown) => void = con
     },
     async flush() {
       await Promise.all(chains.values());
+    },
+    async loadFlags() {
+      const rows = await sql<{ key: FeatureKey; enabled: boolean }[]>`select key, enabled from feature_flags`;
+      return Object.fromEntries(rows.map((r) => [r.key, r.enabled])) as Partial<Flags>;
+    },
+    async setFlag(key, enabled) {
+      await sql`update feature_flags set enabled = ${enabled}, updated_at = now() where key = ${key}`;
+    },
+    featureEvent(sessionId, key, action) {
+      enqueue(sessionId ?? "global", () => sql`insert into feature_events (feature_key, session_id, action) values (${key}, ${sessionId}, ${action})`);
+    },
+    async flagStats(days) {
+      const rows = await sql<{ key: FeatureKey; action: FeatureAction; n: number }[]>`
+        select feature_key as key, action, count(*)::int as n from feature_events
+        where created_at > now() - make_interval(days => ${days}) group by 1, 2`;
+      const out: Partial<Record<FeatureKey, Record<FeatureAction, number>>> = {};
+      for (const r of rows) (out[r.key] ??= { exposed: 0, used: 0, blocked: 0 })[r.action] = r.n;
+      return out;
+    },
+    async listVocab(documentId) {
+      const rows = await sql<{ id: string; kind: VocabTerm["kind"]; phrase: string; node: VocabTerm["node"]; status: VocabTerm["status"] }[]>`
+        select id, kind, phrase, node, status from vocabulary_terms where document_id = ${documentId} order by created_at`;
+      return rows.map((r) => ({ ...r }));
+    },
+    putVocab(sessionId, documentId, t) {
+      enqueue(sessionId, () => sql`
+        insert into vocabulary_terms (id, document_id, kind, phrase, node, status, confirmed_at)
+        values (${t.id}, ${documentId}, ${t.kind}, ${t.phrase}, ${json(t.node)}, ${t.status}, ${t.status === "confirmed" ? sql`now()` : null})
+        on conflict (document_id, kind, phrase) do update
+          set id = excluded.id, node = excluded.node, status = excluded.status, confirmed_at = excluded.confirmed_at`);
+    },
+    deleteVocab(sessionId, documentId, id) {
+      enqueue(sessionId, () => sql`delete from vocabulary_terms where id = ${id} and document_id = ${documentId}`);
     },
   };
 }

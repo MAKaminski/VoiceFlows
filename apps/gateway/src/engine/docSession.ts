@@ -1,6 +1,7 @@
 import {
-  applyOp, DesignDocSchema, docKind, emptyDoc, emptyRoot, expandCompact, findNode, isModifier, kindKey, lexicon, lexTokens, occurrenceKeys, parseHeader,
-  serializeCompact, type CompactContext, type DesignDoc, type DesignNode, type DocKind, type IntentHeader, type OpOrigin, type PatchOp, type ServerMsg,
+  applyOp, DesignDocSchema, docKind, emptyDoc, emptyRoot, expandCompact, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
+  lexTokens, occurrenceKeys, parseDefine, parseHeader, serializeCompact, type CompactContext, type DesignDoc, type DesignNode, type DocKind, type FeatureKey,
+  type Flags, type IntentHeader, type OpOrigin, type PatchOp, type ServerMsg, type VocabNode, type VocabTerm,
 } from "@livecanvas/dsl";
 import { randomUUID } from "node:crypto";
 import type { OpenedSession, Persistence, VersionRow } from "../persist.js";
@@ -96,6 +97,7 @@ export class DocSession {
       persistence: Persistence; model: ModelClient | null; send: (m: ServerMsg) => void; log?: (m: string) => void;
       engine: EngineConfig; // screen prompt
       engines?: Partial<Record<DocKind, EngineConfig>>; // per diagram kind (ADR 0011); falls back to `engine`
+      flags?: () => Flags; // ADR 0012; absent = everything on
     },
   ) {
     for (const v of opened.versions) this.versions.set(v.version, v);
@@ -104,7 +106,14 @@ export class DocSession {
     this.doc = structuredClone(this.versions.get(this.current)!.doc);
   }
 
+  /** This document's user words (ADR 0012): confirmed ones draw; at most one `proposed` awaits confirm. */
+  terms: VocabTerm[] = [];
+  static readonly MAX_TERMS = 50;
+
   get sessionId() { return this.opened.sessionId; }
+  get documentId() { return this.opened.documentId; }
+  private flagOn(k: FeatureKey) { return this.deps.flags?.()[k] ?? true; }
+  private feature(k: FeatureKey, action: "used" | "blocked") { this.deps.persistence.featureEvent(this.sessionId, k, action); }
   versionInfo() {
     return { version: this.current, canUndo: this.versions.get(this.current)?.parent != null || this.dirty(), canRedo: this.redoTarget() != null };
   }
@@ -135,21 +144,33 @@ export class DocSession {
   // ── Voice ────────────────────────────────────────────────────────────────────────────────
   onTranscript(seq: number, text: string, isFinal: boolean, lastWordEndMs?: number, eager = false) {
     if (!text) return;
+    if (!this.flagOn("speak_to_create")) {
+      if (this.utt?.seq !== seq) { this.utt = null; this.feature("speak_to_create", "blocked"); this.deps.send({ type: "error", message: "Speaking to create is turned off" }); }
+      this.utt = { seq, baseDoc: this.doc, text, handled: new Set(), lexIds: new Set(), calledFor: new Set(), lastCallAt: -Infinity, ending: true, settled: true };
+      return;
+    }
     if (!this.utt || this.utt.seq !== seq) {
       if (this.utt && !this.utt.settled) this.commitUtterance();
       this.utt = { seq, baseDoc: this.doc, text: "", handled: new Set(), lexIds: new Set(), calledFor: new Set(), lastCallAt: -Infinity, ending: false, settled: false };
     }
     const u = this.utt;
     // Speech resumed after an eager settle (Flux TurnResumed): reopen the utterance as a new part.
-    if (u.settled && !isFinal && uncovered(text, u.handled, true, docKind(this.doc)).some((k) => !u.calledFor.has(k))) {
+    if (u.settled && !isFinal && !isVocabCommand(text) && uncovered(text, u.handled, true, docKind(this.doc)).some((k) => !u.calledFor.has(k))) {
       u.settled = false; u.ending = false; u.baseDoc = this.doc;
     }
     if (u.settled) return;
     u.text = text;
     u.lastWordEndMs = lastWordEndMs ?? u.lastWordEndMs;
 
+    // "define kafka as a queue" / "confirm": a vocabulary command — no drawing, no model call (ADR 0012).
+    if (isVocabCommand(text)) {
+      if (isFinal || eager) this.vocabCommand(u);
+      return;
+    }
+
     // Tier 0: lexicon → provisional nodes, no model call (ADR 0001/0009).
-    const lex = lexicon(text, this.doc, u.handled);
+    const lex = lexicon(text, this.doc, u.handled, this.terms, (k) => this.flagOn(kindFeature(k)));
+    if (lex.ops[0]?.path === "/root") this.feature(kindFeature(docKind({ ...this.doc, root: (lex.ops[0] as { value: DesignNode }).value })), "used");
     for (const k of lex.consumed) u.handled.add(k);
     if (lex.ops.length) { this.applyLexicon(lex.ops, seq, lastWordEndMs, lex.created.map((c) => c.id)); lex.created.forEach((c) => { u.lexIds.add(c.id); this.lexOrigin.add(c.id); }); }
 
@@ -217,7 +238,7 @@ export class DocSession {
     };
     walk(this.doc.root, "/root");
     if (clear.length) { for (const op of clear) this.doc = applyOp(this.doc, op); this.emitOps(randomUUID(), "model", clear); }
-    if (JSON.stringify(this.doc) !== JSON.stringify(u.baseDoc)) this.writeVersion(null);
+    if (JSON.stringify(this.doc) !== JSON.stringify(u.baseDoc)) { this.writeVersion(null); this.feature("speak_to_create", "used"); }
     const uid = this.deps.persistence.utterance(this.sessionId, u.seq, "voice");
     this.deps.persistence.latency(this.sessionId, { utteranceId: uid, stage: "settled", tMs: u.lastWordEndMs ?? 0 });
     this.deps.send({ type: "version", ...this.versionInfo() });
@@ -226,6 +247,7 @@ export class DocSession {
   // ── Typed prompts (M3 semantics) ─────────────────────────────────────────────────────────
   async run(text: string, source: "voice" | "typed", seq: number): Promise<void> {
     this.abortActive();
+    this.feature("speak_to_create", "used");
     await this.runJob("typed", text, seq);
   }
 
@@ -455,6 +477,57 @@ export class DocSession {
     this.emitOps(randomUUID(), "model", [{ op: "replace", path: "/root", value: this.doc.root }]);
     this.writeVersion(null);
     this.deps.send({ type: "version", ...this.versionInfo() });
+    if (kind !== "screen") this.feature(kindFeature(kind), "used");
+  }
+
+  // ── Vocabulary (ADR 0012) ────────────────────────────────────────────────────────────────
+  private vocabCommand(u: Utterance) {
+    u.settled = true; u.ending = true;
+    const say = (message: string) => this.deps.send({ type: "error", message });
+    if (!this.flagOn("custom_vocabulary")) { this.feature("custom_vocabulary", "blocked"); return say("Adding words is turned off"); }
+    if (isConfirm(u.text)) {
+      const p = this.terms.find((t) => t.status === "proposed");
+      return p ? void this.confirmTerm(p.id) : say("Nothing to confirm — say “define <word> as a queue” first");
+    }
+    const kind = docKind(this.doc);
+    if (kind === "screen") return say("Switch to a diagram to define words");
+    const d = parseDefine(u.text, kind);
+    if (!d) return say("Say “define <word> as a …” — queue, database, cache, service, external, table, user…");
+    this.defineTerm(kind, d.phrase, d.node, false);
+  }
+
+  /** Adds a word. UI adds are confirmed at once (the click is the confirmation); spoken ones are proposed. */
+  defineTerm(kind: Exclude<DocKind, "screen">, phrase: string, node: VocabNode, confirm: boolean): VocabTerm | null {
+    const p = phrase.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+    if (!p) return null;
+    if (this.terms.filter((t) => t.status === "confirmed").length >= DocSession.MAX_TERMS) {
+      this.deps.send({ type: "error", message: `This document already has ${DocSession.MAX_TERMS} words` });
+      return null;
+    }
+    const term: VocabTerm = { id: randomUUID(), kind, phrase: p, node, status: confirm ? "confirmed" : "proposed" };
+    // One proposal at a time; re-defining a phrase replaces it.
+    this.terms = [...this.terms.filter((t) => t.status !== "proposed" && !(t.kind === kind && t.phrase === p)), term];
+    this.deps.persistence.putVocab(this.sessionId, this.documentId, term);
+    this.feature("custom_vocabulary", "used");
+    if (!confirm) this.deps.send({ type: "vocab_proposed", term });
+    this.deps.send({ type: "vocab", terms: this.terms });
+    return term;
+  }
+
+  confirmTerm(id: string) {
+    const t = this.terms.find((x) => x.id === id && x.status === "proposed");
+    if (!t) return;
+    t.status = "confirmed";
+    this.deps.persistence.putVocab(this.sessionId, this.documentId, t);
+    this.feature("custom_vocabulary", "used");
+    this.deps.send({ type: "vocab", terms: this.terms });
+  }
+
+  deleteTerm(id: string) {
+    if (!this.terms.some((t) => t.id === id)) return;
+    this.terms = this.terms.filter((t) => t.id !== id);
+    this.deps.persistence.deleteVocab(this.sessionId, this.documentId, id);
+    this.deps.send({ type: "vocab", terms: this.terms });
   }
 }
 

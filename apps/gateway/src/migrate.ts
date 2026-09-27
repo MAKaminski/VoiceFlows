@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { defaultTokens, propSchemas } from "@livecanvas/dsl";
+import { defaultTokens, FEATURES, propSchemas } from "@livecanvas/dsl";
 import postgres from "postgres";
 import { z } from "zod";
 import { ANON_EMAIL } from "./persist.js";
@@ -55,7 +55,12 @@ async function seed(sql: postgres.Sql) {
     await sql`insert into primitives (name, prop_schema) values (${name}, ${json})
               on conflict (name) do update set prop_schema = excluded.prop_schema`;
   }
-  console.log(`migrate: seeded anonymous user, default token set, ${Object.keys(propSchemas).length} primitives`);
+  // Feature flags (ADR 0012): new keys get their default; an admin's `enabled` choice is never overwritten.
+  for (const [key, f] of Object.entries(FEATURES)) {
+    await sql`insert into feature_flags (key, enabled, description) values (${key}, ${f.default}, ${f.description})
+              on conflict (key) do update set description = excluded.description`;
+  }
+  console.log(`migrate: seeded anonymous user, default token set, ${Object.keys(propSchemas).length} primitives, ${Object.keys(FEATURES).length} feature flags`);
 }
 
 main().catch((err) => {

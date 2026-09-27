@@ -8,3 +8,5 @@ export * from "./ws.js";
 export * from "./fixtures.js";
 export * from "./lexicon.js";
 export * from "./layout.js";
+export * from "./features.js";
+export * from "./vocabulary.js";

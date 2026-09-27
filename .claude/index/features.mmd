@@ -10,6 +10,8 @@ flowchart LR
     F_billing["Plans · quota · BYOK (M5, planned)<br/><small>ARD 0004</small>"]
     F_documents["Design documents · versions · undo<br/><small>ARD 0009</small>"]
     F_diagrams["Spoken diagrams: Architecture · ERD · Sequence<br/><small>ARD 0011</small>"]
+    F_feature_flags["Feature flags &amp; usage<br/><small>ARD 0012</small>"]
+    F_vocabulary["Vocabulary: keywords + user words<br/><small>ARD 0012</small>"]
   end
   subgraph uses["Components"]
     direction TB
@@ -81,6 +83,6 @@ flowchart LR
   classDef feat fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef comp fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef tab fill:#eaf1ec,stroke:#2C6249,color:#12191B;
-  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams feat;
+  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary feat;
   class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_doc_session,C_postgres,C_redis,C_stripe comp;
   class T_design_documents,T_design_versions,T_exports,T_generation_jobs,T_intents,T_latency_events,T_patch_ops,T_plans,T_primitives,T_provider_keys,T_sessions,T_token_sets,T_transcript_segments,T_usage_periods,T_users,T_utterances tab;

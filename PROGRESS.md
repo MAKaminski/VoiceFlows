@@ -19,3 +19,12 @@
 - Tests: dsl 35/35 (layout: no overlaps, edges avoid boxes, append-stable), gateway 28 + 3 pg-skipped.
 - Visual check: /playground?kind=architecture|erd|sequence.
 - Live (Railway): diagram prompts 6/6; screen regression 10/10, TTFV-1 817 ms adj., $0.0113/min. ADR 0011 §Result.
+
+## M5b — Feature flags, admin screen, user vocabulary (2026-09-27) — built; live after deploy
+- ADR 0012 / D24. 7 flags (registry → `feature_flags`), gateway-enforced; usage in `feature_events`;
+  `/admin` page + bearer API; `vocabulary_terms` per document; keyword rail with rule tooltips;
+  "+ Add word" and spoken "define X as Y" → "confirm".
+- Plan-critic blockers fixed first: a spoken definition drew nothing and called no model; admin CORS
+  scoped to admin origins with PUT + Authorization.
+- Tests: dsl 40/40; gateway 37/37 incl. Postgres (migration twice on a fresh DB + once on existing:
+  16 tables, 20 FKs). Browser (local): UI add word → chip + tooltip; admin flip hides ERD live.
