@@ -51,7 +51,7 @@ export function installMetricsTap() {
     const M = useMetrics.getState();
     const clock = () => M.audioClock?.() ?? null;
     if (m.type === "transcript") tapLocalTranscript(m);
-    if (m.type === "ops" && (m.origin === "lexicon" || m.origin === "model")) {
+    if (m.type === "ops" && (m.origin === "lexicon" || m.origin === "model" || m.origin === "jev")) {
       const firstForJob = !M.seenJobs.has(m.jobId);
       M.seenJobs.add(m.jobId);
       requestAnimationFrame(() => {

@@ -88,3 +88,13 @@
 - Misses: "postgres is read by shaw" (both engines, reversed grammar); "the web app calls the api" gated
   as not-actionable 2/10 (Haiku 7/10) — both low-confidence, i.e. would fall back.
 - Bar was p50 ≤ 300 ms and ≥ 90 % correct: passed on both.
+
+## M6b — Jev decisions tier (2026-09-27)
+- ADR 0017 / D29: phase 0 of every voice job is one Jev request; confident answers → compact ops (origin `jev`);
+  the model runs only for low-confidence answers and new text; 250 ms timeout → model; same-pair edges fold;
+  flag `jev_decisions`; migration 004 (`intents.path` += 'jev').
+- Re-measured the build's adjacent-pair format first (plan-critic): Jev p50 90 ms / p95 134 ms, 95.8 % correct
+  (Haiku 716 ms, 93.5 %), confident answers 100 % correct on 85 % of decisions
+  (`docs/m6/2026-09-27-jev-bakeoff-adjacent-railway-sfo.json`). Shared blind spot: "X belongs to Y" direction
+  (both engines 0/10; Jev unsure → falls back).
+- Tests: gateway 64/64 incl. Postgres (11 new), dsl 46/46.

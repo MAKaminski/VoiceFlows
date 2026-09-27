@@ -6,6 +6,8 @@ import {
 import { randomUUID } from "node:crypto";
 import type { OpenedSession, Persistence, VersionRow } from "../persist.js";
 import type { ModelClient } from "./model.js";
+import { decisionsToLines, planDecisions } from "./decisions.js";
+import type { JevClient } from "./jev.js";
 
 export interface EngineConfig { model: string; system: string; render: (vars: Record<string, string>) => string }
 export interface Tunables { minGapMs: number; callsPerMin: number; burst: number }
@@ -18,6 +20,8 @@ interface ActiveJob {
   lexOps: PatchOp[]; trigMs?: number;
   view: DocKind; // the view the job edits — pinned, so switching views mid-call never misroutes its ops (ADR 0016)
   protectedIds: Set<string>; // nodes this job folded a re-add into — its later `-` lines must not delete them
+  todo?: string[]; // the uncovered words (occurrence keys) that started this voice job
+  started?: boolean; // generation_jobs row written (phase 0 and the model phase share one job)
 }
 interface Utterance {
   seq: number; baseDoc: DesignDoc; text: string; lastWordEndMs?: number;
@@ -115,6 +119,7 @@ export class DocSession {
       engines?: Partial<Record<DocKind, EngineConfig>>; // per diagram kind (ADR 0011); falls back to `engine`
       flags?: () => Flags; // ADR 0012; absent = everything on
       notesEngine?: EngineConfig; // ADR 0016: the project-notes rewrite (background, never on the draw path)
+      jev?: JevClient; // ADR 0017: typed structural decisions before (or instead of) the model call
     },
   ) {
     // Every version is upgraded on read, so old single-view docs and their history open as projects.
@@ -247,21 +252,21 @@ export class DocSession {
 
   private maybeSpeculate(force = false) {
     const u = this.utt;
-    if (!u || u.settled || this.active || !this.deps.model) return;
+    if (!u || u.settled || this.active || (!this.deps.model && !this.deps.jev)) return;
     const todo = this.pending(u);
     if (!todo.length) return;
     if (!force && performance.now() - u.lastCallAt < this.tunables.minGapMs) return;
     if (!this.takeCall() && !force) return; // the end-of-utterance call may overdraw by one
     todo.forEach((k) => u.calledFor.add(k));
     u.lastCallAt = performance.now();
-    void this.runJob(u.ending ? "settle" : "speculative", u.text, u.seq, u.lastWordEndMs).then(() => this.afterVoiceJob());
+    void this.runJob(u.ending ? "settle" : "speculative", u.text, u.seq, u.lastWordEndMs, todo).then(() => this.afterVoiceJob());
   }
 
   /** At (eager) end of turn: commit now if nothing is uncovered, else one forced call then commit. */
   private settleIfReady() {
     const u = this.utt;
     if (!u || u.settled || this.active) return;
-    if (this.pending(u).length && this.deps.model) return this.maybeSpeculate(true);
+    if (this.pending(u).length && (this.deps.model || this.deps.jev)) return this.maybeSpeculate(true);
     this.commitUtterance();
   }
 
@@ -335,23 +340,14 @@ export class DocSession {
     this.deps.persistence.jobEnd(this.sessionId, { id: job.id, status: "aborted" });
   }
 
-  private async runJob(kind: JobKind, text: string, seq: number, trigMs?: number): Promise<void> {
+  private async runJob(kind: JobKind, text: string, seq: number, trigMs?: number, todo?: string[]): Promise<void> {
     const { persistence } = this.deps;
     const sid = this.sessionId;
-    const job: ActiveJob = { id: randomUUID(), kind, text, abort: new AbortController(), baseDoc: this.doc, applied: 0, lexOps: [], trigMs, protectedIds: new Set(), view: this.activeView };
+    const job: ActiveJob = { id: randomUUID(), kind, text, abort: new AbortController(), baseDoc: this.doc, applied: 0, lexOps: [], trigMs, protectedIds: new Set(), view: this.activeView, ...(todo ? { todo } : {}) };
     this.active = job;
     const utteranceId = persistence.utterance(sid, seq, kind === "typed" ? "typed" : "voice", kind === "typed" ? text : undefined);
     this.deps.send({ type: "job", jobId: job.id, state: "running", kind, text });
-    if (!this.deps.model) return this.finish(job, "failed", "no model key configured");
-
     const dk = docKind(this.doc);
-    const engine = this.deps.engines?.[dk] ?? this.deps.engine;
-    const stream = this.deps.model({
-      model: engine.model,
-      system: engine.system,
-      user: engine.render({ project_brief: this.brief(), doc_compact: compactFor(this.doc) || `(empty ${dk === "screen" ? "screen" : "diagram"}: root)`, partial_text: text }),
-      signal: job.abort.signal,
-    });
     const aliases = new Map<string, string>();
     const ctx: CompactContext = {
       resolve: (ref) => (ref === "root" ? "/root" : findNode(this.doc.root, aliases.get(ref) ?? ref)?.path ?? null),
@@ -365,9 +361,32 @@ export class DocSession {
       idOf: (ref) => aliases.get(ref) ?? (findNode(this.doc.root, ref) ? ref : null),
     };
     const typeOf = (ref: string) => findNode(this.doc.root, aliases.get(ref) ?? ref)?.node.type ?? null;
+    let opSeq = 0, firstOpMs: number | undefined;
+
+    // ── Phase 0 (ADR 0017): Jev decides the structural part (~90 ms); Haiku only for what's left. ──
+    if (kind !== "typed" && this.deps.jev && this.flagOn("jev_decisions")) {
+      const r = await this.jevPhase(job, text, seq, utteranceId, (line, atMs) => {
+        let ops: PatchOp[];
+        try { ops = this.enforceEdits(job, expandCompact(line, ctx, typeOf), aliases); }
+        catch (e) { this.deps.log?.(`jev: dropped line "${line}" (${(e as Error).message})`); return; }
+        if (this.applyValidated(job, ops, atMs, opSeq, "jev")) {
+          opSeq += ops.length;
+          if (firstOpMs == null) { firstOpMs = atMs; persistence.latency(sid, { jobId: job.id, stage: "first_op", tMs: atMs }); }
+        }
+      });
+      if (this.active !== job) return;
+      if (r === "covered") return this.finish(job, "done", undefined, firstOpMs);
+    }
+    if (!this.deps.model) return this.finish(job, "failed", "no model key configured");
+    const engine = this.deps.engines?.[dk] ?? this.deps.engine;
+    const stream = this.deps.model({
+      model: engine.model,
+      system: engine.system,
+      user: engine.render({ project_brief: this.brief(), doc_compact: compactFor(this.doc) || `(empty ${dk === "screen" ? "screen" : "diagram"}: root)`, partial_text: text }),
+      signal: job.abort.signal,
+    });
 
     let header: IntentHeader | null = null;
-    let opSeq = 0, firstOpMs: number | undefined;
     try {
       for await (const { line, atMs } of stream.lines) {
         if (this.active !== job) return;
@@ -378,7 +397,7 @@ export class DocSession {
           header = parsed ?? { a: "add", c: 0.5, s: false, x: false, t: [] };
           const intentId = randomUUID();
           persistence.intent(sid, { id: intentId, utteranceId, header, delta: 1, path: "haiku", tMs: atMs });
-          persistence.jobStart(sid, { id: job.id, intentId, model: engine.model });
+          if (!job.started) { job.started = true; persistence.jobStart(sid, { id: job.id, intentId, model: engine.model }); }
           if (header.a === "none") break;
           if (header.a === "undo" && header.x) { this.finish(job, "done"); this.undo(); return; }
           if (header.a === "reset" && header.x) { this.applyValidated(job, [{ op: "replace", path: "/root", value: emptyView(dk) }], atMs, opSeq++); continue; } // "start over" clears this view only
@@ -405,6 +424,36 @@ export class DocSession {
   }
 
   /**
+   * Phase 0 of a voice job (ADR 0017): one Jev request decides connections, direction, style, cardinality
+   * and "on top" moves; confident answers are applied as ordinary compact lines through `apply`. Returns
+   * "covered" when every word that started the job is now handled (no model call needed).
+   */
+  private async jevPhase(job: ActiveJob, text: string, seq: number, utteranceId: string, apply: (line: string, atMs: number) => void): Promise<"covered" | "partial" | "skipped"> {
+    const plan = this.within(job.view, () => planDecisions(this.doc, job.view, text));
+    if (!plan) return "skipped";
+    let res;
+    try { res = await this.deps.jev!({ state: plan.state, questions: plan.questions, signal: job.abort.signal }); }
+    catch (e) { this.deps.log?.(`jev: fell back to the model (${(e as Error).message})`); return "skipped"; }
+    if (this.active !== job) return "skipped";
+    const cols = (id: string) => (findNode(this.doc.root, id)?.node.props.cols as string[] | undefined) ?? [];
+    const d = this.within(job.view, () => decisionsToLines(plan, res.answers, cols));
+    const u = this.utt?.seq === seq ? this.utt : null;
+    if (d.lines.length) {
+      const intentId = randomUUID();
+      this.deps.persistence.intent(this.sessionId, { id: intentId, utteranceId, header: { a: "add", c: 1, s: false, x: false, t: [] }, delta: 1, path: "jev", tMs: res.ms });
+      job.started = true;
+      this.deps.persistence.jobStart(this.sessionId, { id: job.id, intentId, model: "jev" });
+      this.focus = job.view;
+      try { for (const line of d.lines) apply(line, res.ms); } finally { this.focus = this.activeView; }
+    }
+    for (const k of d.covered) { u?.handled.add(k); u?.labels.set(k, { label: "a connection", mine: false }); }
+    this.deps.log?.(`jev: ${Math.round(res.ms)} ms · ${d.accepted} decided · ${d.unsure} unsure · ${d.lines.length} ops`);
+    const todo = job.todo ?? [];
+    const done = todo.length > 0 && todo.every((k) => d.covered.includes(k) || u?.handled.has(k));
+    return done ? "covered" : "partial";
+  }
+
+  /**
    * Enforces "edit what the user already sees" (M4 live run: Haiku rebuilt the screen and deleted the
    * provisional nodes in 2/3 samples):
    *  - an `add` whose kind key matches an existing node — or, for a type with exactly one provisional
@@ -425,6 +474,21 @@ export class DocSession {
       const isChildAdd = op.op === "add" && (op.path.endsWith("/children/-") || /\/children\/\d+$/.test(op.path));
       if (!isChildAdd) { out.push(op); continue; }
       const node = (op as { value: DesignNode }).value;
+      // A second connection between the same two components (Jev drew it, then the model does too, maybe
+      // with another label) is the same connection: update it instead (plan-critic M6 #1). Sequence
+      // messages may legitimately repeat, so there only this job's own edges fold.
+      if (node.type === "Edge") {
+        const kids = this.doc.root.children ?? [];
+        const seqView = this.doc.root.props.kind === "sequence";
+        const i = kids.findIndex((c) => c.type === "Edge" && c.props.from === node.props.from && c.props.to === node.props.to && (!seqView || job.protectedIds.has(c.id)));
+        if (i >= 0) {
+          const hit = kids[i]!;
+          for (const [a, id] of aliases) if (id === node.id) aliases.set(a, hit.id);
+          job.protectedIds.add(hit.id);
+          for (const [k, v] of Object.entries(node.props)) if (JSON.stringify(hit.props[k]) !== JSON.stringify(v)) out.push({ op: "replace", path: `/root/children/${i}/props/${k}`, value: v } as PatchOp);
+          continue;
+        }
+      }
       const key = kindKey(node);
       const all: Array<{ node: DesignNode; path: string; parentPath: string }> = [];
       const walk = (n: DesignNode, path: string, parentPath: string) => {
@@ -457,7 +521,7 @@ export class DocSession {
   }
 
   /** Apply ops to a candidate doc, clear provisional flags on touched nodes, validate, commit + push. */
-  private applyValidated(job: ActiveJob, ops: PatchOp[], atMs: number, seq: number): boolean {
+  private applyValidated(job: ActiveJob, ops: PatchOp[], atMs: number, seq: number, origin: OpOrigin = "model"): boolean {
     let candidate = this.doc;
     const extra: PatchOp[] = [];
     try {
@@ -478,7 +542,7 @@ export class DocSession {
     this.doc = candidate;
     const all = [...ops, ...extra];
     job.applied += all.length;
-    this.emitOps(job.id, "model", all, job.trigMs);
+    this.emitOps(job.id, origin, all, job.trigMs);
     all.forEach((op, i) => this.deps.persistence.op(this.sessionId, {
       jobId: job.id, seq: seq + i, op, tMs: atMs,
       primitive: op.op === "add" && typeof op.value === "object" && op.value && "type" in op.value ? String((op.value as DesignNode).type) : null,

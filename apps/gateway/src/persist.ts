@@ -26,7 +26,7 @@ export interface Persistence {
   /** Utterance row (created once per seq); returns its id immediately. */
   utterance(sessionId: string, seq: number, source: "voice" | "typed", finalText?: string): string;
   record(sessionId: string, seg: Segment): void;
-  intent(sessionId: string, r: { id: string; utteranceId: string; header: IntentHeader; delta: number; path: "haiku" | "sonnet" | "fused" | "lexicon"; tMs: number }): void;
+  intent(sessionId: string, r: { id: string; utteranceId: string; header: IntentHeader; delta: number; path: "haiku" | "sonnet" | "fused" | "lexicon" | "jev"; tMs: number }): void;
   jobStart(sessionId: string, r: { id: string; intentId: string; model: string }): void;
   op(sessionId: string, r: { jobId: string; seq: number; op: PatchOp; primitive: string | null; tMs: number }): void;
   jobEnd(sessionId: string, r: { id: string; status: "done" | "aborted" | "failed"; inputTokens?: number; outputTokens?: number }): void;

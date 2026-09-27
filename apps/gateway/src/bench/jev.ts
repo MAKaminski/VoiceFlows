@@ -46,6 +46,17 @@ const VIEW: Q = { type: "choice", instructions: "Which view of the project is th
 } };
 const actionable = (t: string): Q => ({ type: "noul", instructions: `The user is describing something to draw or change in the design (not filler, not small talk). Transcript: "${t}"` });
 
+/** The build's question: for mentions a, b (adjacent in the sentence) — a→b, b→a, or no connection. */
+function adjacent(id: string, view: string, state: string, text: string, pairsTruth: Array<[string, string, string]>): Case[] {
+  const questions: Record<string, Q> = {}, truth: Record<string, string> = {};
+  pairsTruth.forEach(([a, b, t], i) => {
+    questions[`rel${i}`] = { type: "choice", instructions: `Does the transcript connect ${a} and ${b}, and in which direction? Transcript: "${text}"`,
+      criteria: { [`${a}->${b}`]: `${a} sends to / calls / writes to / has many ${b}`, [`${b}->${a}`]: `${b} sends to / calls / writes to / has many ${a}`, none: `No connection between ${a} and ${b} is described` } };
+    truth[`rel${i}`] = t;
+  });
+  return [{ id, view: `adjacent-${view}`, state: `${state} Transcript: "${text}"`, questions, truth }];
+}
+
 const CASES: Case[] = [
   { id: "arch-calls", view: "architecture", state: ARCH_STATE, questions: { edge: archEdge("the web app calls the api"), style: style("the web app calls the api") }, truth: { edge: "web_app->api", style: "sync" } },
   { id: "arch-publish", view: "architecture", state: ARCH_STATE, questions: { edge: archEdge("the api publishes jobs to the queue"), style: style("the api publishes jobs to the queue") }, truth: { edge: "api->queue", style: "async" } },
@@ -77,6 +88,17 @@ const CASES: Case[] = [
   { id: "route-seq", view: "route", state: "Transcript: first the user taps sign in, then the app calls the api, then the api returns a token", questions: { view: VIEW }, truth: { view: "sequence" } },
   { id: "route-arch", view: "route", state: "Transcript: a next js web app talks to a fastify api deployed on railway", questions: { view: VIEW }, truth: { view: "architecture" } },
   { id: "route-screen", view: "route", state: "Transcript: a login screen with email and password and a big blue button", questions: { view: VIEW }, truth: { view: "screen" } },
+  // ── Build format (plan-critic M6 #2): one 3-way Choice per ADJACENT pair of mentions — multi-clause,
+  //    passive and negative sentences, which the first round never measured.
+  ...adjacent("adj-arch-chain", "architecture", ARCH_STATE, "the web app calls the api which writes to postgres", [["web_app", "api", "web_app->api"], ["api", "postgres", "api->postgres"]]),
+  ...adjacent("adj-arch-passive", "architecture", ARCH_STATE, "postgres is read by shaw", [["postgres", "shaw", "shaw->postgres"]]),
+  ...adjacent("adj-arch-two", "architecture", ARCH_STATE, "stripe sends webhooks to the api and the api publishes jobs to the queue", [["stripe", "api", "stripe->api"], ["api", "queue", "api->queue"]]),
+  ...adjacent("adj-arch-none", "architecture", ARCH_STATE, "the web app and the api are both new this quarter", [["web_app", "api", "none"]]),
+  ...adjacent("adj-arch-listen", "architecture", ARCH_STATE, "observe ai listens to genesys calls", [["observe_ai", "genesys", "genesys->observe_ai"]]),
+  ...adjacent("adj-erd-chain", "erd", ERD_STATE, "each user has many orders and each order has many line items", [["users", "orders", "users->orders"], ["orders", "line_items", "orders->line_items"]]),
+  ...adjacent("adj-erd-belongs", "erd", ERD_STATE, "every line item belongs to a product", [["line_items", "products", "products->line_items"]]),
+  ...adjacent("adj-seq-chain", "sequence", SEQ_STATE, "the user logs in on the web app and the web app posts the form to the api", [["user", "web_app", "user->web_app"], ["web_app", "api", "web_app->api"]]),
+  ...adjacent("adj-seq-return", "sequence", SEQ_STATE, "the api returns a token to the web app", [["api", "web_app", "api->web_app"]]),
   { id: "act-filler", view: "gate", state: "Design session transcript", questions: { act: actionable("um so yeah okay let me think") }, truth: { act: false } },
   { id: "act-real", view: "gate", state: "Design session transcript", questions: { act: actionable("the web app calls the api") }, truth: { act: true } },
   { id: "act-real2", view: "gate", state: "Design session transcript", questions: { act: actionable("add redis as a cache") }, truth: { act: true } },

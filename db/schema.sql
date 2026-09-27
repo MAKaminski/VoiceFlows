@@ -70,7 +70,7 @@ CREATE TABLE intents (
   intent jsonb NOT NULL,
   delta_score real NOT NULL,
   committed boolean NOT NULL DEFAULT false,
-  path text CHECK (path IN ('lexicon','haiku','sonnet','fused')),
+  path text CHECK (path IN ('lexicon','haiku','sonnet','fused','jev')),
   t_ms int NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );

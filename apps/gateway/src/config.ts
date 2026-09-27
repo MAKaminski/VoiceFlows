@@ -27,6 +27,9 @@ const Env = z.object({
   // Admin API (ADR 0012): bearer token (unset → /admin returns 503) and the ONLY browser origins allowed
   // to call it — never the preview-deploy pattern.
   ADMIN_TOKEN: z.string().min(24).optional(),
+  // TypeSafe Jev (ADR 0017): typed structural decisions; unset → the model does everything, as before.
+  TYPESAFE_API_KEY: z.string().optional(),
+  JEV_TIMEOUT_MS: z.coerce.number().default(250), // bake-off p95 146 ms; past this, fall back to the model
   ADMIN_ORIGINS: z.string().default("https://live-canvas-three.vercel.app,http://localhost:3000"),
 });
 

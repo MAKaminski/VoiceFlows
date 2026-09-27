@@ -4,10 +4,10 @@ _Generated from the TypeScript AST by `pnpm codemap` — do not edit by hand; CI
 
 | Measure | Count |
 |---|---|
-| Modules | 54 |
-| Lines | 5703 |
-| Top-level symbols | 402 |
-| Exported symbols | 201 |
+| Modules | 57 |
+| Lines | 6196 |
+| Top-level symbols | 461 |
+| Exported symbols | 215 |
 | Exported names defined in 2+ modules | 1 |
 
 ## Package dependency graph
@@ -38,7 +38,7 @@ flowchart LR
 |---|---|---|
 | [compact.ts](../packages/dsl/src/compact.ts) | 162 | `SHORT_KEYS` const · `CompactContext` interface · `CompactParseError` class · `expandCompact` function · `serializeCompact` function |
 | [doc.ts](../packages/dsl/src/doc.ts) | 201 | `DesignNode` interface · `NodeId` const · `DesignNodeSchema` const · `DesignDocSchema` const · `DesignDoc` type · `DocKind` const · `DocKind` type · `docKind` const · `VIEWS` const · `viewIndex` const · `emptyView` const · `emptyProject` function · `toProject` function · `viewDoc` function · `withView` function · `toProjectPath` const · `fromProjectPath` function · `viewCount` function · `LANES` const · `emptyRoot` function · `emptyDoc` function · `isBlank` function · `findNode` function |
-| [features.ts](../packages/dsl/src/features.ts) | 34 | `FEATURES` const · `FeatureKey` const · `FeatureKey` type · `Flags` const · `Flags` type · `defaultFlags` const · `kindFeature` const |
+| [features.ts](../packages/dsl/src/features.ts) | 35 | `FEATURES` const · `FeatureKey` const · `FeatureKey` type · `Flags` const · `Flags` type · `defaultFlags` const · `kindFeature` const |
 | [fixtures.ts](../packages/dsl/src/fixtures.ts) | 99 | `kitchenSinkDoc` const · `architectureDoc` const · `erdDoc` const · `sequenceDoc` const |
 | [index.ts](../packages/dsl/src/index.ts) | 13 | — |
 | [intent.ts](../packages/dsl/src/intent.ts) | 68 | `IntentAction` const · `Intent` const · `Intent` type · `IntentHeader` const · `IntentHeader` type · `DELTA_WEIGHTS` const · `deltaScore` function · `parseHeader` function |
@@ -62,14 +62,17 @@ flowchart LR
 |---|---|---|
 | [bench/align.ts](../apps/gateway/src/bench/align.ts) | 27 | — |
 | [bench/bakeoff.ts](../apps/gateway/src/bench/bakeoff.ts) | 126 | `pcmFromWav` function |
-| [config.ts](../apps/gateway/src/config.ts) | 35 | `Config` type · `loadConfig` const |
+| [bench/jev.ts](../apps/gateway/src/bench/jev.ts) | 202 | — |
+| [config.ts](../apps/gateway/src/config.ts) | 38 | `Config` type · `loadConfig` const |
 | [db.ts](../apps/gateway/src/db.ts) | 11 | `getSql` function |
-| [engine/docSession.ts](../apps/gateway/src/engine/docSession.ts) | 795 | `EngineConfig` interface · `Tunables` interface · `DEFAULT_TUNABLES` const · `DocSession` class |
+| [engine/decisions.ts](../apps/gateway/src/engine/decisions.ts) | 174 | `CHOICE_MIN` const · `NOUL_YES` const · `NOUL_NO` const · `Mention` interface · `mentions` function · `Plan` interface · `planDecisions` function · `Decided` interface · `decisionsToLines` function |
+| [engine/docSession.ts](../apps/gateway/src/engine/docSession.ts) | 866 | `EngineConfig` interface · `Tunables` interface · `DEFAULT_TUNABLES` const · `DocSession` class |
+| [engine/jev.ts](../apps/gateway/src/engine/jev.ts) | 39 | `JevQuestion` type · `JevAnswer` type · `JevResult` interface · `JevClient` type · `typesafeJev` function |
 | [engine/model.ts](../apps/gateway/src/engine/model.ts) | 113 | `ModelLine` interface · `ModelStream` interface · `ModelClient` type · `anthropicClient` function · `hedgedClient` function |
 | [flags.ts](../apps/gateway/src/flags.ts) | 28 | `FlagService` class |
 | [migrate.ts](../apps/gateway/src/migrate.ts) | 70 | — |
 | [persist.ts](../apps/gateway/src/persist.ts) | 313 | `ANON_EMAIL` const · `Segment` interface · `VersionRow` interface · `OpenedSession` interface · `Persistence` interface · `FeatureAction` type · `memoryPersistence` function · `pgPersistence` function |
-| [server.ts](../apps/gateway/src/server.ts) | 376 | `Deps` interface · `defaultDeps` function · `buildServer` function |
+| [server.ts](../apps/gateway/src/server.ts) | 379 | `Deps` interface · `defaultDeps` function · `buildServer` function |
 | [spike.ts](../apps/gateway/src/spike.ts) | 271 | — |
 | [stt/providers.ts](../apps/gateway/src/stt/providers.ts) | 161 | `SttMeta` interface · `SttSession` interface · `SttProvider` interface · `wsSession` function · `PROVIDERS` const |
 | [sttGrant.ts](../apps/gateway/src/sttGrant.ts) | 31 | `FLUX_BROWSER_URL` const · `createSttGrant` function |

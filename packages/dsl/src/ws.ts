@@ -62,7 +62,7 @@ export const ClientMsg = z.discriminatedUnion("type", [
 export type ClientMsg = z.infer<typeof ClientMsg>;
 
 /** Who produced an op batch — M4's "keep ops that still validate" rule needs origin + jobId. */
-export const OpOrigin = z.enum(["model", "lexicon", "undo", "redo", "rollback", "goto"]);
+export const OpOrigin = z.enum(["model", "lexicon", "undo", "redo", "rollback", "goto", "jev"]);
 export type OpOrigin = z.infer<typeof OpOrigin>;
 
 /** drawn = the lexicon drew it (0 ms) · yours = drawn from the user's own word · model = sent to the model. */

@@ -101,7 +101,7 @@ async function run(i: number) {
   for (const k of Object.keys(KEYWORD_KIND)) if (lexArrival[k] != null) ttfv0[k] = Math.round(lexArrival[k]! - wallOf(endOf(k)));
   // TTFV-1 per model job: first model ops batch − its trigger word
   const firstModel = new Map<string, { at: number; trig?: number }>();
-  for (const { m, at } of inbox) if (m.type === "ops" && m.origin === "model" && !firstModel.has(m.jobId)) firstModel.set(m.jobId, { at, trig: m.trigMs });
+  for (const { m, at } of inbox) if (m.type === "ops" && (m.origin === "model" || m.origin === "jev") && !firstModel.has(m.jobId)) firstModel.set(m.jobId, { at, trig: m.trigMs });
   const ttfv1 = [...firstModel.values()].filter((x) => x.trig != null).map((x) => Math.round(x.at - wallOf(x.trig!)));
   const version = inbox.find((x) => x.m.type === "version" && x.m.version > 0);
   const settle = version ? Math.round(version.at - wallOf(endOf("top"))) : NaN;

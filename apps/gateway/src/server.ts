@@ -8,6 +8,7 @@ import { loadConfig, type Config } from "./config.js";
 import { getSql } from "./db.js";
 import { DocSession, type EngineConfig } from "./engine/docSession.js";
 import { anthropicClient, hedgedClient, type ModelClient } from "./engine/model.js";
+import { typesafeJev, type JevClient } from "./engine/jev.js";
 import { loadPrompt, type PromptName } from "@livecanvas/prompts";
 import { memoryPersistence, pgPersistence, type Persistence } from "./persist.js";
 import { PROVIDERS, type SttProvider, type SttSession } from "./stt/providers.js";
@@ -21,6 +22,7 @@ export interface Deps {
   engine: EngineConfig;
   engines?: Partial<Record<DocKind, EngineConfig>>;
   notesEngine?: EngineConfig; // ADR 0016
+  jev?: JevClient; // ADR 0017
   flags?: FlagService;
 }
 
@@ -44,6 +46,7 @@ export function defaultDeps(config: Config): Deps {
       sequence: engineFor("diagram_sequence", config),
     },
     notesEngine: engineFor("project_notes", config),
+    ...(config.TYPESAFE_API_KEY ? { jev: typesafeJev(config.TYPESAFE_API_KEY, config.JEV_TIMEOUT_MS) } : {}),
   };
 }
 
@@ -227,7 +230,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
                 const opened = (target ? await deps.persistence.openOnDocument(target) : null) ?? (await deps.persistence.openSession());
                 resumed = opened.documentId === target;
                 const created: LiveDoc = { doc: null as unknown as DocSession, owner: null, release: null, shareLinks: [] };
-                created.doc = new DocSession(opened, { persistence: deps.persistence, model: deps.model, engine: deps.engine, engines: deps.engines, notesEngine: deps.notesEngine, flags: () => flags.all(), send: toOwner(created), log: (m) => app.log.warn(m) });
+                created.doc = new DocSession(opened, { persistence: deps.persistence, model: deps.model, engine: deps.engine, engines: deps.engines, notesEngine: deps.notesEngine, jev: deps.jev, flags: () => flags.all(), send: toOwner(created), log: (m) => app.log.warn(m) });
                 created.doc.terms = await deps.persistence.listVocab(opened.documentId).catch(() => []);
                 created.doc.recent = await deps.persistence.recentUtterances(opened.documentId, 8).catch(() => []);
                 created.shareLinks = await deps.persistence.listShares(opened.documentId).catch(() => []);

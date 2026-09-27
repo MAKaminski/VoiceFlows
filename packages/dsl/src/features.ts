@@ -8,6 +8,7 @@ import type { DocKind } from "./doc.js";
 export const FEATURES = {
   projects: { default: true, description: "Projects: Screen, Architecture, ERD and Sequence together — speak to any view" },
   project_notes: { default: true, description: "Project notes: a running summary of what you've said, kept as context for every view" },
+  jev_decisions: { default: true, description: "Jev decisions: connections, direction and 'on top' moves decided in ~90 ms before (or instead of) the model" },
   speak_to_create: { default: true, description: "Speak or type to create and edit — the core loop" },
   diagram_architecture: { default: true, description: "Architecture diagrams (Frontend · APIs · Database · Infrastructure)" },
   diagram_erd: { default: true, description: "Entity-relationship diagrams" },
