@@ -62,3 +62,51 @@ export function anthropicClient(apiKey: string): ModelClient {
     return { lines: lines(), usage };
   };
 }
+
+/**
+ * Hedged requests for tail latency (M4: single slow Haiku calls failed runs at TTFV-1 1.1–1.8 s).
+ * If the primary stream has not produced its first line within `hedgeMs`, an identical second call
+ * starts; whichever yields a first line first wins and the other is aborted. Usage is the SUM of both
+ * (an aborted call still bills its input tokens), so $/min in the HUD stays honest.
+ */
+export function hedgedClient(inner: ModelClient, hedgeMs: number, onHedge?: (won: boolean) => void): ModelClient {
+  return (req) => {
+    const ctlA = new AbortController(), ctlB = new AbortController();
+    const cascade = () => { ctlA.abort(); ctlB.abort(); };
+    if (req.signal.aborted) cascade(); else req.signal.addEventListener("abort", cascade, { once: true });
+    const a = inner({ ...req, signal: ctlA.signal });
+    let b: ModelStream | null = null;
+    let resolveUsage!: (u: { inputTokens: number; outputTokens: number }) => void;
+    const usage = new Promise<{ inputTokens: number; outputTokens: number }>((r) => (resolveUsage = r));
+
+    async function* lines(): AsyncGenerator<ModelLine> {
+      const itA = a.lines[Symbol.asyncIterator]();
+      const pA = itA.next();
+      pA.catch(() => {});
+      let winner = itA;
+      let first: IteratorResult<ModelLine>;
+      const timer = new Promise<"hedge">((r) => setTimeout(() => r("hedge"), hedgeMs));
+      const r1 = await Promise.race([pA.then((v) => ({ src: "a" as const, v })), timer]);
+      if (r1 === "hedge" && !req.signal.aborted) {
+        b = inner({ ...req, signal: ctlB.signal });
+        const itB = b.lines[Symbol.asyncIterator]();
+        const pB = itB.next();
+        pB.catch(() => {});
+        const r2 = await Promise.race([pA.then((v) => ({ src: "a" as const, v })), pB.then((v) => ({ src: "b" as const, v }))]);
+        if (r2.src === "b") { ctlA.abort(); winner = itB; } else ctlB.abort();
+        onHedge?.(r2.src === "b");
+        first = r2.v;
+      } else {
+        first = (r1 as { v: IteratorResult<ModelLine> }).v;
+      }
+      try {
+        if (!first.done) yield first.value;
+        for (let n = await winner.next(); !n.done; n = await winner.next()) yield n.value;
+      } finally {
+        const [ua, ub] = await Promise.all([a.usage, b ? (b as ModelStream).usage : Promise.resolve({ inputTokens: 0, outputTokens: 0 })]);
+        resolveUsage({ inputTokens: ua.inputTokens + ub.inputTokens, outputTokens: ua.outputTokens + ub.outputTokens });
+      }
+    }
+    return { lines: lines(), usage };
+  };
+}

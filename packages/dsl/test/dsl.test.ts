@@ -187,9 +187,10 @@ describe("lexicon (M4 tier 0)", async () => {
 
   it("draws the definition-of-done sentence in order, with held modifiers and the button label", () => {
     const { doc, batches } = replay(SENTENCE);
-    expect(batches).toEqual([["n_p_email"], ["n_p_password"], ["n_p_button"], ["n_p_logo"]]);
+    expect(batches).toEqual([["n_p_title"], ["n_p_email"], ["n_p_password"], ["n_p_button"], ["n_p_logo"]]);
     expect(doc.root.children!.map((c) => [c.type, c.props])).toEqual([
       ["Image", { alt: "Logo", aspect: "3:1" }],
+      ["Text", { content: "Log in", variant: "title" }],
       ["Input", { label: "Email", kind: "email", placeholder: "you@example.com" }],
       ["Input", { label: "Password", kind: "password" }],
       ["Button", { label: "Sign in", variant: "primary", size: "lg", color: "primary" }],
@@ -200,7 +201,7 @@ describe("lexicon (M4 tier 0)", async () => {
 
   it("never duplicates across partials, mentions, or edits of existing elements", () => {
     const { doc } = replay(`${SENTENCE} and make the email field bigger and the button blue`);
-    expect(doc.root.children).toHaveLength(4);
+    expect(doc.root.children).toHaveLength(5); // logo, title, email, password, button
     const again = lexicon("an email and a password", doc);
     expect(again.ops).toEqual([]);
   });
@@ -210,10 +211,31 @@ describe("lexicon (M4 tier 0)", async () => {
     expect(Math.max(0, ...Object.values(moves))).toBeLessThanOrEqual(1);
   });
 
+  it("a Flux revision ('sign and button' → 'sign in button') never draws a second button", () => {
+    let doc = emptyDoc();
+    const drawn = new Set<string>();
+    for (const t of ["big blue sign and button", "big blue sign in button", "big blue sign in button logo on top"]) {
+      const r = lexicon(t, doc, drawn);
+      for (const op of r.ops) doc = applyOp(doc, op);
+      r.consumed.forEach((k) => drawn.add(k));
+    }
+    expect(doc.root.children!.map((c) => c.type)).toEqual(["Image", "Button"]);
+  });
+
   it("ignores filler and uses doc kinds built by the model, not just provisional ones", () => {
     expect(lexicon("um so like a", emptyDoc()).ops).toEqual([]);
     const built = emptyDoc();
     built.root.children = [{ id: "n_email", type: "Input", props: { label: "Email", kind: "email" } }];
     expect(lexicon("email", built).ops).toEqual([]);
+  });
+});
+
+describe("lexicon titles from '<name> screen'", async () => {
+  const { lexicon } = await import("../src/lexicon.js");
+  it("draws 'Log in' for 'a login screen', none for a bare 'screen', and dedupes with a model title", () => {
+    const r = lexicon("a login screen with email", emptyDoc());
+    expect(r.created.map((c) => c.id)).toEqual(["n_p_title", "n_p_email"]);
+    expect((r.ops[0] as { value: { props: unknown } }).value.props).toEqual({ content: "Log in", variant: "title" });
+    expect(lexicon("a screen", emptyDoc()).ops).toEqual([]);
   });
 });

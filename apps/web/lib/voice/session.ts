@@ -20,6 +20,14 @@ export interface VoiceEvents {
  */
 export async function startVoice(ev: VoiceEvents): Promise<{ stop(): void }> {
   ev.onStatus("connecting");
+  // Open the mic FIRST and buffer frames while the token and gateway handshakes run, so the first
+  // word spoken right after the click is not lost (browser run, 2026-09-27: "a login" dropped).
+  let sink: ((frame: ArrayBuffer) => void) | null = null;
+  const early: ArrayBuffer[] = [];
+  const capturing = startCapture((frame) => {
+    if (ev.onFrame) { const pcm = new Int16Array(frame); let peak = 0; for (let i = 0; i < pcm.length; i += 8) peak = Math.max(peak, Math.abs(pcm[i]!)); ev.onFrame(peak / 32768); }
+    if (sink) sink(frame); else early.push(frame);
+  });
   const grant = SttGrant.parse(await (await fetch(`${HTTP_BASE}/stt/token`, { method: "POST" })).json());
   ev.onMode(grant.mode);
 
@@ -46,6 +54,7 @@ export async function startVoice(ev: VoiceEvents): Promise<{ stop(): void }> {
 
   let stt: { stop(): void };
   if (grant.mode === "webspeech") {
+    (await capturing).stop(); // Web Speech captures on its own
     stt = startWebSpeech((text, isFinal) => emit(text, isFinal, true), (err) => ev.onStatus("error", err));
   } else {
     let dg: WebSocket | null = null;
@@ -60,11 +69,10 @@ export async function startVoice(ev: VoiceEvents): Promise<{ stop(): void }> {
         }
       };
     }
-    capture = await startCapture((frame) => {
-      if (ev.onFrame) { const pcm = new Int16Array(frame); let peak = 0; for (let i = 0; i < pcm.length; i += 8) peak = Math.max(peak, Math.abs(pcm[i]!)); ev.onFrame(peak / 32768); }
-      if (dg) { if (dg.readyState === 1) dg.send(frame); }
-      else gateway.sendAudio(frame);
-    });
+    capture = await capturing;
+    const send = (frame: ArrayBuffer) => { if (dg) { if (dg.readyState === 1) dg.send(frame); } else gateway.sendAudio(frame); };
+    for (const f of early.splice(0)) send(f); // flush what was said during setup
+    sink = send;
     stt = { stop: () => { capture?.stop(); if (dg?.readyState === 1) { dg.send(JSON.stringify({ type: "CloseStream" })); dg.close(); } } };
   }
   ev.onStatus("listening");

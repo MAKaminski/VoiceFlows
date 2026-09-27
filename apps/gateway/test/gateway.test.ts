@@ -31,10 +31,11 @@ describe("POST /stt/token mode choice (ADR 0008)", () => {
 });
 
 /** Fake STT: echoes a growing transcript every 2 frames and finalizes on the 6th. */
-function fakeProvider(): SttProvider & { frames: number } {
+function fakeProvider(connectDelayMs = 0): SttProvider & { frames: number } {
   const p = {
     frames: 0, pricePerMin: 0, needs: "", ready: () => true,
     connect: async () => {
+      await new Promise((r) => setTimeout(r, connectDelayMs));
       let cb: (t: string, f: boolean) => void = () => {};
       const words = ["a", "login", "screen"];
       return {
@@ -68,9 +69,9 @@ function fakeModel(lines: string[], gapMs = 5): ModelClient & { requests: string
 
 const LOGIN = ["add .9 login", '+Text title >root v=title "Log in"', '+Input email >root k=email "Email"', '+Input password >root k=password "Password"', '+Button signin >root v=primary s=lg "Sign in"'];
 
-async function start(extra: Record<string, string> = {}, model: ModelClient = fakeModel(LOGIN)) {
+async function start(extra: Record<string, string> = {}, model: ModelClient = fakeModel(LOGIN), connectDelayMs = 0) {
   const persistence = memoryPersistence();
-  const provider = fakeProvider();
+  const provider = fakeProvider(connectDelayMs);
   const config = loadConfig({ CORS_ORIGINS: "https://app.example", CORS_ORIGIN_PATTERN: "^https://pr-\\d+\\.example$", ...extra } as NodeJS.ProcessEnv);
   const engine = { model: "fake-haiku", system: "sys", render: (v: Record<string, string>) => `${v.doc_compact}\n---\n${v.partial_text}` };
   const app = buildServer(config, { persistence, sttGrant: async () => ({ mode: "relay", provider: "deepgram-flux" }), relayProvider: provider, model, engine });
@@ -118,6 +119,18 @@ describe("gateway WebSocket", () => {
     expect(persistence.rows.map((r) => [r.sessionId === (welcome as any).sessionId, r.text, r.isFinal])).toEqual([
       [true, "a", false], [true, "a login", false], [true, "a login screen", true],
     ]);
+    c.ws.close(); await app.close();
+  });
+
+  it("queues audio that arrives while the STT relay is still connecting (none dropped)", async () => {
+    const { app, provider, port } = await start({}, fakeModel(LOGIN), 100);
+    const c = client(port); await c.open;
+    c.ws.send(JSON.stringify({ type: "hello" }));
+    await c.next((m) => m.type === "welcome");
+    c.ws.send(JSON.stringify({ type: "stt_start", mode: "relay" }));
+    for (let i = 0; i < 6; i++) c.ws.send(Buffer.alloc(2560)); // immediately — relay not open yet
+    await c.next((m) => m.type === "transcript" && m.isFinal);
+    expect(provider.frames).toBe(6);
     c.ws.close(); await app.close();
   });
 

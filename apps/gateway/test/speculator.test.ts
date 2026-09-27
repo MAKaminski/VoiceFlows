@@ -1,6 +1,7 @@
 import { DesignDocSchema, type DesignNode, type ServerMsg } from "@livecanvas/dsl";
 import { describe, expect, it } from "vitest";
 import { DocSession } from "../src/engine/docSession.js";
+import { hedgedClient } from "../src/engine/model.js";
 import type { ModelClient } from "../src/engine/model.js";
 import { memoryPersistence } from "../src/persist.js";
 
@@ -144,12 +145,57 @@ describe("speculative scheduling (M4)", () => {
     d.onTranscript(0, text, true, W.length * 400);
     await idle(d); track();
     const kids = d.doc.root.children!;
-    expect(kids.map((k) => k.type)).toEqual(["Image", "Card"]);
+    expect(kids.map((k) => k.type)).toEqual(["Image", "Text", "Card"]); // "login screen" → title drawn by the lexicon
     expect(kids[0]!.id).toBe("n_p_logo");
-    expect(kids[1]!.children!.map((c) => [c.id, c.type, c.props.label])).toEqual([
+    expect(kids[2]!.children!.map((c) => [c.id, c.type, c.props.label])).toEqual([
       ["n_p_email", "Input", "Email"], ["n_p_password", "Input", "Password"], ["n_p_button", "Button", "Sign in"],
     ]);
     expect(Math.max(0, ...moves.values())).toBeLessThan(3);
     expect(DesignDocSchema.safeParse(d.doc).success).toBe(true);
+  });
+
+  it("folds the model's button into the lexicon's placeholder even when Flux split the sentence into two turns", async () => {
+    const { d } = await session((t) => (t.includes("top") ? ["add .9 x", '+Button signin >root v=primary s=lg "Sign in"'] : ["none 0"]));
+    d.onTranscript(0, "email and password big blue sign and button", false, 4800);
+    d.onTranscript(0, "email and password big blue sign and button.", true, 4800); // Flux EndOfTurn after "button."
+    await idle(d);
+    d.onTranscript(1, "Logo on top.", false, 6200);
+    d.onTranscript(1, "Logo on top.", true, 6200);
+    await idle(d);
+    const buttons = d.doc.root.children!.filter((k) => k.type === "Button");
+    expect(buttons.map((b) => [b.id, b.props.label])).toEqual([["n_p_button", "Sign in"]]);
+  });
+
+  it("hedged client: a slow primary is beaten by the hedge, the loser is aborted, usage is summed", async () => {
+    let n = 0; const aborted: boolean[] = [];
+    const inner: ModelClient = (req) => {
+      const delay = n++ === 0 ? 400 : 20; // primary slow, hedge fast
+      const idx = n - 1;
+      async function* gen() {
+        await sleep(delay);
+        if (req.signal.aborted) { aborted[idx] = true; throw new Error("aborted"); }
+        yield { line: `from-${idx}`, atMs: delay };
+        yield { line: `more-${idx}`, atMs: delay + 1 };
+      }
+      return { lines: gen(), usage: Promise.resolve({ inputTokens: 700, outputTokens: idx === 1 ? 30 : 0 }) };
+    };
+    let hedged: boolean | null = null;
+    const c = hedgedClient(inner, 50, (won) => { hedged = won; });
+    const s = c({ model: "m", system: "", user: "", signal: new AbortController().signal });
+    const got: string[] = [];
+    for await (const l of s.lines) got.push(l.line);
+    expect(got).toEqual(["from-1", "more-1"]);
+    expect(hedged).toBe(true);
+    expect(await s.usage).toEqual({ inputTokens: 1400, outputTokens: 30 });
+    await sleep(450);
+    expect(aborted[0]).toBe(true);
+  });
+
+  it("hedged client: a fast primary never starts a second call", async () => {
+    let calls = 0;
+    const inner: ModelClient = () => { calls++; async function* g() { await sleep(5); yield { line: "x", atMs: 5 }; } return { lines: g(), usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }) }; };
+    const s = hedgedClient(inner, 100)({ model: "m", system: "", user: "", signal: new AbortController().signal });
+    for await (const _ of s.lines) { /* drain */ }
+    expect(calls).toBe(1);
   });
 });

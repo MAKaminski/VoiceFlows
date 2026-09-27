@@ -2,7 +2,8 @@
 import { Canvas } from "@/components/canvas/Canvas";
 import { Hud } from "@/components/Hud";
 import { TranscriptStrip } from "@/components/TranscriptStrip";
-import { installMetricsTap } from "@/lib/metricsTap";
+import { currentMaxReflows, installMetricsTap } from "@/lib/metricsTap";
+import { useMetrics } from "@/store/metrics";
 import { gateway } from "@/lib/gateway";
 import { startVoice } from "@/lib/voice/session";
 import { useDoc } from "@/store/doc";
@@ -37,6 +38,8 @@ export default function Studio() {
   useEffect(() => {
     (window as unknown as Record<string, unknown>).__lcVoice = useVoice; // E2E harness
     (window as unknown as Record<string, unknown>).__lcDoc = useDoc;
+    (window as unknown as Record<string, unknown>).__lcMetrics = useMetrics;
+    (window as unknown as Record<string, unknown>).__lcReflowNow = currentMaxReflows;
     const untap = installMetricsTap();
     setHud(new URLSearchParams(location.search).has("hud"));
     gateway.connect().then(() => setConnError(null), (e: Error) => setConnError(e.message));
@@ -87,10 +90,11 @@ export default function Studio() {
         <button type="button" data-testid="undo" onClick={() => gateway.send({ type: "undo" })} disabled={!canUndo} title="Undo (⌘Z)" style={{ ...pill("transparent", "inherit"), opacity: canUndo ? 1 : 0.4 }}>Undo</button>
         <button type="button" data-testid="redo" onClick={() => gateway.send({ type: "redo" })} disabled={!canRedo} title="Redo (⇧⌘Z)" style={{ ...pill("transparent", "inherit"), opacity: canRedo ? 1 : 0.4 }}>Redo</button>
       </header>
-      <div style={{ padding: "6px 24px", fontSize: 13, opacity: 0.8, display: "flex", gap: 16, flexWrap: "wrap" }}>
+      {/* One fixed-height line: status text changing length must never push the canvas (M4 reflow finding). */}
+      <div style={{ padding: "0 24px", height: 28, lineHeight: "28px", fontSize: 13, opacity: 0.8, display: "flex", gap: 16, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
         <span data-testid="status">{mode ? MODE_LABEL[mode] : "mic off"} · {status}{detail ? ` — ${detail}` : ""}</span>
         <span data-testid="conn">{connError ? `Gateway: ${connError}` : connected ? `Version ${version}` : "Connecting to gateway…"}</span>
-        {jobLabel && <span data-testid="job">{jobLabel}</span>}
+        {jobLabel && <span data-testid="job" style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{jobLabel}</span>}
       </div>
       <div style={{ flex: 1 }}><Canvas doc={doc} /></div>
       <TranscriptStrip />

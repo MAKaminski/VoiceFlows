@@ -4,13 +4,28 @@
     {
       "name": "web-vs-railway-gateway",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", "NEXT_PUBLIC_GATEWAY_WS=wss://gateway-production-1c11.up.railway.app/ws pnpm --filter @livecanvas/web dev"],
+      "runtimeArgs": [
+        "-c",
+        "NEXT_PUBLIC_GATEWAY_WS=wss://gateway-production-1c11.up.railway.app/ws pnpm --filter @livecanvas/web dev"
+      ],
       "port": 3000
     },
     {
       "name": "web-vs-local-gateway",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", "NEXT_PUBLIC_GATEWAY_WS=ws://localhost:8787/ws pnpm --filter @livecanvas/web dev"],
+      "runtimeArgs": [
+        "-c",
+        "NEXT_PUBLIC_GATEWAY_WS=ws://localhost:8787/ws pnpm --filter @livecanvas/web dev"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "web-prod-vs-railway-gateway",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "NEXT_PUBLIC_GATEWAY_WS=wss://gateway-production-1c11.up.railway.app/ws pnpm --filter @livecanvas/web build && pnpm --filter @livecanvas/web start"
+      ],
       "port": 3000
     }
   ]

@@ -18,8 +18,15 @@ import type { PrimitiveType } from "./primitives.js";
 export interface LexiconResult {
   ops: PatchOp[];
   created: Array<{ id: string; word: string; kind: string }>;
-  /** Token indices this call turned into nodes (nouns + the modifiers attached to them). */
-  consumed: number[];
+  /** Occurrence keys (`button#1` = first "button" in the utterance) this call turned into nodes —
+   *  nouns plus the modifiers attached to them. Stable under Flux revisions ("sign and" → "sign in"). */
+  consumed: string[];
+}
+
+/** `word#k` for each token: the k-th occurrence of that word in the text (1-based). */
+export function occurrenceKeys(words: string[]): string[] {
+  const seen = new Map<string, number>();
+  return words.map((w) => { const k = (seen.get(w) ?? 0) + 1; seen.set(w, k); return `${w}#${k}`; });
 }
 
 const RANK: Partial<Record<PrimitiveType, number>> = { Nav: 0, Image: 1, Text: 2, Input: 3, Card: 4, List: 4, Table: 4, Chart: 4, Stack: 4, Icon: 5, Button: 6 };
@@ -27,6 +34,12 @@ const rank = (t: PrimitiveType) => RANK[t] ?? 4;
 
 const SIZE: Record<string, string> = { big: "lg", large: "lg", huge: "lg", small: "sm", tiny: "sm" };
 const COLOR: Record<string, string> = { blue: "primary", purple: "secondary", red: "danger", gray: "muted", grey: "muted", white: "surface", black: "text", dark: "text" };
+const SCREEN_TITLES: Array<[string[], string]> = [
+  [["log", "in"], "Log in"], [["login"], "Log in"], [["sign", "in"], "Sign in"], [["sign", "up"], "Sign up"], [["signup"], "Sign up"],
+  [["register"], "Create account"], [["registration"], "Create account"], [["settings"], "Settings"], [["profile"], "Profile"],
+  [["checkout"], "Checkout"], [["home"], "Home"], [["dashboard"], "Dashboard"], [["welcome"], "Welcome"], [["onboarding"], "Welcome"],
+  [["search"], "Search"], [["cart"], "Your cart"],
+];
 const BUTTON_LABELS: Array<[string[], string]> = [
   [["sign", "in"], "Sign in"], [["log", "in"], "Log in"], [["login"], "Log in"], [["sign", "up"], "Sign up"],
   [["signup"], "Sign up"], [["get", "started"], "Get started"], [["submit"], "Submit"], [["continue"], "Continue"],
@@ -34,6 +47,13 @@ const BUTTON_LABELS: Array<[string[], string]> = [
 ];
 
 type Mods = { size?: string; color?: string };
+const phraseBefore = (words: string[], i: number, table: Array<[string[], string]>) => {
+  for (const [phrase, text] of table) {
+    const start = i - phrase.length;
+    if (start >= 0 && phrase.every((w, k) => words[start + k] === w)) return text;
+  }
+  return null;
+};
 interface NounSpec { alias: string; type: PrimitiveType; props: (mods: Mods, words: string[], i: number) => Record<string, unknown>; children?: boolean }
 
 const NOUNS: Record<string, NounSpec> = {
@@ -57,6 +77,9 @@ const NOUNS: Record<string, NounSpec> = {
   table: { alias: "table", type: "Table", props: () => ({ columns: ["Name", "Value"], rows: [["—", "—"]] }) },
   chart: { alias: "chart", type: "Chart", props: () => ({ kind: "bar", series: [3, 5, 2, 6] }) },
   graph: { alias: "chart", type: "Chart", props: () => ({ kind: "line", series: [3, 5, 2, 6] }) },
+  // "a login screen" / "the settings page" → the screen's title (drawn first, so the model's title folds into it).
+  screen: { alias: "title", type: "Text", props: (_m, words, i) => ({ content: phraseBefore(words, i, SCREEN_TITLES) ?? "", variant: "title" }) },
+  page: { alias: "title", type: "Text", props: (_m, words, i) => ({ content: phraseBefore(words, i, SCREEN_TITLES) ?? "", variant: "title" }) },
   button: {
     alias: "button", type: "Button",
     props: (m, words, i) => {
@@ -98,8 +121,13 @@ const DEFINITE = new Set(["the", "this", "that", "its", "your", "my"]);
 /** A definite article within the 3 words before the noun ("the sign in button") marks a reference. */
 const isReference = (words: string[], i: number) => words.slice(Math.max(0, i - 3), i).some((w) => DEFINITE.has(w));
 
-export function lexicon(runningText: string, doc: DesignDoc): LexiconResult {
+/**
+ * `drawn`: occurrence keys already turned into nodes earlier in this utterance — never drawn again,
+ * even if the transcript was revised so the label or kind now reads differently.
+ */
+export function lexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<string> = new Set()): LexiconResult {
   const words = lexTokens(runningText);
+  const occ = occurrenceKeys(words);
   const kinds = collectKinds(doc.root);
   const ids = new Set<string>();
   const walk = (n: DesignNode) => { ids.add(n.id); n.children?.forEach(walk); };
@@ -108,7 +136,7 @@ export function lexicon(runningText: string, doc: DesignDoc): LexiconResult {
   const ops: PatchOp[] = [];
   const created: LexiconResult["created"] = [];
   let rootKids = [...(doc.root.children ?? [])];
-  const consumed: number[] = [];
+  const consumed: string[] = [];
   let mods: Mods = {};
   let modIdx: number[] = [];
   words.forEach((w, i) => {
@@ -116,7 +144,9 @@ export function lexicon(runningText: string, doc: DesignDoc): LexiconResult {
     if (COLOR[w]) { mods.color = COLOR[w]; modIdx.push(i); return; }
     const spec = NOUNS[w];
     if (!spec) return;
+    if (drawn.has(occ[i]!)) { mods = {}; modIdx = []; return; }
     const props = spec.props(mods, words, i);
+    if (spec.type === "Text" && !props.content) return; // "a screen" with no recognisable name → no title
     const usedMods = modIdx;
     mods = {}; modIdx = [];
     const node: DesignNode = { id: "", type: spec.type, props, provisional: true, ...(spec.children ? { children: [] } : {}) };
@@ -130,7 +160,7 @@ export function lexicon(runningText: string, doc: DesignDoc): LexiconResult {
     rootKids.splice(index, 0, node);
     kinds.add(key); kinds.add(`type:${spec.type}`); ids.add(id);
     created.push({ id, word: w, kind: key });
-    consumed.push(i, ...usedMods);
+    consumed.push(occ[i]!, ...usedMods.map((j) => occ[j]!));
   });
   return { ops, created, consumed };
 }

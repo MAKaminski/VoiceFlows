@@ -39,6 +39,7 @@ for (let run = 0; run < RUNS; run++) {
   const port = 9300 + run;
   const chrome = spawn(BROWSER, [
     `--user-data-dir=${mkdtempSync(join(tmpdir(), "lc-e2e-"))}`, `--remote-debugging-port=${port}`, "--no-first-run", "--no-default-browser-check",
+    ...(process.env.HEADED ? [] : ["--headless=new"]), // headless by default: no windows on the owner's screen
     "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${join(root, "scripts/fixtures/dod.wav")}%noloop`,
     "--autoplay-policy=no-user-gesture-required",
     // macOS: the sandboxed audio service cannot read the fake-mic file and silently captures zeros.
@@ -48,7 +49,11 @@ for (let run = 0; run < RUNS; run++) {
   try {
     const t = await cdpTarget(port);
     await sleep(11_000); // connect + 6.2 s of speech + tail
-    const state = await evaluate(t.webSocketDebuggerUrl, "(() => { const s = window.__lcVoice?.getState(); return s && { status: s.status, detail: s.detail, mode: s.mode, frames: s.framesSent, level: s.level, maxLevel: window.__lcMaxLevel, log: s.log, finals: Object.values(s.utterances).map((u) => u.text) }; })()");
+    const state = await evaluate(t.webSocketDebuggerUrl, `(() => { const s = window.__lcVoice?.getState(); const m = window.__lcMetrics?.getState(); const d = window.__lcDoc?.getState();
+      return s && { status: s.status, detail: s.detail, mode: s.mode, frames: s.framesSent, level: s.level, log: s.log, finals: Object.values(s.utterances).map((u) => u.text),
+        m4: m && { ttfv0: m.ttfv0, ttfv1: m.ttfv1, settle: m.settle, reflows: Math.max(window.__lcReflowNow?.() ?? 0, ...m.reflowMaxPerElement), calls: m.modelCalls, dollars: m.dollars },
+        msgs: window.__lcMsgLog,
+        layout: d && d.doc.root.children.map((n) => n.type + (n.children?.length ? "[" + n.children.map((c) => c.type + (c.props.label ? "(" + c.props.label + ")" : "")).join(",") + "]" : "")) }; })()`);
     if (!state) throw new Error("studio page did not expose __lcVoice");
     const seen = ref.map(() => NaN);
     let committed = "";
@@ -58,7 +63,15 @@ for (let run = 0; run < RUNS; run++) {
       ref.forEach((w, j) => { const at = toks.indexOf(w.word, from); if (at >= 0) { from = at + 1; if (Number.isNaN(seen[j])) seen[j] = e.tMs; } });
     }
     seen.forEach((t, j) => (Number.isNaN(t) ? misses++ : lags.push(t - ref[j].end)));
-    perRun.push({ frames: state.frames, mode: state.mode, status: state.status, detail: state.detail, events: state.log.length, finals: state.finals });
+    if (process.env.TIMELINE && state.msgs) {
+      const t0 = state.msgs[0]?.t ?? 0;
+      for (const x of state.msgs) {
+        if (x.type === "transcript" && !x.isFinal && !x.eager) continue;
+        console.log(`   ${String(x.t - t0).padStart(6)} ${x.type}${x.origin ? " " + x.origin : ""}${x.kind ? " " + x.kind : ""}${x.state ? " " + x.state : ""}${x.isFinal ? " FINAL" : ""}${x.eager ? " EAGER" : ""}${x.version != null ? " v" + x.version : ""}${x.text ? ' "' + x.text + '"' : ""}${x.ops ? " " + x.ops.join(" | ") : ""}`);
+      }
+    }
+    if (state.m4) console.log(`        M4 in-browser: TTFV-0 [${state.m4.ttfv0.map(Math.round).join(", ")}] · TTFV-1 [${state.m4.ttfv1.map(Math.round).join(", ")}] · settle [${state.m4.settle.map(Math.round).join(", ")}] · reflows ${state.m4.reflows} · layout ${state.layout?.join(" · ")}`);
+    perRun.push({ m4: state.m4, layout: state.layout, frames: state.frames, mode: state.mode, status: state.status, detail: state.detail, events: state.log.length, finals: state.finals });
     console.log(`run ${run + 1}: mode=${state.mode} status=${state.status}${state.detail ? " (" + state.detail + ")" : ""} frames=${state.frames} level=${Number(state.level).toFixed(3)} events=${state.log.length} text="${state.finals.join(" | ")}"`);
   } catch (e) {
     console.log(`run ${run + 1}: harness error (${e.message}) — run discarded`);

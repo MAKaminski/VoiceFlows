@@ -12,12 +12,16 @@ let boxes = new Map<string, DOMRect>();
 let reflows = new Map<string, number>();
 let utteranceSeq: number | null = null;
 
+/** Box positions are taken relative to the phone frame, so page chrome or scrolling never counts. */
 function measureReflows() {
+  const frame = (document.querySelector('[data-node-id="n_root"]')?.firstElementChild as HTMLElement | null)?.getBoundingClientRect();
+  if (!frame) return;
   document.querySelectorAll<HTMLElement>("[data-node-id]").forEach((wrap) => {
     const el = wrap.firstElementChild as HTMLElement | null;
     const id = wrap.dataset.nodeId!;
     if (!el || id === "n_root") return;
-    const r = el.getBoundingClientRect();
+    const b = el.getBoundingClientRect();
+    const r = new DOMRect(b.left - frame.left, b.top - frame.top, b.width, b.height);
     const prev = boxes.get(id);
     if (prev && (Math.abs(prev.top - r.top) > 4 || Math.abs(prev.left - r.left) > 4)) reflows.set(id, (reflows.get(id) ?? 0) + 1);
     boxes.set(id, r);
@@ -32,6 +36,9 @@ function closeUtterance() {
   gateway.send({ type: "metrics", utteranceSeq, reflows: total, maxReflowsPerElement: max });
   reflows = new Map();
 }
+
+/** Max reflows of any element in the utterance still in progress (E2E harness reads it). */
+export const currentMaxReflows = () => Math.max(0, ...reflows.values());
 
 export function installMetricsTap() {
   return gateway.on((m: ServerMsg) => {
@@ -49,7 +56,7 @@ export function installMetricsTap() {
         gateway.send({ type: "first_render", jobId: m.jobId, tMs: Math.round(now) });
       });
     }
-    if (m.type === "version") {
+    if (m.type === "version" && utteranceSeq != null) {
       const end = useMetrics.getState().pendingFinalEndMs;
       if (end != null) requestAnimationFrame(() => {
         const now = clock();
@@ -65,5 +72,6 @@ export function installMetricsTap() {
 /** Called by the voice client for local (direct/webspeech) transcripts, which never come from the gateway. */
 export function tapLocalTranscript(t: { utteranceSeq: number; isFinal: boolean; lastWordEndMs?: number }) {
   if (utteranceSeq !== t.utteranceSeq) { closeUtterance(); utteranceSeq = t.utteranceSeq; boxes = new Map(); }
-  if (t.isFinal && t.lastWordEndMs != null) useMetrics.setState({ pendingFinalEndMs: t.lastWordEndMs });
+  // Settle is measured from the newest word end; a version can land before the final (eager commit).
+  if (t.lastWordEndMs != null) useMetrics.setState({ pendingFinalEndMs: t.lastWordEndMs });
 }

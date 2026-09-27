@@ -50,7 +50,7 @@ and refined on a canvas *while they are still talking*. The product's measure of
 | TTFV-1 first model-quality change | ≤ 1,000 ms | > 15% regression |
 | Settle after speech stops | ≤ 1,200 ms | > 1,500 ms |
 | Reflows per element per utterance | < 3 | ≥ 3 in > 2/10 runs |
-| Cost per speaking minute | ≤ $0.046 (measured M4: $0.0129) | > $0.015 (+15% on measured) |
+| Cost per speaking minute | ≤ $0.046 (measured M4: $0.0111) | > $0.013 (+15% on measured) |
 | Model calls per speaking minute | ≤ 20 | > 23 |
 | Input tokens per model call | ≤ 1,100 | send only the edited subtree |
 

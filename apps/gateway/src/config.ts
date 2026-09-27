@@ -19,6 +19,8 @@ const Env = z.object({
   FUSED_FAST_PATH: bool.default(true),
   LEXICON_TIER: bool.default(true),
   STT_DIRECT: bool.default(true),
+  // Hedge a model call whose first line hasn't arrived after this many ms (0 = off). M0: TTFT p50 ≈ 480 ms.
+  MODEL_HEDGE_MS: z.coerce.number().default(600),
   // Browser origins allowed to call POST /stt/token (comma list) plus an optional regex for preview deploys.
   CORS_ORIGINS: z.string().default("http://localhost:3000"),
   CORS_ORIGIN_PATTERN: z.string().optional(),

@@ -43,6 +43,10 @@ class Gateway {
         }
         useDoc.getState().applyServer(m);
         this.listeners.forEach((l) => l(m));
+        // Dev/E2E ring buffer of what the gateway said (never shipped to any server).
+        const w = window as unknown as { __lcMsgLog?: unknown[] };
+        (w.__lcMsgLog ??= []).push({ t: Math.round(performance.now()), type: m.type, ...(m.type === "ops" ? { origin: m.origin, ops: m.ops.map((o) => `${o.op} ${o.path}${o.op === "add" ? ` ${(o.value as { type?: string; id?: string }).type}:${(o.value as { id?: string }).id}` : ""}`) } : m.type === "job" ? { kind: m.kind, state: m.state, text: m.text } : m.type === "transcript" ? { text: m.text, isFinal: m.isFinal, eager: m.eager } : m.type === "version" ? { version: m.version } : {}) });
+        if (w.__lcMsgLog.length > 400) w.__lcMsgLog.shift();
       };
     });
     return this.ready;

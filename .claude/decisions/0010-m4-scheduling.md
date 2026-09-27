@@ -21,17 +21,32 @@ it rebuilt the screen in a Card and deleted the provisional nodes.
    wrap still happens, without duplicates); removing a provisional or folded node is dropped.
 5. Structural deferral removed (with ≤ 2 calls per utterance it saved nothing).
 
-## Result (Node relay harness vs Railway sfo + real Flux + Haiku, 10 runs, `docs/m4/`)
-8/10 pass. TTFV-0 p50 −38 ms adjusted (lexicon draws before the word ends), TTFV-1 p50 906 ms,
-settle p50 839 ms, max reflows 1, 9.6 calls/min, $0.0129 per speaking minute. Both failures:
-TTFV-1 1,070 / 1,100 ms raw (model latency variance).
-Adjusted = network arrival + 40 ms capture + 16 ms render (estimates; a browser run confirms).
+## Browser cross-check (headless Chrome, fake mic, local prod build vs Railway) — findings fixed
+The Node harness passed while the browser exposed five real bugs, all fixed and regression-tested:
+1. Status line wrapped and pushed the whole canvas (every node "reflowed"): fixed-height line; reflows
+   now measured relative to the phone frame.
+2. Duplicate Button: Flux ended the turn mid-sentence, so the model's `+Button signin` had no provisional
+   target → fold into any lexicon-drawn node the model hasn't edited yet (session-wide).
+3. Flux revisions ("sign and" → "sign in") re-drew nodes → lexicon dedupe by occurrence key (`button#1`).
+4. First words lost: the gateway dropped audio that arrived while the relay was connecting (and the
+   browser opened the mic only after the handshakes) → browser buffers from the click, gateway queues
+   until Flux is open (race-free: queue exists before any await).
+5. "<name> screen" now draws the title first, so the model's title folds in instead of pushing inputs.
+Plus: hedged model requests (second identical call if no first line after 600 ms) for tail latency.
+
+## Result
+Node relay harness vs Railway sfo + Flux + Haiku, 10 runs (`docs/m4/2026-09-27-acceptance-railway.json`):
+**9/10 pass** · TTFV-0 p50 −192 ms adj. · TTFV-1 p50 **756 ms** adj. · settle p50 **697 ms** · max reflows 1 ·
+9.6 calls/min · **$0.0111/speaking min**. The one fail: TTFV-1 1,002 ms raw (bar 944). Hedge fired on 2/10
+calls and the primary won both — this run's gain is mostly lower model latency, not the hedge.
+Headless browser, 3 runs (pre-hedge build): layout correct 3/3, on-screen reflows 1, TTFV-0 168–620 ms,
+TTFV-1 862–1,349 ms, settle 692–1,309 ms — browser TTFV-1 runs ~150–250 ms above the harness.
 
 ```arch
 {
   "notes": [
-    {"on":"doc-session","text":"M4: 1 model call/utterance · TTFV-1 906 ms · settle 839 ms · $0.0129/min"},
-    {"on":"client-lexicon","text":"M4: draws before the word ends (TTFV-0 −38 ms p50)"}
+    {"on":"doc-session","text":"M4: 9/10 · 1 model call/utterance · TTFV-1 756 ms · settle 697 ms · $0.0111/min"},
+    {"on":"client-lexicon","text":"M4: draws before the word ends in the harness; 168–620 ms on screen"}
   ]
 }
 ```

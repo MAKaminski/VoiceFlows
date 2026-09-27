@@ -83,13 +83,16 @@ Scored against one ground-truth alignment (`scripts/fixtures/dod.words.json`); r
 ## M4 acceptance — measured end to end (ADR 0010, `docs/m4/`)
 
 Node harness streams the WAV over the gateway relay exactly like the browser; 10 runs vs Railway sfo.
-Adjusted = + 40 ms capture + 16 ms render (estimates).
+Adjusted = + 40 ms capture + 16 ms render (estimates). Browser column: headless Chrome, 3 runs, measured on screen.
 
-| Metric | p50 raw | p50 adjusted | Target | |
-|---|---|---|---|---|
-| TTFV-0 (lexicon) | −94 ms | −38 ms | ≤ 400 | ✅ elements appear before the word ends |
-| TTFV-1 (first model op) | 850 ms | 906 ms | ≤ 1,000 | ✅ (2/10 runs over: 1,070 / 1,100 raw) |
-| Settle after last word | 839 ms | 895 ms | ≤ 1,200 | ✅ |
-| Max reflows / element | 1 | — | < 3 | ✅ |
-| Model calls / speaking min | 9.6 | — | ≤ 20 | ✅ |
-| $ / speaking min | $0.0129 | — | ≤ $0.046 | ✅ (−72% vs budget) |
+| Metric | Harness p50 raw | Harness adjusted | Browser (3 runs) | Target | |
+|---|---|---|---|---|---|
+| TTFV-0 (lexicon) | −248 ms | −192 ms | 168–620 ms | ≤ 400 | ✅ |
+| TTFV-1 (first model op) | 700 ms | 756 ms | 862–1,349 ms | ≤ 1,000 | ✅ harness · ⚠️ browser tail |
+| Settle after last word | 697 ms | 753 ms | 692–1,309 ms | ≤ 1,200 | ✅ |
+| Max reflows / element | 1 | — | 1 (bbox) | < 3 | ✅ |
+| Model calls / speaking min | 9.6 | — | — | ≤ 20 | ✅ |
+| $ / speaking min | $0.0111 | — | — | ≤ $0.046 | ✅ (−76%) |
+
+Runs passing all per-run bars: **9/10** (need 8). Browser TTFV-1 sits ~150–250 ms above the harness;
+the capture/render allowance (+56 ms) understates the real browser path — next lever for M5.

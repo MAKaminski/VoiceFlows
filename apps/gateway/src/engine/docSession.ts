@@ -1,5 +1,5 @@
 import {
-  applyOp, DesignDocSchema, emptyDoc, expandCompact, findNode, isModifier, kindKey, lexicon, lexTokens, parseHeader, serializeCompact,
+  applyOp, DesignDocSchema, emptyDoc, expandCompact, findNode, isModifier, kindKey, lexicon, lexTokens, occurrenceKeys, parseHeader, serializeCompact,
   type CompactContext, type DesignDoc, type DesignNode, type IntentHeader, type OpOrigin, type PatchOp, type ServerMsg,
 } from "@livecanvas/dsl";
 import { randomUUID } from "node:crypto";
@@ -18,7 +18,8 @@ interface ActiveJob {
 }
 interface Utterance {
   seq: number; baseDoc: DesignDoc; text: string; lastWordEndMs?: number;
-  handled: Set<string>; // `${index}:${word}` the lexicon turned into nodes this utterance
+  handled: Set<string>; // occurrence keys (`button#1`) the lexicon turned into nodes this utterance
+  lexIds: Set<string>; // nodes the lexicon drew this utterance (fold targets even after commit clears provisional)
   calledFor: Set<string>; // uncovered content words already sent to the model
   lastCallAt: number; ending: boolean; settled: boolean;
 }
@@ -35,10 +36,11 @@ const CONTENT = new Set(["button", "email", "password", "username", "logo", "ima
 const MODIFIER_WINDOW = 4;
 const uncovered = (text: string, handled: Set<string>, ending = false) => {
   const toks = lexTokens(text);
+  const occ = occurrenceKeys(toks);
   return toks.flatMap((w, i) => {
-    if (!CONTENT.has(w) || handled.has(`${i}:${w}`)) return [];
+    if (!CONTENT.has(w) || handled.has(occ[i]!)) return [];
     if (isModifier(w) && !ending && toks.length - 1 - i < MODIFIER_WINDOW) return [];
-    return [`${i}:${w}`];
+    return [occ[i]!];
   });
 };
 
@@ -61,6 +63,9 @@ export class DocSession {
   private utt: Utterance | null = null;
   private nextSeq = 0;
   private bucket = { tokens: DEFAULT_TUNABLES.burst, at: performance.now() };
+  /** Lexicon-drawn nodes the model has not edited yet — fold targets across utterances (Flux may end
+   *  the turn mid-sentence, so "…button." and "logo on top" arrive as separate utterances). */
+  private lexOrigin = new Set<string>();
 
   constructor(
     private readonly opened: OpenedSession,
@@ -105,7 +110,7 @@ export class DocSession {
     if (!text) return;
     if (!this.utt || this.utt.seq !== seq) {
       if (this.utt && !this.utt.settled) this.commitUtterance();
-      this.utt = { seq, baseDoc: this.doc, text: "", handled: new Set(), calledFor: new Set(), lastCallAt: -Infinity, ending: false, settled: false };
+      this.utt = { seq, baseDoc: this.doc, text: "", handled: new Set(), lexIds: new Set(), calledFor: new Set(), lastCallAt: -Infinity, ending: false, settled: false };
     }
     const u = this.utt;
     // Speech resumed after an eager settle (Flux TurnResumed): reopen the utterance as a new part.
@@ -117,10 +122,9 @@ export class DocSession {
     u.lastWordEndMs = lastWordEndMs ?? u.lastWordEndMs;
 
     // Tier 0: lexicon → provisional nodes, no model call (ADR 0001/0009).
-    const lex = lexicon(text, this.doc);
-    const toks = lexTokens(text);
-    for (const i of lex.consumed) u.handled.add(`${i}:${toks[i]}`);
-    if (lex.ops.length) this.applyLexicon(lex.ops, seq, lastWordEndMs, lex.created.map((c) => c.id));
+    const lex = lexicon(text, this.doc, u.handled);
+    for (const k of lex.consumed) u.handled.add(k);
+    if (lex.ops.length) { this.applyLexicon(lex.ops, seq, lastWordEndMs, lex.created.map((c) => c.id)); lex.created.forEach((c) => { u.lexIds.add(c.id); this.lexOrigin.add(c.id); }); }
 
     // Final or Flux EagerEndOfTurn: the speaker (probably) stopped — settle as soon as nothing is pending.
     if (isFinal || eager) { u.ending = true; this.settleIfReady(); return; }
@@ -304,12 +308,16 @@ export class DocSession {
         n.children?.forEach((c, i) => walk(c, `${path}/children/${i}`, path));
       };
       walk(this.doc.root, "/root", "");
-      const provisionalOfType = all.filter((x) => x.node.provisional && x.node.type === node.type);
+      // Fold targets by type: provisional nodes, or nodes the lexicon drew in this utterance (an eager
+      // end-of-turn commit clears the flag mid-sentence — browser run, 2026-09-27).
+      const lexIds = this.utt?.lexIds ?? new Set<string>();
+      const provisionalOfType = all.filter((x) => (x.node.provisional || lexIds.has(x.node.id) || this.lexOrigin.has(x.node.id)) && x.node.type === node.type);
       const match = (key.includes(":") && (all.find((x) => x.node.provisional && kindKey(x.node) === key) ?? all.find((x) => kindKey(x.node) === key)))
         || (provisionalOfType.length === 1 ? provisionalOfType[0] : undefined);
       if (!match) { out.push(op); continue; }
       for (const [alias, id] of aliases) if (id === node.id) aliases.set(alias, match.node.id);
       job.protectedIds.add(match.node.id);
+      this.lexOrigin.delete(match.node.id); // the model has now taken ownership of it
       for (const [k, v] of Object.entries(node.props)) {
         if (JSON.stringify(match.node.props[k]) !== JSON.stringify(v)) out.push({ op: "replace", path: `${match.path}/props/${k}`, value: v });
       }

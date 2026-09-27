@@ -5,7 +5,7 @@ import Fastify from "fastify";
 import { loadConfig, type Config } from "./config.js";
 import { getSql } from "./db.js";
 import { DocSession, type EngineConfig } from "./engine/docSession.js";
-import { anthropicClient, type ModelClient } from "./engine/model.js";
+import { anthropicClient, hedgedClient, type ModelClient } from "./engine/model.js";
 import { loadPrompt } from "@livecanvas/prompts";
 import { memoryPersistence, pgPersistence, type Persistence } from "./persist.js";
 import { PROVIDERS, type SttProvider, type SttSession } from "./stt/providers.js";
@@ -25,7 +25,11 @@ export function defaultDeps(config: Config): Deps {
     persistence: sql ? pgPersistence(sql, console.error, (m) => console.log(m)) : memoryPersistence(),
     sttGrant: createSttGrant(config),
     relayProvider: PROVIDERS["deepgram-flux"]!,
-    model: config.ANTHROPIC_API_KEY ? anthropicClient(config.ANTHROPIC_API_KEY) : null,
+    model: config.ANTHROPIC_API_KEY
+      ? (config.MODEL_HEDGE_MS > 0
+        ? hedgedClient(anthropicClient(config.ANTHROPIC_API_KEY), config.MODEL_HEDGE_MS, (won) => console.log(`model: hedged call started (${won ? "hedge won" : "primary won"})`))
+        : anthropicClient(config.ANTHROPIC_API_KEY))
+      : null,
     engine: (() => { const p = loadPrompt("fused_system"); return { model: config.MODEL_PATCH_FAST, system: p.system, render: p.render }; })(),
   };
 }
@@ -54,6 +58,9 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
       const fail = (message: string, e?: unknown) => { if (e) app.log.error(e); send({ type: "error", message }); };
       let doc: DocSession | null = null;
       let relay: SttSession | null = null;
+      // Frames that arrive while Flux is still connecting are queued, not dropped — dropping them
+      // shifted Flux's clock and lost the first words (browser run, 2026-09-27). Cap: 10 s of audio.
+      let relayQueue: Buffer[] | null = null;
       let relayStart = 0, framesIn = 0, transcriptsOut = 0;
       // Voice utterance numbers are gateway-owned: each listening session's client/relay seq maps to a fresh one.
       let seqMap = new Map<number, number>();
@@ -69,13 +76,18 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
         doc.onTranscript(seq, t.text, t.isFinal, t.lastWordEndMs, t.eager); // M4: lexicon + speculative jobs + settle
       };
       const stopRelay = async () => {
-        const r = relay; relay = null;
+        const r = relay; relay = null; // (the connect queue, if any, is left for the new relay)
         if (r) app.log.info({ sessionId: doc?.sessionId, framesIn, transcriptsOut }, "relay: closed");
         await r?.finish().catch(() => {});
       };
 
       socket.on("message", async (raw: Buffer, isBinary: boolean) => {
-        if (isBinary) { framesIn++; relay?.send(raw); return; } // relay-mode audio (80 ms int16 PCM)
+        if (isBinary) { // relay-mode audio (80 ms int16 PCM)
+          framesIn++;
+          if (relay) relay.send(raw);
+          else if (relayQueue && relayQueue.length < 125) relayQueue.push(raw);
+          return;
+        }
         let json: unknown;
         try { json = JSON.parse(raw.toString()); } catch { return fail("invalid JSON"); }
         const parsed = ClientMsg.safeParse(json);
@@ -98,12 +110,14 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
             deps.persistence.setProvider(doc!.sessionId, msg.mode === "webspeech" ? "webspeech" : "deepgram-flux");
             seqMap = new Map();
             if (msg.mode !== "relay") return;
+            relayQueue = []; // before any await: frames may already be in flight behind this message
+            framesIn = 0;
             await stopRelay();
             try {
-              relay = await deps.relayProvider.connect();
-              relayStart = performance.now(); relaySeq = 0; framesIn = 0; transcriptsOut = 0;
+              const opened = await deps.relayProvider.connect();
+              relayStart = performance.now(); relaySeq = 0; transcriptsOut = 0;
               app.log.info({ sessionId: doc!.sessionId }, "relay: opened Deepgram Flux");
-              relay.onText((text, isFinal, meta) => {
+              opened.onText((text, isFinal, meta) => {
                 if (!text) return;
                 const t = { utteranceSeq: relaySeq, text, isFinal, tMs: performance.now() - relayStart, ...(meta?.lastWordEndMs != null ? { lastWordEndMs: meta.lastWordEndMs } : {}), ...(meta?.eager ? { eager: true } : {}) };
                 transcriptsOut++;
@@ -111,7 +125,11 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
                 onTranscript(t);
                 if (isFinal) relaySeq++;
               });
-            } catch (e) { fail("speech-to-text relay unavailable", e); }
+              // Handler first, then the queued audio, then live frames — in that order.
+              relay = opened;
+              for (const f of relayQueue!.splice(0)) opened.send(f);
+              relayQueue = null;
+            } catch (e) { relayQueue = null; fail("speech-to-text relay unavailable", e); }
             return;
           case "stt_stop":
             return stopRelay();
