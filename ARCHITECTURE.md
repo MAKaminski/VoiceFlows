@@ -158,7 +158,7 @@ Uses `DocSession` (end-of-sentence open vocabulary behind flag `open_vocabulary`
 their object; re-ask of relations when a later component is named), `lexicon.ts` (`COLOR`, `fixSpeech`,
 `lexiconWords`, provisional diagram rename) and `decisions.ts` (fan-out pairs). Colour names are tokens
 (`ColorToken` + `pink orange yellow green teal`). **Owns no table.** The regression bar is the fluency corpus
-(`scripts/corpus/`): an offline engine check in CI, and live scoring of 73 cases (`scripts/e2e/corpus-live.mts`, ≥ 90%).
+(`scripts/corpus/`): an offline engine check in CI, and live scoring of 74 cases (`scripts/e2e/corpus-live.mts`, ≥ 90%).
 Pattern P1: the tokens stay one zod enum. No new component kind: the corpus is test data plus a runner, like
 the other `scripts/e2e` harnesses.
 
@@ -273,7 +273,7 @@ flowchart TB
   end
   subgraph infrastructure["Infrastructure · container"]
     direction LR
-    fluency_corpus["Fluency corpus (73 cases)<br/><small>ARD 0019</small>"]
+    fluency_corpus["Fluency corpus (74 cases)<br/><small>ARD 0019</small>"]
     railway["Railway US-East — gateway · Postgres · Redis<br/><small>ARD 0000</small>"]
     vercel["Vercel — hosts web<br/><small>ARD 0000</small>"]
   end

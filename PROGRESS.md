@@ -127,7 +127,10 @@
 - **Bug found and fixed:** the hedged model client deadlocked when the reader stopped after "none 0". It awaited
   usage from a suspended stream, which hung that job and every later model call in the session. Regression test
   added.
-- **Fluency corpus: 73 cases** across Screen/Architecture/ERD/Sequence (fillers, mishearings, passives, fan-in/out,
+- **Fluency corpus: 74 cases** (73 scored + 1 known blind spot) across Screen/Architecture/ERD/Sequence (fillers, mishearings, passives, fan-in/out,
   negation, colours, growth over several sentences, view switches). Offline engine checks run in CI.
-  Live (local gateway, real Jev + Haiku): **62/73 → 72/73 (99%)**; screen 23/24, architecture 23/23, ERD 18/18,
-  sequence 8/8. Bar ≥ 90%.
+  Live, local: 62/73 → 72/73 while fixing. **Production (Railway): 73/73 (100%)**: screen 24/24,
+  architecture 23/23, ERD 18/18, sequence 8/8; settle p50 794 ms from the final partial; $0.095 for all 74 cases.
+  The "belongs to" direction blind spot is still wrong (not scored). Bar ≥ 90%.
+- **DoD acceptance after deploy (10 runs, real audio): 10/10 · TTFV-0 p50 −195 ms adj. · TTFV-1 p50 85 ms adj.
+  (was 112) · settle p50 670 ms (was 695) · 1 reflow · $0/min.**

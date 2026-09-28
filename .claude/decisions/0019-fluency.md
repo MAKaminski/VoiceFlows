@@ -43,15 +43,18 @@ Root causes, from the code:
 7. **Forced calls are charged to the bucket.** The bucket may go into debt, capped at the burst size, so the
    long-run rate stays at 20 calls/min.
 8. **The hedged client closes both inner streams before awaiting usage.**
-9. **The fluency corpus is the regression bar.** `scripts/corpus/cases.ts` holds 73 cases in the way people
-   talk, across all four views, and has two runners:
+9. **The fluency corpus is the regression bar.** `scripts/corpus/cases.ts` holds 74 cases (73 scored, 1 known
+   blind spot) in the way people talk, across all four views, and has two runners:
    - offline (`apps/gateway/test/corpus.test.ts`, CI) checks the engine: every word that needs the model
      reaches it, instant cases make no call, one version per sentence;
    - live (`scripts/e2e/corpus-live.mts`) scores the finished design. **Bar: ≥ 90% of cases.**
 
 ## Consequences
-+ Local live run (real Jev + Haiku, 2026-09-28): **72/73 (99%)**. Screen 23/24, architecture 23/23,
-  ERD 18/18, sequence 8/8. The first run, before fixes 2–8, scored 62/73.
++ **Production (Railway, 2026-09-28): 73/73 scored cases (100%)**: screen 24/24, architecture 23/23,
+  ERD 18/18, sequence 8/8; settle p50 794 ms (from the final partial); 88 model calls, $0.095 for the corpus.
+  Locally, the first run (before fixes 2–8) scored 62/73.
++ DoD acceptance after deploy (10 runs, real audio): 10/10, TTFV-1 p50 85 ms adj. (was 112), settle p50 670 ms
+  (was 695), $0/min.
 + The DoD sentence is unchanged: no model call, one version (offline test asserts both spellings).
 − Free speech costs more: at most one extra call per sentence. Worst case is the bucket cap,
   20 × $0.00116 = $0.023/min, under the $0.046 target. The DoD acceptance is $0 and unaffected.
@@ -63,7 +66,7 @@ Root causes, from the code:
 ```arch
 {
   "components": [
-    {"id":"fluency-corpus","label":"Fluency corpus (73 cases)","layer":"infrastructure","note":"ADR 0019: offline engine checks + live scoring, bar ≥ 90%"}
+    {"id":"fluency-corpus","label":"Fluency corpus (74 cases)","layer":"infrastructure","note":"ADR 0019: offline engine checks + live scoring, bar ≥ 90%"}
   ],
   "flows": [
     {"from":"fluency-corpus","to":"doc-session","label":"streams cases as partials, scores the design"}
