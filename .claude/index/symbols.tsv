@@ -5,7 +5,7 @@ CASES	ts:const	scripts/corpus/cases.ts:44
 CHOICE_MIN	ts:const	apps/gateway/src/engine/decisions.ts:13
 COLOR	ts:const	packages/dsl/src/lexicon.ts:41
 CONTAINER_TYPES	ts:const	packages/dsl/src/primitives.ts:114
-Canvas	ts:fn	apps/web/components/canvas/Canvas.tsx:7
+Canvas	ts:fn	apps/web/components/canvas/Canvas.tsx:9
 CanvasNode	ts:const	apps/web/components/canvas/CanvasNode.tsx:11
 Capture	ts:type	apps/web/lib/voice/capture.ts:2
 ClientMsg	ts:const	packages/dsl/src/ws.ts:38
@@ -26,7 +26,7 @@ DesignDoc	ts:type	packages/dsl/src/doc.ts:98
 DesignDocSchema	ts:const	packages/dsl/src/doc.ts:88
 DesignNode	ts:type	packages/dsl/src/doc.ts:4
 DesignNodeSchema	ts:const	packages/dsl/src/doc.ts:14
-DiagramCanvas	ts:fn	apps/web/components/diagram/DiagramCanvas.tsx:35
+DiagramCanvas	ts:fn	apps/web/components/diagram/DiagramCanvas.tsx:37
 DiagramKind	ts:const	packages/dsl/src/primitives.ts:19
 DiagramKind	ts:type	packages/dsl/src/primitives.ts:20
 DiagramLayout	ts:type	packages/dsl/src/layout.ts:23
@@ -44,6 +44,8 @@ FLUX_BROWSER_URL	ts:const	apps/gateway/src/sttGrant.ts:4
 FeatureAction	ts:type	apps/gateway/src/persist.ts:77
 FeatureKey	ts:const	packages/dsl/src/features.ts:30
 FeatureKey	ts:type	packages/dsl/src/features.ts:31
+FeaturesPopover	ts:fn	apps/web/components/FeaturesPopover.tsx:7
+FitBox	ts:fn	apps/web/components/canvas/FitBox.tsx:8
 FlagChange	ts:type	apps/gateway/src/persist.ts:13
 FlagService	ts:class	apps/gateway/src/flags.ts:9
 Flags	ts:const	packages/dsl/src/features.ts:37
@@ -91,6 +93,7 @@ Plan	ts:type	apps/gateway/src/engine/decisions.ts:45
 PrimitiveType	ts:const	packages/dsl/src/primitives.ts:12
 PrimitiveType	ts:type	packages/dsl/src/primitives.ts:13
 ProjectRow	ts:type	apps/gateway/src/persist.ts:12
+ProjectsModal	ts:fn	apps/web/components/ProjectsModal.tsx:12
 Prompt	ts:type	packages/prompts/src/index.ts:7
 PromptName	ts:type	packages/prompts/src/index.ts:14
 RadiusToken	ts:const	packages/dsl/src/tokens.ts:9
@@ -117,12 +120,13 @@ SttProvider	ts:type	apps/gateway/src/stt/providers.ts:15
 SttSession	ts:type	apps/gateway/src/stt/providers.ts:10
 Suggestion	ts:const	packages/dsl/src/ws.ts:85
 Suggestion	ts:type	packages/dsl/src/ws.ts:89
+SuggestionTray	ts:fn	apps/web/components/SuggestionTray.tsx:10
 Tier	ts:const	packages/dsl/src/primitives.ts:22
 Tier	ts:type	packages/dsl/src/primitives.ts:23
 TokenSet	ts:const	packages/dsl/src/tokens.ts:14
 TokenSet	ts:type	packages/dsl/src/tokens.ts:19
 Transcript	ts:type	apps/web/lib/voice/session.ts:7
-TranscriptStrip	ts:fn	apps/web/components/TranscriptStrip.tsx:40
+TranscriptStrip	ts:fn	apps/web/components/TranscriptStrip.tsx:42
 Tunables	ts:type	apps/gateway/src/engine/docSession.ts:13
 VIEWS	ts:const	packages/dsl/src/doc.ts:108
 VersionRow	ts:type	apps/gateway/src/persist.ts:9
@@ -130,6 +134,7 @@ VersionSummary	ts:const	packages/dsl/src/ws.ts:92
 VersionSummary	ts:type	packages/dsl/src/ws.ts:102
 VersionTimeline	ts:fn	apps/web/components/VersionTimeline.tsx:22
 View	ts:type	scripts/corpus/cases.ts:16
+ViewGrid	ts:fn	apps/web/components/ViewGrid.tsx:13
 VocabEntry	ts:type	packages/dsl/src/lexicon.ts:419
 VocabNode	ts:const	packages/dsl/src/vocabulary.ts:5
 VocabNode	ts:type	packages/dsl/src/vocabulary.ts:6
@@ -146,7 +151,7 @@ buildServer	ts:fn	apps/gateway/src/server.ts:70
 colType	ts:fn	packages/dsl/src/suggest.ts:55
 color	ts:const	apps/web/components/canvas/tokens.ts:13
 createSttGrant	ts:fn	apps/gateway/src/sttGrant.ts:11
-currentMaxReflows	ts:const	apps/web/lib/metricsTap.ts:47
+currentMaxReflows	ts:const	apps/web/lib/metricsTap.ts:52
 decisionsToLines	ts:fn	apps/gateway/src/engine/decisions.ts:186
 defaultDeps	ts:fn	apps/gateway/src/server.ts:31
 defaultFlags	ts:const	packages/dsl/src/features.ts:41
@@ -173,11 +178,11 @@ feature_flags	sql:table	db/schema.sql:140
 findNode	ts:fn	packages/dsl/src/doc.ts:193
 fixSpeech	ts:fn	packages/dsl/src/lexicon.ts:479
 fromProjectPath	ts:fn	packages/dsl/src/doc.ts:144
-gateway	ts:const	apps/web/lib/gateway.ts:89
+gateway	ts:const	apps/web/lib/gateway.ts:100
 generation_jobs	sql:table	db/schema.sql:82
 getSql	ts:fn	apps/gateway/src/db.ts:6
 hedgedClient	ts:fn	apps/gateway/src/engine/model.ts:72
-installMetricsTap	ts:fn	apps/web/lib/metricsTap.ts:49
+installMetricsTap	ts:fn	apps/web/lib/metricsTap.ts:54
 intents	sql:table	db/schema.sql:71
 invertOp	ts:fn	packages/dsl/src/ops.ts:96
 isBlank	ts:fn	packages/dsl/src/doc.ts:187
@@ -232,7 +237,7 @@ simplify	ts:fn	packages/dsl/src/layout.ts:290
 space	ts:const	apps/web/components/canvas/tokens.ts:14
 startCapture	ts:fn	apps/web/lib/voice/capture.ts:4
 startVoice	ts:fn	apps/web/lib/voice/session.ts:21
-tapLocalTranscript	ts:fn	apps/web/lib/metricsTap.ts:79
+tapLocalTranscript	ts:fn	apps/web/lib/metricsTap.ts:84
 toProject	ts:fn	packages/dsl/src/doc.ts:124
 toProjectPath	ts:const	packages/dsl/src/doc.ts:143
 tokenVars	ts:fn	apps/web/components/canvas/tokens.ts:5
@@ -240,7 +245,7 @@ token_sets	sql:table	db/schema.sql:10
 transcript_segments	sql:table	db/schema.sql:61
 typesafeJev	ts:fn	apps/gateway/src/engine/jev.ts:21
 useDoc	ts:const	apps/web/store/doc.ts:24
-useFeatures	ts:const	apps/web/store/features.ts:24
+useFeatures	ts:const	apps/web/store/features.ts:32
 useMetrics	ts:const	apps/web/store/metrics.ts:20
 useVoice	ts:const	apps/web/store/voice.ts:29
 users	sql:table	db/schema.sql:4

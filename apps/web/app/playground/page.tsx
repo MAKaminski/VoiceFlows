@@ -17,6 +17,7 @@ export default function Playground() {
     <main>
       <header style={{ padding: "16px 24px", borderBottom: "1px solid var(--lc-chrome-border)", display: "flex", gap: 16, alignItems: "baseline", flexWrap: "wrap" }}>
         <strong>LiveCanvas · playground</strong>
+        <a href="/studio" style={{ fontWeight: 600, color: "#2563eb", textDecoration: "none" }}>Open the studio →</a>
         {Object.keys(FIXTURES).map((k) => (
           <button key={k} type="button" onClick={() => setKind(k)} style={{ font: "inherit", fontSize: 13, fontWeight: kind === k ? 700 : 400, background: "none", border: "none", cursor: "pointer", textDecoration: kind === k ? "underline" : "none" }}>{k}</button>
         ))}

@@ -1,13 +1,13 @@
-# Repo map — VoiceFlows   (00b3b91, 2026-09-28T18:44:24Z)
+# Repo map — VoiceFlows   (1fb5273, 2026-09-28T19:12:48Z)
 
 Read this once. Then `grep` `.claude/index/symbols.tsv` for exact symbols —
-`name<TAB>kind<TAB>path:line`, 254 entries. Do not read symbols.tsv whole.
+`name<TAB>kind<TAB>path:line`, 259 entries. Do not read symbols.tsv whole.
 
 ## Layers
 
 | Layer | Where | Files |
 |---|---|---|
-| Front-end |  | 18 |
+| Front-end |  | 24 |
 | Back-end | db  | 6 |
 | Middleware |  | 0 |
 | Infrastructure |  | 5 |

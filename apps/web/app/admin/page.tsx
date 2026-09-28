@@ -49,6 +49,7 @@ export default function Admin() {
 
   return (
     <main style={{ maxWidth: 860, margin: "0 auto", padding: "32px 24px", fontSize: 14 }}>
+      <a href="/studio" data-testid="back-to-studio" style={{ display: "inline-block", marginBottom: 12, fontWeight: 600, color: "#2563eb", textDecoration: "none" }}>← Studio</a>
       <h1 style={{ fontSize: 20, margin: "0 0 4px" }}>Feature flags</h1>
       <p style={{ margin: "0 0 20px", opacity: 0.7 }}>Every feature is behind a flag. Changes apply to open sessions immediately. Usage is the last 7 days.</p>
       {!token ? (

@@ -160,6 +160,8 @@ export default function Studio() {
         )}
         <SharePopover />
         <FeaturesPopover />
+        <a href="/admin" data-testid="admin-link" title="Admin: switch features on or off and see who changed what"
+          style={{ ...pill("transparent", "inherit"), textDecoration: "none" }}>⚙ Admin</a>
         {flags.remember_document && (
           <button type="button" data-testid="new-document" title="Start a new project (this one stays reachable from its share links)"
             onClick={() => { stop(); gateway.newDocument(); }} style={pill("transparent", "inherit")}>New</button>
