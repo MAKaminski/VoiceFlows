@@ -175,9 +175,9 @@ describe("settle on silence (ADR 0018)", () => {
   it("commits 400 ms of audio after the last word — not before — without waiting for Flux", async () => {
     const { d, versions } = await make();
     d.onTranscript(0, "an email and a password", false, 2000);
-    d.onAudioClock(2399);
+    d.onAudioClock(2399, 2000);
     expect(versions()).toBe(0);
-    d.onAudioClock(2400);
+    d.onAudioClock(2400, 2000);
     expect(versions()).toBe(1);
     d.onTranscript(0, "an email and a password", true, 2000); // Flux's own end of turn arrives later: no second version
     expect(versions()).toBe(1);
@@ -186,11 +186,11 @@ describe("settle on silence (ADR 0018)", () => {
   it("the speaker carries on after an early settle: the new words still draw (reopened as a new part)", async () => {
     const { d, versions } = await make();
     d.onTranscript(0, "an email", false, 1000);
-    d.onAudioClock(1500);
+    d.onAudioClock(1500, 1000);
     expect(versions()).toBe(1);
     d.onTranscript(0, "an email and a password", false, 2200);
     expect(d.doc.root.children!.map((c) => c.props.label)).toEqual(["Email", "Password"]);
-    d.onAudioClock(2700);
+    d.onAudioClock(2700, 2200);
     expect(versions()).toBe(2);
   });
 
@@ -198,7 +198,19 @@ describe("settle on silence (ADR 0018)", () => {
     const { d, versions } = await make();
     d.tune({ silenceSettleMs: 0 });
     d.onTranscript(0, "an email", false, 1000);
-    d.onAudioClock(9000);
+    d.onAudioClock(9000, 1000);
     expect(versions()).toBe(0);
+  });
+
+  it("transcripts lagging behind still-loud audio never trigger it (the live-run bug)", async () => {
+    const { d, versions } = await make();
+    d.onTranscript(0, "an email and", false, 1000);
+    d.onAudioClock(2000, 2000); // audio is loud right now; the transcript is 1 s behind
+    expect(versions()).toBe(0);
+    d.onAudioClock(2500, 2000); // quiet for 500 ms, but the transcript hasn't caught up to 2000
+    expect(versions()).toBe(0);
+    d.onTranscript(0, "an email and a password", false, 1900);
+    d.onAudioClock(2600, 2000);
+    expect(versions()).toBe(1);
   });
 });

@@ -50,6 +50,15 @@ export function defaultDeps(config: Config): Deps {
   };
 }
 
+/** RMS of a little-endian int16 PCM frame, 0–1. */
+function rms16(buf: Buffer): number {
+  const n = Math.floor(buf.length / 2);
+  if (!n) return 0;
+  let sum = 0;
+  for (let i = 0; i < n; i++) { const v = buf.readInt16LE(i * 2) / 32768; sum += v * v; }
+  return Math.sqrt(sum / n);
+}
+
 function engineFor(name: PromptName, config: Config): EngineConfig {
   const p = loadPrompt(name);
   return { model: config.MODEL_PATCH_FAST, system: p.system, render: p.render };
@@ -168,7 +177,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
       // Frames that arrive while Flux is still connecting are queued, not dropped — dropping them
       // shifted Flux's clock and lost the first words (browser run, 2026-09-27). Cap: 10 s of audio.
       let relayQueue: Buffer[] | null = null;
-      let relayStart = 0, framesIn = 0, transcriptsOut = 0;
+      let relayStart = 0, framesIn = 0, transcriptsOut = 0, lastVoiceMs = 0;
       // Voice utterance numbers are gateway-owned: each listening session's client/relay seq maps to a fresh one.
       let seqMap = new Map<number, number>();
       let relaySeq = 0;
@@ -202,7 +211,9 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
       socket.on("message", async (raw: Buffer, isBinary: boolean) => {
         if (isBinary) { // relay-mode audio (80 ms int16 PCM)
           framesIn++;
-          doc?.onAudioClock(framesIn * 80); // 80 ms frames: settle on silence (ADR 0018)
+          // Speech energy per 80 ms frame (int16 PCM): silence = RMS below ~−34 dBFS (ADR 0018).
+          if (rms16(raw) >= 0.02) lastVoiceMs = framesIn * 80;
+          doc?.onAudioClock(framesIn * 80, lastVoiceMs);
           if (relay) relay.send(raw);
           else if (relayQueue && relayQueue.length < 125) relayQueue.push(raw);
           return;

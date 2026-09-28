@@ -244,15 +244,19 @@ export class DocSession {
   }
 
   /**
-   * Relay-mode audio clock (ms of audio received since listening started — the clock Flux's word times
-   * use). After `silenceSettleMs` of silence past the last word, with nothing pending, settle now instead
-   * of waiting for Flux's end-of-turn signal.
+   * Relay-mode audio (ADR 0018). `audioMs` = audio received since listening started (Flux's word-time
+   * clock); `lastVoiceMs` = end of the last frame loud enough to be speech. Settle early only when the
+   * AUDIO has been quiet for `silenceSettleMs` AND the transcript has caught up with the last voiced audio
+   * — measuring silence against the transcript alone read STT delivery gaps as pauses (live run
+   * 2026-09-27: 4 versions per sentence). In a noisy room the audio never reads quiet and Flux decides.
    */
-  onAudioClock(audioMs: number) {
+  onAudioClock(audioMs: number, lastVoiceMs: number) {
     const u = this.utt;
     const quiet = this.tunables.silenceSettleMs;
     if (!quiet || !u || u.settled || u.ending || this.active || u.lastWordEndMs == null) return;
-    if (audioMs - u.lastWordEndMs < quiet || this.pending(u).length) return;
+    if (audioMs - lastVoiceMs < quiet) return;                 // still speaking (or too short a pause)
+    if (u.lastWordEndMs < lastVoiceMs - 400) return;           // the last words haven't been transcribed yet
+    if (this.pending(u).length) return;
     u.ending = true;
     this.settleIfReady();
   }
