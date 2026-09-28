@@ -6,3 +6,7 @@ allowBuilds:
   sharp: true
   "@parcel/watcher": true
   unrs-resolver: true
+# Security floors (Dependabot, 2026-09-28): Next pins postcss 8.4.31; vite 6 pulls esbuild 0.27.
+overrides:
+  postcss: ">=8.5.23"
+  esbuild: ">=0.28.1"
