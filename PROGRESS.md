@@ -107,3 +107,9 @@
   settle 754 ms · 1 reflow · $0/min on the DoD sentence (no model call).** Diagram checks 3/3, projects-live
   6/6, vocab-live 6/6; a spoken relationship decided by Jev in 114 ms in-region.
 - Settle unchanged (~750 ms): it waits for Flux's end-of-turn signal, not the model — the next lever.
+
+## Settle tuning (2026-09-28) — no safe gain; ADR 0018
+- eager_eot_threshold 0.3 vs 0.4: settle 689 vs 686 ms (no change). Silence rule (audio clock / energy):
+  0/10, split sentences (4 then 2 versions). The DoD recording's pause after "button," is 640–800 ms of real
+  silence — longer than Flux's end-of-turn (~685 ms). Silence rule kept as an OFF tunable; reopen-on-new-words
+  fix kept; harness requires one version per utterance.

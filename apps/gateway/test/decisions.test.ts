@@ -169,6 +169,7 @@ describe("settle on silence (ADR 0018)", () => {
     const persistence = memoryPersistence();
     const sent: ServerMsg[] = [];
     const d = new DocSession(await persistence.openSession(), { persistence, model: null, send: (m) => sent.push(m), engine: { model: "m", system: "s", render: () => "" } });
+    d.tune({ silenceSettleMs: 400 }); // off by default; these tests exercise the mechanism
     return { d, versions: () => sent.filter((m) => m.type === "version").length };
   }
 

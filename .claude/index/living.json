@@ -1,5 +1,5 @@
 {
-  "ards": 18,
+  "ards": 19,
   "ards_contributing": 18,
   "components_from_code": 4,
   "components_from_ards": 25,
@@ -132,6 +132,13 @@
       "title": "ADR 0017 \u2014 Jev decides structure; the model only writes new text",
       "status": "accepted",
       "contributes": true
+    },
+    {
+      "num": "0018",
+      "file": "0018-settle-on-silence.md",
+      "title": "ADR 0018 \u2014 Settle: Flux's end-of-turn stays in charge; the silence rule ships OFF",
+      "status": "accepted",
+      "contributes": false
     }
   ]
 }

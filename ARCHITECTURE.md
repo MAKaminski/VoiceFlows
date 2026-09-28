@@ -198,7 +198,7 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Tables with no FK either way | 0 |
 | Distinct error types | 1 |
 | Symbol names defined 3+ times | 0 |
-| ARDs on record | 18 (18 contributing to the diagram) |
+| ARDs on record | 19 (18 contributing to the diagram) |
 | Components declared by ARDs | 25 |
 | Features declared by ARDs | 16 |
 <!-- arch:end:counts -->

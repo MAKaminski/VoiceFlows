@@ -5,8 +5,8 @@ _Generated from the TypeScript AST by `pnpm codemap` — do not edit by hand; CI
 | Measure | Count |
 |---|---|
 | Modules | 57 |
-| Lines | 6249 |
-| Top-level symbols | 463 |
+| Lines | 6289 |
+| Top-level symbols | 464 |
 | Exported symbols | 217 |
 | Exported names defined in 2+ modules | 1 |
 
@@ -63,16 +63,16 @@ flowchart LR
 | [bench/align.ts](../apps/gateway/src/bench/align.ts) | 27 | — |
 | [bench/bakeoff.ts](../apps/gateway/src/bench/bakeoff.ts) | 126 | `pcmFromWav` function |
 | [bench/jev.ts](../apps/gateway/src/bench/jev.ts) | 202 | — |
-| [config.ts](../apps/gateway/src/config.ts) | 38 | `Config` type · `loadConfig` const |
+| [config.ts](../apps/gateway/src/config.ts) | 39 | `Config` type · `loadConfig` const |
 | [db.ts](../apps/gateway/src/db.ts) | 11 | `getSql` function |
 | [engine/decisions.ts](../apps/gateway/src/engine/decisions.ts) | 193 | `CHOICE_MIN` const · `NOUL_YES` const · `NOUL_NO` const · `Mention` interface · `mentions` function · `Plan` interface · `readable` const · `planDecisions` function · `Decided` interface · `decisionsToLines` function |
-| [engine/docSession.ts](../apps/gateway/src/engine/docSession.ts) | 873 | `EngineConfig` interface · `Tunables` interface · `DEFAULT_TUNABLES` const · `DocSession` class |
+| [engine/docSession.ts](../apps/gateway/src/engine/docSession.ts) | 899 | `EngineConfig` interface · `Tunables` interface · `DEFAULT_TUNABLES` const · `DocSession` class |
 | [engine/jev.ts](../apps/gateway/src/engine/jev.ts) | 39 | `JevQuestion` type · `JevAnswer` type · `JevResult` interface · `JevClient` type · `typesafeJev` function |
 | [engine/model.ts](../apps/gateway/src/engine/model.ts) | 113 | `ModelLine` interface · `ModelStream` interface · `ModelClient` type · `anthropicClient` function · `hedgedClient` function |
 | [flags.ts](../apps/gateway/src/flags.ts) | 28 | `FlagService` class |
 | [migrate.ts](../apps/gateway/src/migrate.ts) | 70 | — |
 | [persist.ts](../apps/gateway/src/persist.ts) | 313 | `ANON_EMAIL` const · `Segment` interface · `VersionRow` interface · `OpenedSession` interface · `Persistence` interface · `FeatureAction` type · `memoryPersistence` function · `pgPersistence` function |
-| [server.ts](../apps/gateway/src/server.ts) | 379 | `Deps` interface · `defaultDeps` function · `buildServer` function |
+| [server.ts](../apps/gateway/src/server.ts) | 392 | `Deps` interface · `defaultDeps` function · `buildServer` function |
 | [spike.ts](../apps/gateway/src/spike.ts) | 271 | — |
 | [stt/providers.ts](../apps/gateway/src/stt/providers.ts) | 161 | `SttMeta` interface · `SttSession` interface · `SttProvider` interface · `wsSession` function · `PROVIDERS` const |
 | [sttGrant.ts](../apps/gateway/src/sttGrant.ts) | 31 | `FLUX_BROWSER_URL` const · `createSttGrant` function |

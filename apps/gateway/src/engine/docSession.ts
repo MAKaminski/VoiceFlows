@@ -11,10 +11,10 @@ import type { JevClient } from "./jev.js";
 
 export interface EngineConfig { model: string; system: string; render: (vars: Record<string, string>) => string }
 export interface Tunables { minGapMs: number; callsPerMin: number; burst: number; silenceSettleMs: number }
-/** silenceSettleMs: commit after this much audio silence since the last word, without waiting for Flux's
+/** silenceSettleMs (OFF by default — ADR 0018: natural mid-sentence pauses of 640–800 ms outlast Flux's ~685 ms end-of-turn): commit after this much audio silence since the last word, without waiting for Flux's
  *  end-of-turn signal (~685 ms after the last word, whatever eager_eot_threshold is). 0 = off. The test
  *  sentence's longest natural pause is 240 ms (2026-09-27). */
-export const DEFAULT_TUNABLES: Tunables = { minGapMs: 150, callsPerMin: 20, burst: 2, silenceSettleMs: 400 };
+export const DEFAULT_TUNABLES: Tunables = { minGapMs: 150, callsPerMin: 20, burst: 2, silenceSettleMs: 0 };
 
 type JobKind = "typed" | "speculative" | "settle";
 const BRIEF_CHARS = 480; // ≈ 120 tokens — the project-context cap (ADR 0016 cost math)
