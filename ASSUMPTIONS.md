@@ -15,3 +15,8 @@
 - 2026-09-27 · **Flags are global and assume one gateway replica** — a flip updates this process's cache and broadcasts to its sockets. Reverse: reload flags on a 5 s TTL (or Redis pub/sub) before scaling out.
 - 2026-09-27 · **`diagram_metrics` ships as an off flag with nothing behind it** — so the admin screen lists the roadmap item; it records no usage until built.
 - 2026-09-27 · **`documentId` in localStorage is a bearer credential for its document** — accepted until accounts (ADR 0014). Reverse: bind documents to users and require the session cookie.
+- 2026-09-28 · **PGlite is a gateway devDependency** — `pnpm test:codegen` applies generated SQL to real Postgres without Docker or CI (plan-critic M10 #4). Test-only; never bundled. Reverse: drop it once CI with a Postgres service exists.
+- 2026-09-28 · **Import is JSON-only for specs (no YAML)** — OpenAPI JSON and package.json; docker-compose and OpenAPI YAML wait (no YAML parser in the repo, and adding one wasn't worth M10). Reverse: add `yaml` and route `.yml` through the same importers.
+- 2026-09-28 · **Generated API routes are CRUD per ERD table on an in-memory store** — compiles with no database; non-CRUD sequence steps become 501 stubs. Reverse: generate pg queries from `db/schema.sql` (the contracts already match).
+- 2026-09-28 · **AI-filled files are checked syntactically only** (exports kept, braces balance) and labelled "unverified" — the TypeScript compiler stays out of the gateway bundle (≈ 9 MB). Reverse: typecheck in the browser with a lazily loaded compiler, or in a sandbox.
+- 2026-09-28 · **The AI-fill daily cap (50) is per gateway process** — exact with 1 replica. Reverse: move the counter to Redis before scaling out.

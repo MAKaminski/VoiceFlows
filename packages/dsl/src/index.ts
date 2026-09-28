@@ -12,4 +12,6 @@ export * from "./features.js";
 export * from "./vocabulary.js";
 export * from "./suggest.js";
 export * from "./scaffold.js";
+export * from "./importers.js";
+export * from "./codegen.js";
 export * from "./prd.js";

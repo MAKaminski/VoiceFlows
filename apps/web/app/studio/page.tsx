@@ -16,6 +16,8 @@ import { SuggestionTray } from "@/components/SuggestionTray";
 import { ProjectsModal } from "@/components/ProjectsModal";
 import { FeaturesPopover } from "@/components/FeaturesPopover";
 import { PrdDrawer } from "@/components/PrdDrawer";
+import { BuildDrawer } from "@/components/BuildDrawer";
+import { ImportDialog } from "@/components/ImportDialog";
 import { IntakeCard } from "@/components/IntakeCard";
 import { useFeatures } from "@/store/features";
 import { kindFeature, viewCount, viewDoc, VIEWS } from "@livecanvas/dsl";
@@ -48,6 +50,8 @@ export default function Studio() {
   const chooseLayout = (l: "grid" | "focus") => { setLayout(l); try { localStorage.setItem("lc.layout", l); } catch {} };
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [prdOpen, setPrdOpen] = useState(false);
+  const [buildOpen, setBuildOpen] = useState(false); // ADR 0022
+  const [importOpen, setImportOpen] = useState(false);
 
   const start = useCallback(async () => {
     reset();
@@ -162,8 +166,17 @@ export default function Studio() {
           </>
         )}
         {flags.prd_view && project.root.type === "Project" && (
-          <button type="button" data-testid="prd" aria-pressed={prdOpen} onClick={() => { setPrdOpen((o) => !o); if (!prdOpen) gateway.send({ type: "ui_event", feature: "prd_view", action: "used" }); }}
+          <button type="button" data-testid="prd" aria-pressed={prdOpen} onClick={() => { setPrdOpen((o) => !o); setBuildOpen(false); if (!prdOpen) gateway.send({ type: "ui_event", feature: "prd_view", action: "used" }); }}
             style={pill(prdOpen ? "#0f172a" : "transparent", prdOpen ? "#fff" : "inherit")}>PRD</button>
+        )}
+        {flags.code_scaffold && project.root.type === "Project" && (
+          <button type="button" data-testid="build" aria-pressed={buildOpen} title="Build it: this design as a starter codebase"
+            onClick={() => { setBuildOpen((o) => !o); setPrdOpen(false); }}
+            style={pill(buildOpen ? "#0f172a" : "transparent", buildOpen ? "#fff" : "inherit")}>Build</button>
+        )}
+        {flags.context_import && project.root.type === "Project" && (
+          <button type="button" data-testid="import" title="Bring your systems: a SQL schema, Prisma, OpenAPI JSON or package.json"
+            onClick={() => setImportOpen(true)} style={pill("transparent", "inherit")}>Import</button>
         )}
         <SharePopover />
         <FeaturesPopover />
@@ -214,7 +227,9 @@ export default function Studio() {
           )}
         </div>
         {prdOpen && flags.prd_view && project.root.type === "Project" && <PrdDrawer project={project} onClose={() => setPrdOpen(false)} />}
+        {buildOpen && flags.code_scaffold && project.root.type === "Project" && <BuildDrawer project={project} onClose={() => setBuildOpen(false)} />}
       </div>
+      {importOpen && <ImportDialog onClose={() => setImportOpen(false)} />}
       {projectsOpen && <ProjectsModal onClose={() => setProjectsOpen(false)} currentId={documentId ?? undefined} />}
       <TranscriptStrip />
       {hud && <Hud />}

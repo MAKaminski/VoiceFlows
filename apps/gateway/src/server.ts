@@ -1,6 +1,6 @@
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
-import { ClientMsg, FEATURES, FeatureKey, kindFeature, PROTOCOL, ShareToken, toProject, type DocKind, type ServerMsg } from "@livecanvas/dsl";
+import { ClientMsg, compilePrd, FEATURES, FeatureKey, kindFeature, PROTOCOL, ShareToken, toProject, type DocKind, type ServerMsg } from "@livecanvas/dsl";
 import { z } from "zod";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FlagService } from "./flags.js";
@@ -10,6 +10,7 @@ import Fastify from "fastify";
 import { loadConfig, type Config } from "./config.js";
 import { getSql } from "./db.js";
 import { DEFAULT_TUNABLES, DocSession, type EngineConfig } from "./engine/docSession.js";
+import { runFill } from "./engine/fill.js";
 import { anthropicClient, hedgedClient, type ModelClient } from "./engine/model.js";
 import { typesafeJev, type JevClient } from "./engine/jev.js";
 import { loadPrompt, type PromptName } from "@livecanvas/prompts";
@@ -26,6 +27,7 @@ export interface Deps {
   engines?: Partial<Record<DocKind, EngineConfig>>;
   notesEngine?: EngineConfig; // ADR 0016
   suggestEngine?: EngineConfig; // ADR 0020: model suggestions (flag suggestions_model, off by default)
+  fillEngine?: EngineConfig; // ADR 0022: Build it — AI fill workers
   jev?: JevClient; // ADR 0017
   flags?: FlagService;
 }
@@ -53,6 +55,7 @@ export function defaultDeps(config: Config): Deps {
     },
     notesEngine: engineFor("project_notes", config),
     suggestEngine: engineFor("suggest", config),
+    fillEngine: engineFor("code_fill", config),
     ...(config.TYPESAFE_API_KEY ? { jev: typesafeJev(config.TYPESAFE_API_KEY, config.JEV_TIMEOUT_MS) } : {}),
   };
 }
@@ -108,6 +111,9 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
   /** Demo caps: ≤ 3 sessions per visitor per hour, ≤ 150 per day overall (in memory; one replica). */
   const demoByIp = new Map<string, number[]>();
   const demoDay: number[] = [];
+  // AI fill (ADR 0022): ≤ 50 builds a day across everyone ($7.20/day at the $0.144 worst case), 1 per 5 min per session.
+  const fillDay: number[] = [];
+  const fillAllowed = () => { const now = Date.now(); while (fillDay.length && now - fillDay[0]! > 86_400_000) fillDay.shift(); if (fillDay.length >= 50) return false; fillDay.push(now); return true; };
   const demoAllowed = (ip: string) => {
     const now = Date.now();
     const mine = (demoByIp.get(ip) ?? []).filter((t) => now - t < 3600_000);
@@ -279,6 +285,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
       };
       const fail = (message: string, e?: unknown) => { if (e) app.log.error(e); send({ type: "error", message }); };
       let doc: DocSession | null = null;
+      let lastFill = 0;
       let entry: LiveDoc | null = null;
       let closed = false;
       let closedByTakeover = false; // another tab took this document over (ADR 0014)
@@ -483,6 +490,25 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
           case "suggestion_reject":
             if (!permit("suggestions")) return;
             return doc!.resolveSuggestions("reject", msg.ids.map((id) => ({ id, ...(msg.cols?.[id] ? { cols: msg.cols[id] } : {}) })));
+          case "import": {
+            if (doc!.scope === "demo") return fail("Import is off in the demo — get an invite to bring your own systems");
+            if (!permit("context_import")) return;
+            const r = doc!.applyImport(msg.text, msg.name ?? "", msg.kind);
+            return send({ type: "import_result", ...r });
+          }
+          case "fill": {
+            if (doc!.scope === "demo") return fail("AI fill is off in the demo");
+            if (!permit("code_scaffold_model")) return;
+            if (!deps.model || !deps.fillEngine) return fail("AI fill is unavailable");
+            if (Date.now() - lastFill < 300_000) return fail("One AI fill every 5 minutes — the skeleton is ready to download meanwhile");
+            if (!fillAllowed()) return fail("AI fill is at today's limit — the skeleton is ready to download");
+            lastFill = Date.now();
+            const e = deps.fillEngine;
+            void runFill({ files: msg.files, prd: compilePrd(doc!.project), model: deps.model, modelName: e.model, system: e.system, render: e.render, send })
+              .then((r) => { doc?.uiEvent("code_scaffold_model", "used"); app.log.info({ ...r }, "fill: done"); })
+              .catch((err) => app.log.warn({ err: (err as Error).message }, "fill: failed"));
+            return;
+          }
           case "intake":
             if (!permit("project_intake")) return;
             return doc!.applyIntake(msg);

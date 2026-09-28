@@ -1,4 +1,5 @@
 "use client";
+import { BuildDrawer } from "@/components/BuildDrawer";
 import { PrdDrawer } from "@/components/PrdDrawer";
 import { ViewGrid } from "@/components/ViewGrid";
 import { demoGateway, HTTP_BASE } from "@/lib/gateway";
@@ -26,6 +27,7 @@ export default function Demo() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [line, setLine] = useState<{ n: number; text: string; spoken: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [build, setBuild] = useState(false); // ADR 0022: the demo ends with the code
   const stop = useRef(false);
   const audio = useRef<HTMLAudioElement | null>(null);
 
@@ -108,6 +110,7 @@ export default function Demo() {
           : <button type="button" data-testid="demo-play" onClick={() => (phase === "idle" && !line ? play() : location.reload())} style={{ ...btn, background: "#2563eb", color: "#fff" }}>
               {phase === "idle" && !line ? "▶ Play" : "↻ Restart"}
             </button>}
+        {phase === "done" && <button type="button" data-testid="demo-build" onClick={() => setBuild((b) => !b)} style={{ ...btn, background: "#16a34a", color: "#fff" }}>{build ? "Show PRD" : "</> Build it"}</button>}
         <a href="/#join" style={{ ...btn, background: "#0f172a", color: "#fff", textDecoration: "none" }}>Get an invite</a>
       </header>
 
@@ -121,7 +124,7 @@ export default function Demo() {
         <div style={{ flex: "1 1 640px", display: "flex", minWidth: 0 }}>
           {project.root.type === "Project" && <ViewGrid project={project} active={phase === "playing" ? view : null} readOnly />}
         </div>
-        {project.root.type === "Project" && <PrdDrawer project={project} onClose={() => {}} standalone />}
+        {project.root.type === "Project" && (build ? <BuildDrawer project={project} onClose={() => setBuild(false)} demo /> : <PrdDrawer project={project} onClose={() => {}} standalone />)}
       </div>
     </main>
   );

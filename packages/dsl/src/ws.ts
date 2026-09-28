@@ -71,12 +71,15 @@ export const ClientMsg = z.discriminatedUnion("type", [
   // Quick start (ADR 0021): three optional answers that seed a new project.
   z.object({ type: z.literal("intake"), building: z.string().max(300).optional(), users: z.string().max(200).optional(), systems: z.string().max(300).optional() }),
   // Usage of client-only features (ADR 0021) — a fixed allowlist, so it can't write arbitrary rows.
-  z.object({ type: z.literal("ui_event"), feature: z.enum(["prd_view", "voice_demo", "all_views"]), action: z.enum(["used", "exposed"]) }),
+  // Bring your systems / Build it (ADR 0022). Paths are the generator's own ([a-z0-9_./-]); contents are capped.
+  z.object({ type: z.literal("import"), text: z.string().min(1).max(524_288), name: z.string().max(120).optional(), kind: z.enum(["sql", "prisma", "openapi", "package"]).optional() }),
+  z.object({ type: z.literal("fill"), files: z.array(z.object({ path: z.string().max(120).regex(/^[a-z0-9_][a-z0-9_./-]*$/i).refine((p) => !p.includes("..")), content: z.string().max(16_384) })).min(1).max(12) }),
+  z.object({ type: z.literal("ui_event"), feature: z.enum(["prd_view", "voice_demo", "all_views", "code_scaffold"]), action: z.enum(["used", "exposed"]) }),
 ]);
 export type ClientMsg = z.infer<typeof ClientMsg>;
 
 /** Who produced an op batch — M4's "keep ops that still validate" rule needs origin + jobId. */
-export const OpOrigin = z.enum(["model", "lexicon", "undo", "redo", "rollback", "goto", "jev", "approve", "scaffold"]);
+export const OpOrigin = z.enum(["model", "lexicon", "undo", "redo", "rollback", "goto", "jev", "approve", "scaffold", "import"]); // import: ADR 0022
 export type OpOrigin = z.infer<typeof OpOrigin>;
 
 /** drawn = the lexicon drew it (0 ms) · yours = drawn from the user's own word · model = sent to the model. */
@@ -142,5 +145,8 @@ export const ServerMsg = z.discriminatedUnion("type", [
   // Opened from the library while another tab is editing it: never taken over — offered read-only instead.
   z.object({ type: z.literal("in_use"), documentId: z.string() }),
   z.object({ type: z.literal("error"), message: z.string() }),
+  z.object({ type: z.literal("import_result"), kind: z.string().nullable(), summary: z.string(), applied: z.boolean() }), // ADR 0022
+  z.object({ type: z.literal("fill_file"), path: z.string(), worker: z.number().int(), status: z.enum(["writing", "done", "failed"]), content: z.string().optional(), error: z.string().optional() }),
+  z.object({ type: z.literal("fill_done"), filled: z.number().int(), failed: z.number().int(), usd: z.number(), ms: z.number() }),
 ]);
 export type ServerMsg = z.infer<typeof ServerMsg>;

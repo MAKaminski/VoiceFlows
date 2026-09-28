@@ -1,5 +1,5 @@
 import {
-  applyOp, COLOR, scaffold, takeOver, isSaveCommand, isSuggestionCommand, parseSave, resolveCommand, ruleSuggestions, type Suggestion, DesignDocSchema, docKind, fixSpeech, lexiconWords, refreshProvisional, emptyProject, emptyView, expandCompact, mapOpPaths, toProject, toProjectPath, viewDoc, VIEWS, viewCount, withView, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
+  applyOp, COLOR, scaffold, takeOver, detectImport, importSteps, importSummary, parseImport, type ImportKind, isSaveCommand, isSuggestionCommand, parseSave, resolveCommand, ruleSuggestions, type Suggestion, DesignDocSchema, docKind, fixSpeech, lexiconWords, refreshProvisional, emptyProject, emptyView, expandCompact, mapOpPaths, toProject, toProjectPath, viewDoc, VIEWS, viewCount, withView, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
   lexTokens, occurrenceKeys, parseDefine, parseHeader, serializeCompact, type CompactContext, type DesignDoc, type DesignNode, type DocKind, type FeatureKey,
   type Flags, type IntentHeader, type VersionSummary, type WordMark, type OpOrigin, type PatchOp, type ServerMsg, type VocabNode, type VocabTerm,
 } from "@livecanvas/dsl";
@@ -322,6 +322,36 @@ export class DocSession {
   }
   /** Client-only feature usage (PRD opened, demo played) — ADR 0021. */
   uiEvent(feature: FeatureKey, action: "used" | "exposed") { if (action === "used") this.feature(feature, "used"); else this.deps.persistence.featureEvent(this.sessionId, feature, "exposed"); }
+
+  /**
+   * Bring your systems (ADR 0022): a pasted schema / spec / manifest → ERD + Architecture lines (names sanitised
+   * by the parser), then scaffolding fills the other views. One version; one undo. Refused mid-sentence or while
+   * a job runs, so it never lands inside an utterance (plan-critic M10).
+   */
+  applyImport(text: string, name = "", kind?: ImportKind): { kind: ImportKind | null; summary: string; applied: boolean } {
+    if (this.active || (this.utt && !this.utt.settled)) return { kind: null, summary: "Busy — finish the sentence, then import", applied: false };
+    const t0 = performance.now();
+    const imp = parseImport(text, kind ?? detectImport(text));
+    if (!imp) return { kind: null, summary: "Not recognised — paste a SQL schema, a Prisma schema, OpenAPI JSON or a package.json", applied: false };
+    const pre = this.project;
+    const jobId = randomUUID();
+    for (const step of importSteps(this.project, imp)) {
+      const r = this.compileLines(step.view, step.lines);
+      if (r) { this.within(step.view, () => { this.doc = r.doc; this.emitOps(jobId, "import", r.ops); }); continue; }
+      for (const line of step.lines) { // one bad line must not sink a 60-table import
+        const one = this.compileLines(step.view, [line]);
+        if (one) this.within(step.view, () => { this.doc = one.doc; this.emitOps(jobId, "import", one.ops); });
+      }
+    }
+    this.applyScaffold(pre, "");
+    const summary = importSummary(imp);
+    if (this.project === pre) return { kind: imp.kind, summary: `${summary} — already in the design`, applied: false };
+    this.feature("context_import", "used");
+    this.writeVersion(null);
+    this.announceVersion();
+    this.deps.log?.(`import: ${imp.kind} "${name.slice(0, 60)}" · ${summary} · ${Math.round(performance.now() - t0)} ms`);
+    return { kind: imp.kind, summary, applied: true };
+  }
 
   private flushResolves() {
     if (this.active || (this.utt && !this.utt.settled)) return;

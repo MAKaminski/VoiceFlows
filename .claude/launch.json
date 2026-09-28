@@ -51,7 +51,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "railway run --service gateway -- env -u DATABASE_URL -u REDIS_URL -u DATABASE_PUBLIC_URL CORS_ORIGINS=http://localhost:3001 ADMIN_ORIGINS=http://localhost:3001 ADMIN_TOKEN=lc-local-test-admin-token-0000000000 PORT=8788 HOST=127.0.0.1 apps/gateway/node_modules/.bin/tsx apps/gateway/src/server.ts"
+        "railway run --service gateway -- env -u DATABASE_URL -u REDIS_URL -u DATABASE_PUBLIC_URL -u ACCESS_SECRET CORS_ORIGINS=http://localhost:3001 ADMIN_ORIGINS=http://localhost:3001 ADMIN_TOKEN=lc-local-test-admin-token-0000000000 PORT=8788 HOST=127.0.0.1 apps/gateway/node_modules/.bin/tsx apps/gateway/src/server.ts"
       ],
       "port": 8788
     },

@@ -12,7 +12,8 @@
     "typecheck": "pnpm -r typecheck",
     "test:dsl": "pnpm --filter @livecanvas/dsl test",
     "codemap": "tsx scripts/gen-codemap.ts",
-    "arch:check": "pnpm codemap --check && python3 ~/.claude/bin/arch-sync.py . --check"
+    "arch:check": "pnpm codemap --check && python3 ~/.claude/bin/arch-sync.py . --check",
+    "test:codegen": "pnpm --filter @livecanvas/gateway exec vitest run test/codegen.test.ts test/m10.test.ts && pnpm --filter @livecanvas/dsl exec vitest run test/importers.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

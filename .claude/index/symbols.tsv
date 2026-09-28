@@ -1,7 +1,7 @@
 ANON_EMAIL	ts:const	apps/gateway/src/persist.ts:6
 ARCH	ts:const	packages/dsl/src/layout.ts:32
 ARRAY_PROPS	ts:const	packages/dsl/src/primitives.ts:142
-CASES	ts:const	scripts/corpus/cases.ts:44
+CASES	ts:const	scripts/corpus/cases.ts:48
 CHOICE_MIN	ts:const	apps/gateway/src/engine/decisions.ts:13
 COLOR	ts:const	packages/dsl/src/lexicon.ts:41
 CON	ts:const	packages/dsl/src/layout.ts:34
@@ -19,7 +19,7 @@ ColumnSpec	ts:const	packages/dsl/src/primitives.ts:27
 CompactContext	ts:type	packages/dsl/src/compact.ts:17
 CompactParseError	ts:class	packages/dsl/src/compact.ts:26
 Config	ts:type	apps/gateway/src/config.ts:39
-CorpusCase	ts:type	scripts/corpus/cases.ts:31
+CorpusCase	ts:type	scripts/corpus/cases.ts:34
 DEFAULT_TUNABLES	ts:const	apps/gateway/src/engine/docSession.ts:17
 DELTA_WEIGHTS	ts:const	packages/dsl/src/intent.ts:27
 DEMO_SCRIPT	ts:const	apps/gateway/src/demo.ts:11
@@ -115,6 +115,7 @@ PromptName	ts:type	packages/prompts/src/index.ts:14
 Purpose	ts:type	apps/gateway/src/access.ts:8
 Purpose	ts:type	apps/web/lib/token.ts:7
 QUADRANTS	ts:const	packages/dsl/src/layout.ts:95
+Quadrant	ts:type	scripts/corpus/cases.ts:32
 RadiusToken	ts:const	packages/dsl/src/tokens.ts:9
 RadiusToken	ts:type	packages/dsl/src/tokens.ts:12
 Rect	ts:type	packages/dsl/src/layout.ts:10
@@ -262,8 +263,8 @@ resolveCommand	ts:fn	packages/dsl/src/suggest.ts:133
 roundedPath	ts:fn	packages/dsl/src/layout.ts:405
 ruleSuggestions	ts:fn	packages/dsl/src/suggest.ts:73
 same	ts:fn	apps/web/lib/token.ts:20
-scaffold	ts:fn	packages/dsl/src/scaffold.ts:78
-score	ts:fn	scripts/corpus/score.ts:32
+scaffold	ts:fn	packages/dsl/src/scaffold.ts:83
+score	ts:fn	scripts/corpus/score.ts:40
 sequenceDoc	ts:const	packages/dsl/src/fixtures.ts:84
 serializeCompact	ts:fn	packages/dsl/src/compact.ts:151
 sessions	sql:table	db/schema.sql:38

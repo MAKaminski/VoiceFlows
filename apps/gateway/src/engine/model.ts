@@ -6,13 +6,13 @@ export interface ModelStream {
   usage: Promise<{ inputTokens: number; outputTokens: number }>;
 }
 /** Streams a model reply as closed lines. Abort via `signal`. Injected so tests can fake it. */
-export type ModelClient = (req: { model: string; system: string; user: string; signal: AbortSignal; maxTokens?: number }) => ModelStream;
+export type ModelClient = (req: { model: string; system: string; user: string; signal: AbortSignal; maxTokens?: number; raw?: boolean }) => ModelStream; // raw: keep indentation and blank lines (code, ADR 0022)
 
 // One keep-alive pool to api.anthropic.com for the whole gateway (M0: saves 79 ms from far clients).
 const pool = new Agent({ keepAliveTimeout: 60_000, connections: 16 });
 
 export function anthropicClient(apiKey: string): ModelClient {
-  return ({ model, system, user, signal, maxTokens = 600 }) => {
+  return ({ model, system, user, signal, maxTokens = 600, raw = false }) => {
     const t0 = performance.now();
     let resolveUsage!: (u: { inputTokens: number; outputTokens: number }) => void;
     const usage = new Promise<{ inputTokens: number; outputTokens: number }>((r) => (resolveUsage = r));
@@ -47,14 +47,14 @@ export function anthropicClient(apiKey: string): ModelClient {
               text += m.delta.text;
               let nl;
               while ((nl = text.indexOf("\n")) >= 0) {
-                const line = text.slice(0, nl).trim();
+                const line = raw ? text.slice(0, nl).replace(/\r$/, "") : text.slice(0, nl).trim();
                 text = text.slice(nl + 1);
-                if (line && !line.startsWith("```")) yield { line, atMs: performance.now() - t0 };
+                if ((line || raw) && !line.trim().startsWith("```")) yield { line, atMs: performance.now() - t0 };
               }
             }
           }
         }
-        if (text.trim() && !text.trim().startsWith("```")) yield { line: text.trim(), atMs: performance.now() - t0 };
+        if (text.trim() && !text.trim().startsWith("```")) yield { line: raw ? text.replace(/\r$/, "") : text.trim(), atMs: performance.now() - t0 };
       } finally {
         resolveUsage({ inputTokens, outputTokens });
       }

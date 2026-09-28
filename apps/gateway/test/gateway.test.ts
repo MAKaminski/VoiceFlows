@@ -811,6 +811,16 @@ describe("invite gate + demo scope (ADR 0021)", () => {
     expect(owner.inbox.some((m) => m.type === "taken_over")).toBe(false);
     demo.ws.send(JSON.stringify({ type: "prompt", text: "a login screen" }));
     expect(((await demo.next((m) => m.type === "error")) as any).message).toMatch(/demo/i);
+    // ADR 0022: no importing and no AI fill in the demo (deterministic Build it runs in the browser).
+    demo.ws.send(JSON.stringify({ type: "import", text: "create table x (id int);" }));
+    expect(((await demo.next((m) => m.type === "error" && /Import/.test(m.message))) as any).message).toMatch(/demo/i);
+    demo.ws.send(JSON.stringify({ type: "fill", files: [{ path: "apps/web/app/page.tsx", content: "export default function Page() { return null; }" }] }));
+    expect(((await demo.next((m) => m.type === "error" && /AI fill/.test(m.message))) as any).message).toMatch(/demo/i);
+    // A full session imports: one result message, applied.
+    owner.ws.send(JSON.stringify({ type: "import", text: "create table orders (id uuid primary key, total numeric);", name: "o.sql" }));
+    expect(((await owner.next((m) => m.type === "import_result")) as any)).toMatchObject({ kind: "sql", applied: true });
+    // Paths outside the generator's shape never parse.
+    owner.ws.send(JSON.stringify({ type: "fill", files: [{ path: "../../etc/passwd", content: "x" }] }));
     await hello(port, { access: await tok("demo") });
     await hello(port, { access: await tok("demo") });
     const fourth = await hello(port, { access: await tok("demo") });

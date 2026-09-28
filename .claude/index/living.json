@@ -1,10 +1,10 @@
 {
-  "ards": 22,
-  "ards_contributing": 21,
+  "ards": 23,
+  "ards_contributing": 22,
   "components_from_code": 4,
-  "components_from_ards": 33,
-  "flows_from_ards": 39,
-  "features": 25,
+  "components_from_ards": 36,
+  "flows_from_ards": 41,
+  "features": 27,
   "notes": 10,
   "index": [
     {
@@ -158,6 +158,13 @@
       "num": "0021",
       "file": "0021-six-views-scaffold-prd-gate-demo.md",
       "title": "ADR 0021 \u2014 Six views that scaffold each other, a live PRD, an invite gate, a narrated demo",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0022",
+      "file": "0022-build-it-and-bring-your-systems.md",
+      "title": "ADR 0022 \u2014 Build it (code scaffolding across workers) and Bring your systems (context import)",
       "status": "accepted",
       "contributes": true
     }

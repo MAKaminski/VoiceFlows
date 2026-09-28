@@ -23,7 +23,7 @@ const slug = (s: string) => lexTokens(s).join("_").slice(0, 24) || "x";
 const q = (s: string) => `"${s.replace(/"/g, "'")}"`;
 
 /** Architecture lane for a node kind. */
-const LANE_OF: Record<string, string> = { client: "frontend", user: "frontend", service: "api", auth: "api", worker: "api", queue: "api", external: "api", db: "data", cache: "data", storage: "data", cdn: "infra" };
+export const LANE_OF: Record<string, string> = { client: "frontend", user: "frontend", service: "api", auth: "api", worker: "api", queue: "api", external: "api", db: "data", cache: "data", storage: "data", cdn: "infra" };
 /** The kinds that stand in for one another in a slot (a placeholder "API" is any service). */
 const SLOT_KINDS: Record<string, string[]> = { client: ["client"], service: ["service"], auth: ["auth"], db: ["db"] };
 

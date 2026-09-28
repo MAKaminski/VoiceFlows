@@ -53,6 +53,8 @@ flowchart LR
     F_prd_feature["Live PRD<br/><small>ARD 0021</small>"]
     F_gate_feature["Home page + invite code<br/><small>ARD 0021</small>"]
     F_demo_feature["Narrated demo<br/><small>ARD 0021</small>"]
+    F_build_it_feature["Build it (code scaffolding)<br/><small>ARD 0022</small>"]
+    F_import_feature["Bring your systems (import)<br/><small>ARD 0022</small>"]
   end
   subgraph uses["Components"]
     direction TB
@@ -124,7 +126,7 @@ flowchart LR
   classDef feat fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef comp fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef tab fill:#eaf1ec,stroke:#2C6249,color:#12191B;
-  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary,F_share_links,F_remember_document,F_version_timeline_feature,F_projects,F_jev_decisions_feature,F_open_vocabulary,F_all_views_feature,F_suggestions_feature,F_library_feature,F_six_views_feature,F_scaffold_feature,F_prd_feature,F_gate_feature,F_demo_feature feat;
+  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary,F_share_links,F_remember_document,F_version_timeline_feature,F_projects,F_jev_decisions_feature,F_open_vocabulary,F_all_views_feature,F_suggestions_feature,F_library_feature,F_six_views_feature,F_scaffold_feature,F_prd_feature,F_gate_feature,F_demo_feature,F_build_it_feature,F_import_feature feat;
   class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_doc_session,C_postgres,C_redis,C_stripe comp;
   class T_design_documents,T_design_versions,T_exports,T_generation_jobs,T_intents,T_latency_events,T_patch_ops,T_plans,T_primitives,T_provider_keys,T_sessions,T_token_sets,T_transcript_segments,T_usage_periods,T_users,T_utterances tab;
 ```
@@ -213,6 +215,21 @@ caps) and `@livecanvas/web` (`/demo` page on its own `demoGateway`, read-only gr
 **Owns no table**: demo sessions persist nothing (in-memory store); usage is `feature_events` (`voice_demo`).
 The demo feeds `partial`s — the same message the browser's own STT sends — so it exercises the real engine.
 
+### 2.10 Build it: code scaffolding across workers — ADR 0022
+Uses `@livecanvas/dsl` (`codegen.ts`: `generateProject`, `dataModel`, eight workers — db · contracts · api · web ·
+infra · load · plan · readme), `@livecanvas/web` (`BuildDrawer`, `lib/zip.ts` store-only zip) and, for AI fill,
+`@livecanvas/gateway` (`engine/fill.ts` `runFill`: 4 Haiku workers, budget, timeout, checks; `prompts/code_fill.md`).
+**Owns no table**: the build runs in the browser from the doc; AI fill is stateless (skeletons in, files out over
+the socket); usage is 2.3b's `feature_events` (`code_scaffold`, `code_scaffold_model`). No new component kind:
+the generators are pure functions of the doc like `compilePrd`, and the fill pool reuses the injected
+`ModelClient` (raw mode keeps indentation).
+
+### 2.11 Bring your systems: import — ADR 0022
+Uses `@livecanvas/dsl` (`importers.ts`: SQL/pg_dump, Prisma, OpenAPI JSON, package.json → one `Imported` shape →
+compact lines; `ident`/`safeLabel` sanitise at the boundary), `DocSession.applyImport` (origin `import`, per-line
+fallback, then 2.1e's scaffolding; one version) and `@livecanvas/web` (`ImportDialog`).
+**Owns no table**: an import is ordinary ops in 2.2's versions. Same P2 path as approvals and scaffolding.
+
 ### 2.2a Remember the document across tabs — ADR 0014
 Uses `@livecanvas/gateway` (live-document registry in `server.ts`: one `DocSession` and one owning tab
 per document; takeover) and `@livecanvas/web` (`lib/gateway.ts` keeps `documentId` in localStorage).
@@ -256,9 +273,9 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Tables with no FK either way | 0 |
 | Distinct error types | 1 |
 | Symbol names defined 3+ times | 1 |
-| ARDs on record | 22 (21 contributing to the diagram) |
-| Components declared by ARDs | 33 |
-| Features declared by ARDs | 25 |
+| ARDs on record | 23 (22 contributing to the diagram) |
+| Components declared by ARDs | 36 |
+| Features declared by ARDs | 27 |
 <!-- arch:end:counts -->
 
 | Component | Layer | Owns | Pattern (§6) |
@@ -275,6 +292,8 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Postgres 16 | Back-end | System of record (ERD §5) | — |
 | Scaffold + PRD (`packages/dsl`: `scaffold.ts`, `prd.ts`) | Middleware (shared) | Cross-view rules, PRD compile | P2 patch (compact lines), pure fn of the doc |
 | Access (`apps/gateway/src/access.ts`, `apps/web/lib/token.ts`) | Middleware | HMAC tokens cookie/full/demo | P4 validated config |
+| Codegen + importers (`packages/dsl`: `codegen.ts`, `importers.ts`) | Middleware (shared) | Views → code files; external specs → views | pure fn of the doc; P2 via compact lines |
+| AI fill pool (`apps/gateway/src/engine/fill.ts`) | Middleware | Bounded model workers over code skeletons | injected `ModelClient` (as the engine) |
 | Docker Compose / Vercel / Railway | Infrastructure | Local stack; web hosting; gateway + data (US-East) | P6 generated + checked |
 
 ## 4. System architecture — living
@@ -291,6 +310,7 @@ flowchart TB
     share_view["/s/[token] page<br/><small>ARD 0013</small>"]
     _livecanvas_web["@livecanvas/web"]
     view_grid["All-views grid<br/><small>ARD 0020</small>"]
+    codegen["Codegen workers (browser)<br/><small>ARD 0022</small>"]
     diagram_canvas["DiagramCanvas<br/><small>ARD 0011</small>"]
     keyword_rail["KeywordRail<br/><small>ARD 0012</small>"]
     diagram_layout["layoutDiagram<br/><small>ARD 0011</small>"]
@@ -304,6 +324,7 @@ flowchart TB
     _livecanvas_dsl["@livecanvas/dsl"]
     _livecanvas_gateway["@livecanvas/gateway<br/><small>TypeScript; Rust hot path only if self-time > 20 ms p95 (ADR 0005)</small>"]
     _livecanvas_prompts["@livecanvas/prompts"]
+    fill_workers["AI fill worker pool (4× Haiku)<br/><small>ARD 0022</small>"]
     anthropic["Anthropic Messages API (Haiku 4.5 · Sonnet 5)<br/><small>ARD 0000</small>"]
     compact_expander["Compact op expander → RFC 6902 (packages/dsl)<br/><small>ARD 0002</small>"]
     scaffold["Cross-view scaffolding (rules)<br/><small>ARD 0021</small>"]
@@ -313,6 +334,7 @@ flowchart TB
     fused_engine["Fused intent+patch engine — header-first, single in-flight<br/><small>ARD 0001</small><br/><small>TTFV-1 target ≤ 1,000 ms p50</small>"]
     share_api["GET /share/:token<br/><small>ARD 0013</small>"]
     suggestions["Implied suggestions (rules + model)<br/><small>ARD 0020</small>"]
+    importers["Importers (SQL · Prisma · OpenAPI · package.json)<br/><small>ARD 0022</small>"]
     invite_gate["Invite gate (HMAC access tokens)<br/><small>ARD 0021</small>"]
     jev_decisions["Jev decisions (phase 0)<br/><small>ARD 0017</small>"]
     client_lexicon["Lexicon — provisional nodes (gateway, M4)<br/><small>ARD 0009</small><br/><small>TTFV-0 target ≤ 400 ms p50</small>"]
@@ -373,16 +395,18 @@ flowchart TB
   doc_session -.->|"utterance commit → inferred ops, same version · ARD 0021"| scaffold
   invite_gate -.->|"hello {access} → full | demo scope · ARD 0021"| doc_session
   voice_demo -.->|"script words as partials at clip timings · ARD 0021"| doc_session
+  codegen -.->|"fill {skeleton files} → fill_file stream · ARD 0022"| fill_workers
+  importers -.->|"import → origin 'import' ops, one version, then scaffold · ARD 0022"| doc_session
   classDef declared stroke-dasharray:5 4,stroke-width:2px;
   classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef be fill:#eaf1ec,stroke:#2C6249,color:#12191B;
   classDef inf fill:#f4efe6,stroke:#8A6210,color:#12191B;
-  class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail,share_view,share_popover,version_timeline,view_grid,prd fe;
-  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,flag_service,admin_api,share_api,live_docs,project_views,project_notes,jev_decisions,suggestions,project_library,scaffold,invite_gate,voice_demo mw;
+  class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail,share_view,share_popover,version_timeline,view_grid,prd,codegen fe;
+  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,flag_service,admin_api,share_api,live_docs,project_views,project_notes,jev_decisions,suggestions,project_library,scaffold,invite_gate,voice_demo,fill_workers,importers mw;
   class postgres,redis be;
   class vercel,railway,fluency_corpus inf;
-  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover,live_docs,version_timeline,project_views,project_notes,jev_decisions,fluency_corpus,suggestions,project_library,view_grid,scaffold,prd,invite_gate,voice_demo declared;
+  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover,live_docs,version_timeline,project_views,project_notes,jev_decisions,fluency_corpus,suggestions,project_library,view_grid,scaffold,prd,invite_gate,voice_demo,codegen,fill_workers,importers declared;
 ```
 <!-- arch:end:components -->
 
@@ -556,6 +580,12 @@ primitives (P3 registries gain two keys each); scaffolding and intake emit compa
 the same P2 path approvals use; `compilePrd` and the two layouts are pure functions of the doc. Two HMAC
 implementations exist on purpose — node `crypto` at the gateway, Web Crypto at the Edge middleware — with the
 same `purpose.exp.sig` format; the Edge runtime cannot load node `crypto`.
+
+**M10 adds no pattern (ADR 0022).** Proof: codegen and importers are pure functions of (or into) the doc — the
+`compilePrd` / `layoutDiagram` shape; imports land through `compileLines` (P2) with the per-line fallback scaffolding
+already had; the fill pool calls the same injected `ModelClient` the engine uses. Finding: `colType` (suggest.ts,
+guesses a type from a column *name*) and `normalizeType` (importers.ts, maps a *declared* type) are different
+ideas and keep different names; both feed `ColumnSpec`.
 
 ## 7. Sprawl watch
 
