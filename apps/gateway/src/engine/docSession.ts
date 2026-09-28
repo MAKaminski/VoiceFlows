@@ -576,12 +576,24 @@ export class DocSession {
    *  - `remove` of a provisional node, or of a node folded earlier in this job, is dropped.
    * Types keyed only by type (Card, List, Icon…) are never folded: several are legitimate.
    */
+  /** Another diagram node in the view carries the same label (case-insensitive). */
+  private duplicateLabel(node: DesignNode): boolean {
+    const label = String(node.props.label ?? "").toLowerCase();
+    let dup = false;
+    const walk = (n: DesignNode) => { if (n !== node && n.type === "Node" && String(n.props.label ?? "").toLowerCase() === label) dup = true; n.children?.forEach(walk); };
+    walk(this.doc.root);
+    return dup;
+  }
+
   private enforceEdits(job: ActiveJob, ops: PatchOp[], aliases: Map<string, string>): PatchOp[] {
     const out: PatchOp[] = [];
     for (const op of ops) {
       if (op.op === "remove") {
         const hit = findNodeAt(this.doc, op.path);
-        if (hit && (hit.node.provisional || job.protectedIds.has(hit.node.id))) { this.deps.log?.(`engine: kept ${hit.node.id} (model tried to remove it)`); continue; }
+        // Exception: a provisional diagram node that now duplicates another node's name — "rename users to
+        // customers" drew a "customers" table from the word itself; the rename makes it a duplicate (M7).
+        const dup = hit?.node.type === "Node" && !job.protectedIds.has(hit.node.id) && this.duplicateLabel(hit.node);
+        if (hit && !dup && (hit.node.provisional || job.protectedIds.has(hit.node.id))) { this.deps.log?.(`engine: kept ${hit.node.id} (model tried to remove it)`); continue; }
         out.push(op); continue;
       }
       const isChildAdd = op.op === "add" && (op.path.endsWith("/children/-") || /\/children\/\d+$/.test(op.path));

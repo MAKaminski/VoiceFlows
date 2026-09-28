@@ -133,6 +133,23 @@ describe("open vocabulary (ADR 0019)", () => {
     expect(heard.at(-1)).toBe("the api reads from redis and the worker");
   });
 
+  it("'rename users to customers': the model may remove the 'customers' table the word itself drew", async () => {
+    const persistence = memoryPersistence();
+    const model: ModelClient = () => ({ lines: (async function* () {
+      for (const line of ["modify 1 x", '~n_p_users "customers"', "-n_p_customers"]) yield { line, atMs: 1 };
+    })(), usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }) });
+    const d = new DocSession(await persistence.openSession(), { persistence, model, send: () => {},
+      engine: { model: "m", system: "s", render: (v) => v.partial_text ?? "" } });
+    d.setView("erd");
+    d.onTranscript(0, "users and orders", true, 900);
+    await sleep(20);
+    const w = "rename users to customers".split(" ");
+    for (let n = 1; n <= w.length; n++) { d.onTranscript(1, w.slice(0, n).join(" "), n === w.length, 1200 + n * 300); await sleep(5); }
+    for (let i = 0; i < 100 && (d as unknown as { active: unknown }).active; i++) await sleep(5);
+    const labels = (d.doc.root.children ?? []).filter((c) => c.type === "Node").map((c) => c.props.label);
+    expect(labels).toEqual(["customers", "orders"]);
+  });
+
   it("with the flag off, only the allowlist starts calls (the pre-M7 behaviour)", async () => {
     const persistence = memoryPersistence();
     let calls = 0;

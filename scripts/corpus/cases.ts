@@ -169,7 +169,7 @@ export const CASES: CorpusCase[] = [
   { id: "e-switch-db", view: "screen", say: "switch to the database diagram with patients and appointments each patient has many appointments",
     expect: { view: "erd", edges: [["patients", "appointments"]] } },
   { id: "e-fillers", view: "erd", say: "um so like leads uh and each lead can have many activities", hears: ["activities"],
-    expect: { has: ["leads", "activit"], links: [["leads", "activit"]] } },
+    expect: { has: ["leads", "activities"], links: [["leads", "activities"]] } },
   { id: "e-timestamps", view: "erd", setup: ["users"], say: "add created at and updated at timestamps to users", hears: ["created", "updated"],
     expect: { cols: [["users", ["created_at", "updated_at"]]] } },
   { id: "e-rename", view: "erd", setup: ["users and orders"], say: "rename users to customers", hears: ["rename"],

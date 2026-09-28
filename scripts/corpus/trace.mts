@@ -29,5 +29,6 @@ const all = (n: any): any[] => [n, ...(n.children ?? []).flatMap(all)];
 const nodes = all((d as any).doc.root);
 const lbl = (id: string) => nodes.find((n) => n.id === id)?.props.label ?? id;
 console.log("NODES", nodes.filter((n) => n.type === "Node").map((n) => `${n.id}:${n.props.label}`).join(" "));
+console.log("COLS", nodes.filter((n) => n.type === "Node").map((n) => `${n.props.label}[${(n.props.cols ?? []).join(",")}]`).join(" "));
 console.log("EDGES", nodes.filter((n) => n.type === "Edge").map((n) => `${lbl(n.props.from)}→${lbl(n.props.to)}`).join(", "));
 process.exit(0);

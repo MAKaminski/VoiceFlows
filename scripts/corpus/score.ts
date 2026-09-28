@@ -3,7 +3,8 @@ import type { CorpusCase, View } from "./cases.js";
 
 /** Loose text match for diagram labels and screen text: case, punctuation and plural ignored. */
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").map((w) => w.replace(/(ies)$/, "y").replace(/s$/, "")).join(" ");
-const matches = (text: string, needle: string) => norm(text).includes(norm(needle));
+/** Whole words: "customers" must not match "users" (it did, as a substring). */
+const matches = (text: string, needle: string) => ` ${norm(text)} `.includes(` ${norm(needle)} `);
 
 const mainText = (n: DesignNode): string => {
   const p = n.props as Record<string, unknown>;
