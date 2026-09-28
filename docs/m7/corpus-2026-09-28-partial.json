@@ -2,33 +2,45 @@
  "summary": {
   "date": "2026-09-28",
   "url": "wss://gateway-production-1c11.up.railway.app/ws",
-  "cases": 2,
-  "pass": "2/2",
+  "cases": 3,
+  "pass": "3/3",
   "passRate": 1,
   "byView": {
    "screen": "0/0",
    "architecture": "0/0",
-   "erd": "2/2",
+   "erd": "3/3",
    "sequence": "0/0"
   },
   "known": [],
-  "settleP50": 873,
-  "settleP95": 1015,
+  "settleP50": 894,
+  "settleP95": 1205,
   "settleOver1500": 0,
   "modelCalls": 2,
   "usd": 0.0022
  },
  "results": [
   {
+   "id": "e-belongs",
+   "view": "erd",
+   "pass": true,
+   "failures": [],
+   "settleMs": 80,
+   "firstOpMs": 1834,
+   "calls": 0,
+   "jev": 0,
+   "usd": 0,
+   "say": "each order belongs to a customer"
+  },
+  {
    "id": "e-not-belongs",
    "view": "erd",
    "pass": true,
    "failures": [],
-   "settleMs": 873,
+   "settleMs": 894,
    "firstOpMs": null,
    "calls": 1,
    "jev": 0,
-   "usd": 0.001083,
+   "usd": 0.000962,
    "say": "users do not belong to teams"
   },
   {
@@ -36,11 +48,11 @@
    "view": "erd",
    "pass": true,
    "failures": [],
-   "settleMs": 1015,
-   "firstOpMs": 1128,
+   "settleMs": 1205,
+   "firstOpMs": 1129,
    "calls": 1,
    "jev": 0,
-   "usd": 0.001073,
+   "usd": 0.001287,
    "say": "rename users to customers"
   }
  ]

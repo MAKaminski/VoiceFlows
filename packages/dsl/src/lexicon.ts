@@ -369,6 +369,10 @@ function diagramLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<
       hit = { len: 1, noun: { label: SINGULAR[words[i]!] ?? words[i]!, kind: "entity" } };
     }
     if (!hit) continue;
+    // "rename users to customers": the new name is not a new component — the model renames (M7).
+    let before = i - 1;
+    while (before >= 0 && ["a", "an", "the"].includes(words[before]!)) before--;
+    if (["to", "as", "into"].includes(words[before] ?? "") && words.slice(Math.max(0, before - 6), before).some((w) => w === "rename" || w === "renamed" || w === "call" || w === "change")) { i += hit.len - 1; continue; }
     const keys = occ.slice(i, i + hit.len);
     const definite = words.slice(Math.max(i - 3, prevNounEnd), i).some((w) => DEFINITE.has(w));
     i += hit.len - 1;

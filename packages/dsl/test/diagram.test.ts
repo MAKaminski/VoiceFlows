@@ -329,6 +329,12 @@ describe("fluency (M7, ADR 0019)", () => {
     expect(labels).not.toContain('"label":"API"');
   });
 
+  it("'rename users to customers' never draws a customers table (the model renames)", () => {
+    const doc = speak("users and orders", emptyDoc({ kind: "erd" }));
+    expect(lexicon("rename users to customers", doc).created).toEqual([]);
+    expect(lexicon("change the api to a gateway", speak("an api", emptyDoc({ kind: "architecture" }))).created).toEqual([]);
+  });
+
   it("'ER diagram' and 'database diagram' open the ERD; domain nouns draw tables", () => {
     for (const s of ["now the er diagram", "switch to the database diagram"]) expect(lexicon(s, emptyDoc()).view).toBe("erd");
     const r = lexicon("agents and calls and cases", emptyDoc({ kind: "erd" }));
