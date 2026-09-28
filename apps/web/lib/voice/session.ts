@@ -1,3 +1,4 @@
+import { authedFetch } from "@/lib/access";
 import { SttGrant } from "@livecanvas/dsl";
 import { gateway, HTTP_BASE } from "@/lib/gateway";
 import { tapLocalTranscript } from "@/lib/metricsTap";
@@ -28,7 +29,7 @@ export async function startVoice(ev: VoiceEvents): Promise<{ stop(): void }> {
     if (ev.onFrame) { const pcm = new Int16Array(frame); let peak = 0; for (let i = 0; i < pcm.length; i += 8) peak = Math.max(peak, Math.abs(pcm[i]!)); ev.onFrame(peak / 32768); }
     if (sink) sink(frame); else early.push(frame);
   });
-  const grant = SttGrant.parse(await (await fetch(`${HTTP_BASE}/stt/token`, { method: "POST" })).json());
+  const grant = SttGrant.parse(await (await authedFetch(`${HTTP_BASE}/stt/token`, { method: "POST" })).json());
   ev.onMode(grant.mode);
 
   await gateway.connect();

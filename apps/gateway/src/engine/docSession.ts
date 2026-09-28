@@ -196,6 +196,7 @@ export class DocSession {
   }
   /** Lists the project (and names it, if a title is given). The title write is an ordinary version. */
   async saveProject(title?: string) {
+    if (this.scope === "demo") return; // the demo never lands in the shared library (plan-critic M9 #2)
     if (title?.trim()) this.setTitle(title);
     const at = await this.deps.persistence.saveProject(this.documentId).catch((e) => { this.deps.log?.(`library: save failed (${(e as Error).message})`); return null; });
     if (at) { this.savedAt = at; this.feature("project_library", "used"); }
@@ -517,7 +518,12 @@ export class DocSession {
   }
 
   /** Token bucket: `callsPerMin` sustained, `burst` at once. Every started model call spends one. */
+  /** "demo" (ADR 0021): a throwaway session for the home-page demo — no save/share/tune, a hard call budget. */
+  scope: "full" | "demo" = "full";
+  callBudget = Infinity;
+  private callsUsed = 0;
   private takeCall(force = false): boolean {
+    if (this.callsUsed >= this.callBudget) return false; // demo budget spent: the lexicon still draws, no more calls
     const now = performance.now();
     const perMs = this.tunables.callsPerMin / 60_000;
     this.bucket.tokens = Math.min(this.tunables.burst, this.bucket.tokens + (now - this.bucket.at) * perMs);
@@ -526,6 +532,7 @@ export class DocSession {
     // A forced end-of-sentence call is charged too (the bucket may go into debt, capped), so the long-run
     // rate stays at callsPerMin — plan-critic M7 #3: forced calls used to bypass the cap entirely.
     this.bucket.tokens = Math.max(-this.tunables.burst, this.bucket.tokens - 1);
+    this.callsUsed++;
     return true;
   }
 
@@ -735,6 +742,8 @@ export class DocSession {
 
   // ── Typed prompts (M3 semantics) ─────────────────────────────────────────────────────────
   async run(text: string, source: "voice" | "typed", seq: number): Promise<void> {
+    // Typed prompts are charged to the call bucket too (plan-critic M9 #1) — as debt, so they're never refused.
+    if (!this.isCommand(text) && !this.takeCall(true)) return void this.deps.send({ type: "error", message: "This session used its model budget" });
     // Typed "approve …" / "save the project" are the same commands as spoken ones (ADR 0020).
     if (this.isCommand(text)) {
       if (this.flagOn("suggestions") && isSuggestionCommand(text)) return this.suggestionCommand(text);

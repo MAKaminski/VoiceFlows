@@ -118,3 +118,15 @@ describe("quick start intake (ADR 0021)", () => {
     expect(s.nodes("architecture").some((n) => n.inferred)).toBe(false); // the user named them
   });
 });
+
+describe("demo budget (ADR 0021)", () => {
+  it("a demo session stops calling the model after its budget; the lexicon keeps drawing", async () => {
+    let calls = 0;
+    const s = await session((req) => { calls++; return none(req); });
+    s.d.scope = "demo"; s.d.callBudget = 2;
+    s.d.setView("erd");
+    for (let i = 0; i < 6; i++) await s.say(`and the ${["users", "orders", "cases", "agents", "calls", "leads"][i]} have a nickname`);
+    expect(calls).toBeLessThanOrEqual(2);
+    expect(s.labels("erd").length).toBeGreaterThanOrEqual(6);
+  });
+});

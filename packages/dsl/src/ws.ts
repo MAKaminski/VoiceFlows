@@ -38,7 +38,8 @@ export type SharedDoc = z.infer<typeof SharedDoc>;
 export const ClientMsg = z.discriminatedUnion("type", [
   // documentId: reopen this browser's last document in a new tab (flag remember_document, ADR 0014).
   // open: the user picked this project from the library — it wins over the tab's previous session (ADR 0020).
-  z.object({ type: z.literal("hello"), sessionId: z.string().optional(), documentId: z.string().uuid().optional(), open: z.boolean().optional() }),
+  // access: a signed gateway token from the web (ADR 0021) — required once ACCESS_SECRET is set.
+  z.object({ type: z.literal("hello"), sessionId: z.string().optional(), documentId: z.string().uuid().optional(), open: z.boolean().optional(), access: z.string().max(200).optional() }),
   z.object({ type: z.literal("stt_start"), mode: z.enum(["direct", "relay", "webspeech"]) }),
   z.object({ type: z.literal("stt_stop") }),
   z.object({ type: z.literal("partial"), ...Transcript }),

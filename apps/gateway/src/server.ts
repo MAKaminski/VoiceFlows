@@ -4,10 +4,11 @@ import { ClientMsg, FEATURES, FeatureKey, kindFeature, PROTOCOL, ShareToken, toP
 import { z } from "zod";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FlagService } from "./flags.js";
+import { verifyAccess } from "./access.js";
 import Fastify from "fastify";
 import { loadConfig, type Config } from "./config.js";
 import { getSql } from "./db.js";
-import { DocSession, type EngineConfig } from "./engine/docSession.js";
+import { DEFAULT_TUNABLES, DocSession, type EngineConfig } from "./engine/docSession.js";
 import { anthropicClient, hedgedClient, type ModelClient } from "./engine/model.js";
 import { typesafeJev, type JevClient } from "./engine/jev.js";
 import { loadPrompt, type PromptName } from "@livecanvas/prompts";
@@ -70,7 +71,8 @@ function engineFor(name: PromptName, config: Config): EngineConfig {
 }
 
 export function buildServer(config: Config = loadConfig(), deps: Deps = defaultDeps(config)) {
-  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info", serializers: {
+  // trustProxy: 1 — Railway's edge is the one proxy hop, so req.ip is the visitor (per-IP caps, M9 #4).
+  const app = Fastify({ trustProxy: (_addr: string, hop: number) => hop === 0, logger: { level: process.env.LOG_LEVEL ?? "info", serializers: {
     // Share tokens are credentials: never write them to logs (plan-critic M5d #4).
     req: (req: { method: string; url: string; ip?: string }) => ({ method: req.method, url: req.url.replace(/\/share\/[^/?#]+/, "/share/[token]"), remoteAddress: req.ip }),
   } } });
@@ -91,6 +93,29 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
   app.addHook("onReady", () => flags.load());
   const sockets = new Set<(m: ServerMsg) => void>();
   flags.subscribe((f) => { for (const s of sockets) s({ type: "flags", flags: f }); });
+
+  // ── Invite gate (ADR 0021) ────────────────────────────────────────────────────────────────
+  const gated = () => !!config.ACCESS_SECRET && flags.on("invite_gate");
+  /** HTTP routes behind the gate need a `full` token (never demo): true = refused, reply already sent. */
+  const needsAccess = (req: { headers: Record<string, unknown> }, reply: { code(n: number): { send(b: unknown): unknown } }) => {
+    if (!gated()) return false;
+    const t = String(req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+    if (verifyAccess(config.ACCESS_SECRET!, t, ["full"])) return false;
+    reply.code(401).send({ error: "access required" });
+    return true;
+  };
+  /** Demo caps: ≤ 3 sessions per visitor per hour, ≤ 150 per day overall (in memory; one replica). */
+  const demoByIp = new Map<string, number[]>();
+  const demoDay: number[] = [];
+  const demoAllowed = (ip: string) => {
+    const now = Date.now();
+    const mine = (demoByIp.get(ip) ?? []).filter((t) => now - t < 3600_000);
+    while (demoDay.length && now - demoDay[0]! > 86_400_000) demoDay.shift();
+    if (mine.length >= 3 || demoDay.length >= 150) return false;
+    demoByIp.set(ip, [...mine, now]); demoDay.push(now);
+    return true;
+  };
+  const demoDocs = new Set<string>(); // never opened by a full-scope hello
 
   // ── Share links (ADR 0013): public, read-only, the token is the only credential ──────────────
   const misses = new Map<string, { n: number; since: number }>(); // 404s per IP — token guessing
@@ -172,13 +197,13 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
   const DocumentId = z.string().uuid();
   app.get<{ Querystring: { archived?: string } }>("/projects", async (req, reply) => {
     reply.header("cache-control", "no-store").header("x-robots-tag", "noindex");
-    if (libraryOff(reply)) return reply;
+    if (needsAccess(req, reply) || libraryOff(reply)) return reply;
     if (limited(req.ip, 300)) return reply.code(429).send({ error: "too many requests" });
     return { projects: await deps.persistence.listProjects(req.query.archived === "1", 200) };
   });
   app.get<{ Params: { id: string } }>("/projects/:id", async (req, reply) => {
     reply.header("cache-control", "no-store").header("x-robots-tag", "noindex");
-    if (libraryOff(reply)) return reply;
+    if (needsAccess(req, reply) || libraryOff(reply)) return reply;
     if (limited(req.ip, 300)) return reply.code(429).send({ error: "too many requests" });
     const id = DocumentId.safeParse(req.params.id);
     const p = id.success ? await deps.persistence.readProject(id.data) : null;
@@ -189,7 +214,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
   for (const [path, archived] of [["archive", true], ["restore", false]] as const) {
     app.post<{ Params: { id: string } }>(`/projects/:id/${path}`, async (req, reply) => {
       reply.header("cache-control", "no-store");
-      if (libraryOff(reply)) return reply;
+      if (needsAccess(req, reply) || libraryOff(reply)) return reply;
       if (limited(req.ip, 60)) return reply.code(429).send({ error: "too many requests" });
       const id = DocumentId.safeParse(req.params.id);
       if (!id.success || !(await deps.persistence.setArchived(id.data, archived))) return reply.code(404).send({ error: "not found" });
@@ -207,7 +232,10 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
   }));
 
   // How this browser gets speech-to-text (ADR 0008). Never returns the API key itself.
-  app.post("/stt/token", async () => deps.sttGrant());
+  app.post("/stt/token", async (req, reply) => {
+    if (needsAccess(req, reply)) return reply; // mints Deepgram tokens: never for anonymous or demo callers
+    return deps.sttGrant();
+  });
 
   /**
    * Live documents (ADR 0014): exactly one DocSession per document, owned by exactly one tab — the single
@@ -219,7 +247,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
   const toOwner = (e: LiveDoc) => (m: ServerMsg) => e.owner?.(m);
 
   app.register(async (scoped) => {
-    scoped.get("/ws", { websocket: true }, (socket) => {
+    scoped.get("/ws", { websocket: true }, (socket, req) => {
       const send = (msg: ServerMsg) => { if (socket.readyState === 1) socket.send(JSON.stringify(msg)); };
       sockets.add(send);
       /** Gateway-side enforcement: the UI hides disabled features, but the gateway is what says no. */
@@ -290,13 +318,24 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
             try {
               if (entry) return; // one hello per socket
               const t0 = performance.now();
+              // Invite gate (ADR 0021): a signed token from the web; "demo" tokens get the demo scope.
+              let scope: "full" | "demo" = "full";
+              if (gated()) {
+                const p = verifyAccess(config.ACCESS_SECRET!, msg.access, ["full", "demo"]);
+                if (!p) { fail("Access required — get an invite code on the home page"); socket.close(); return; }
+                scope = p === "demo" ? "demo" : "full";
+              }
+              if (scope === "demo" && (!flags.on("voice_demo") || !demoAllowed(req.ip))) { fail("Demo busy — try again in a minute"); socket.close(); return; }
+              // A demo is a throwaway project in memory: never saved, listed, reopened or cleaned up (plan-critic M9 #3, #19).
+              const store: Persistence = scope === "demo" ? memoryPersistence() : deps.persistence;
               const remember = flags.on("remember_document");
               if (!remember && msg.documentId) deps.persistence.featureEvent(null, "remember_document", "blocked");
-              // Which document: this tab's own (reload) or, with the flag, this browser's last one.
-              const prior = msg.sessionId ? await deps.persistence.resumeSession(msg.sessionId) : null;
+              // Which document: this tab's own (reload) or, with the flag, this browser's last one. Never a demo one.
+              const prior = scope === "full" && msg.sessionId ? await deps.persistence.resumeSession(msg.sessionId) : null;
               // Opened from the library: the picked project wins over this tab's previous session (plan-critic M8 #6).
-              const opening = !!msg.open && !!msg.documentId && flags.on("project_library");
-              const target = opening ? msg.documentId : prior?.documentId ?? (remember ? msg.documentId : undefined);
+              const opening = scope === "full" && !!msg.open && !!msg.documentId && flags.on("project_library");
+              const asked = scope === "demo" ? undefined : opening ? msg.documentId : prior?.documentId ?? (remember ? msg.documentId : undefined);
+              const target = asked && !demoDocs.has(asked) ? asked : undefined;
               let e = target ? live.get(target) : undefined;
               // …but a library open never kicks out someone editing it: offered read-only instead (M8 #7).
               if (opening && e?.owner) { send({ type: "in_use", documentId: target! }); return; }
@@ -304,14 +343,21 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
               if (!e) {
                 // Queued writes of a tab that just closed must land before we read the document back.
                 await deps.persistence.flush();
-                const opened = (target ? await deps.persistence.openOnDocument(target) : null) ?? (await deps.persistence.openSession());
+                const opened = (target ? await store.openOnDocument(target) : null) ?? (await store.openSession());
                 resumed = opened.documentId === target;
                 const created: LiveDoc = { doc: null as unknown as DocSession, owner: null, release: null, shareLinks: [] };
-                created.doc = new DocSession(opened, { persistence: deps.persistence, model: deps.model, engine: deps.engine, engines: deps.engines, notesEngine: deps.notesEngine, suggestEngine: deps.suggestEngine, jev: deps.jev, flags: () => flags.all(), send: toOwner(created), log: (m) => app.log.warn(m) });
+                created.doc = new DocSession(opened, { persistence: store, model: deps.model, engine: deps.engine, engines: deps.engines, notesEngine: deps.notesEngine, suggestEngine: deps.suggestEngine, jev: deps.jev, flags: () => flags.all(), send: toOwner(created), log: (m) => app.log.warn(m) });
                 created.doc.tune({ silenceSettleMs: config.SILENCE_SETTLE_MS });
-                created.doc.terms = await deps.persistence.listVocab(opened.documentId).catch(() => []);
-                created.doc.recent = await deps.persistence.recentUtterances(opened.documentId, 8).catch(() => []);
-                created.shareLinks = await deps.persistence.listShares(opened.documentId).catch(() => []);
+                if (scope === "demo") { // ADR 0021: ≤ 40 model calls and ≤ 5 minutes, then the demo ends
+                  created.doc.scope = "demo";
+                  created.doc.callBudget = 40;
+                  demoDocs.add(opened.documentId);
+                  deps.persistence.featureEvent(null, "voice_demo", "used");
+                  setTimeout(() => socket.close(), 5 * 60_000).unref();
+                }
+                created.doc.terms = await store.listVocab(opened.documentId).catch(() => []);
+                created.doc.recent = await store.recentUtterances(opened.documentId, 8).catch(() => []);
+                created.shareLinks = await store.listShares(opened.documentId).catch(() => []);
                 e = live.get(opened.documentId); // another tab may have opened it while we awaited
                 if (e) deps.persistence.endSession(opened.sessionId); // keep the one that won
                 else live.set(opened.documentId, (e = created));
@@ -371,6 +417,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
           case "partial": // direct / webspeech: the browser already has the text
             return onTranscript(msg);
           case "prompt":
+            if (doc!.scope === "demo") return fail("The demo speaks for itself — get an invite to type your own");
             if (!permit("speak_to_create")) return;
             return void doc!.run(msg.text, "typed", doc!.allocSeq());
           case "undo":
@@ -397,6 +444,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
             if (!permit("version_timeline")) return;
             return doc!.gotoVersion(msg.version);
           case "share_create": {
+            if (doc!.scope === "demo") return fail("Sharing is off in the demo");
             if (!permit("share_links")) return;
             // One live link per version: sharing the same version again returns its link (ADR 0013).
             const version = doc!.versionInfo().version;
@@ -434,8 +482,9 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
           case "vocab_delete":
             if (!permit("custom_vocabulary")) return;
             return doc!.deleteTerm(msg.id);
-          case "tune":
-            return doc!.tune({ ...(msg.minGapMs != null ? { minGapMs: msg.minGapMs } : {}), ...(msg.callsPerMin != null ? { callsPerMin: msg.callsPerMin } : {}) });
+          case "tune": // clamped: a client can slow the model down, never speed it up past the cost cap (plan-critic M9)
+            if (doc!.scope === "demo") return;
+            return doc!.tune({ ...(msg.minGapMs != null ? { minGapMs: Math.max(DEFAULT_TUNABLES.minGapMs, msg.minGapMs) } : {}), ...(msg.callsPerMin != null ? { callsPerMin: Math.min(DEFAULT_TUNABLES.callsPerMin, msg.callsPerMin) } : {}) });
           case "metrics": {
             const uid = deps.persistence.utterance(doc!.sessionId, voiceSeq(msg.utteranceSeq), "voice");
             return deps.persistence.latency(doc!.sessionId, { utteranceId: uid, stage: "reflow", tMs: msg.maxReflowsPerElement });

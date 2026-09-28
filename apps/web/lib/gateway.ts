@@ -1,5 +1,6 @@
 "use client";
 import { PROTOCOL, ServerMsg, type ClientMsg } from "@livecanvas/dsl";
+import { getAccess } from "@/lib/access";
 import { useDoc } from "@/store/doc";
 import { useFeatures } from "@/store/features";
 import { useVoice } from "@/store/voice";
@@ -31,6 +32,8 @@ function reloadOnce() {
  * out to listeners (voice transcripts, HUD). Reconnects resume the same session and document.
  */
 class Gateway {
+  /** "demo": the home-page demo (ADR 0021) — demo token, never reads or writes this browser's project keys. */
+  constructor(private readonly mode: "app" | "demo" = "app") {}
   private ws: WebSocket | null = null;
   private ready: Promise<void> | null = null;
   private listeners = new Set<Listener>();
@@ -41,14 +44,17 @@ class Gateway {
       const ws = new WebSocket(WS_URL);
       ws.binaryType = "arraybuffer";
       this.ws = ws;
-      ws.onopen = () => {
+      ws.onopen = async () => {
+        // Access token first (ADR 0021); undefined when the gate is off. Fetched per connect, so reconnects refresh it.
+        const access = await getAccess(this.mode === "demo" ? "demo" : "full").catch(() => undefined);
+        if (this.mode === "demo") { this.send({ type: "hello", ...(access ? { access } : {}) }); return; }
         let sessionId: string | undefined, documentId: string | undefined;
         try { sessionId = sessionStorage.getItem(SESSION_KEY) ?? undefined; } catch {}
         try { documentId = localStorage.getItem(DOCUMENT_KEY) ?? undefined; } catch {}
         // Opened from the library (ADR 0020): the picked project wins over this tab's previous session.
         let open = false;
         try { open = sessionStorage.getItem(OPEN_KEY) === documentId && !!documentId; sessionStorage.removeItem(OPEN_KEY); } catch {}
-        this.send({ type: "hello", sessionId, documentId, ...(open ? { open: true } : {}) });
+        this.send({ type: "hello", sessionId, documentId, ...(open ? { open: true } : {}), ...(access ? { access } : {}) });
       };
       ws.onerror = () => reject(new Error("gateway unreachable"));
       ws.onclose = () => { this.ready = null; this.ws = null; useDoc.getState().setConnected(false); };
@@ -62,8 +68,10 @@ class Gateway {
         if (!parsed.success) return;
         const m = parsed.data;
         if (m.type === "welcome") {
-          try { sessionStorage.setItem(SESSION_KEY, m.sessionId); } catch {}
-          try { if (m.documentId) localStorage.setItem(DOCUMENT_KEY, m.documentId); } catch {}
+          if (this.mode === "app") {
+            try { sessionStorage.setItem(SESSION_KEY, m.sessionId); } catch {}
+            try { if (m.documentId) localStorage.setItem(DOCUMENT_KEY, m.documentId); } catch {}
+          }
           useDoc.getState().setConnected(true);
           resolve();
         }
@@ -98,3 +106,5 @@ class Gateway {
 }
 
 export const gateway = new Gateway();
+/** The home-page demo's own connection (ADR 0021). */
+export const demoGateway = new Gateway("demo");

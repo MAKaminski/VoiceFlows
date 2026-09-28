@@ -767,3 +767,54 @@ describe("project library + flag history (ADR 0020)", () => {
     b.ws.close(); await app.close();
   });
 });
+
+describe("invite gate + demo scope (ADR 0021)", () => {
+  const SECRET = "s".repeat(40);
+  const hello = async (port: number, extra: Record<string, unknown> = {}) => {
+    const c = client(port); await c.open;
+    c.ws.send(JSON.stringify({ type: "hello", ...extra }));
+    await c.next((m) => m.type === "welcome" || m.type === "error");
+    return c;
+  };
+  const tok = async (purpose: "full" | "demo" | "cookie", ttl = 60_000) => (await import("../src/access.js")).mintAccess(SECRET, purpose, ttl);
+
+  it("no token → refused; a full token → in; a cookie-purpose token is never a gateway token", async () => {
+    const { app, port } = await start({ ACCESS_SECRET: SECRET });
+    const none = await hello(port);
+    expect(none.inbox.some((m) => m.type === "error" && /Access required/.test(m.message))).toBe(true);
+    const cookie = await hello(port, { access: await tok("cookie") });
+    expect(cookie.inbox.some((m) => m.type === "welcome")).toBe(false);
+    const expired = await hello(port, { access: await tok("full", -1000) });
+    expect(expired.inbox.some((m) => m.type === "welcome")).toBe(false);
+    const ok = await hello(port, { access: await tok("full") });
+    expect(ok.inbox.some((m) => m.type === "welcome")).toBe(true);
+    ok.ws.close(); await app.close();
+  });
+
+  it("HTTP: /stt/token and /projects need a full token — demo and anonymous callers are refused", async () => {
+    const { app, port } = await start({ ACCESS_SECRET: SECRET });
+    const post = (auth?: string) => fetch(`http://127.0.0.1:${port}/stt/token`, { method: "POST", headers: auth ? { authorization: `Bearer ${auth}` } : {} });
+    expect((await post()).status).toBe(401);
+    expect((await post(await tok("demo"))).status).toBe(401);
+    expect((await post(await tok("full"))).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/projects`)).status).toBe(401);
+    expect((await fetch(`http://127.0.0.1:${port}/projects`, { headers: { authorization: `Bearer ${await tok("full")}` } })).status).toBe(200);
+    await app.close();
+  });
+
+  it("demo scope: a fresh project (asked-for ids ignored), no typed prompts or shares, ≤ 3 demos per visitor per hour", async () => {
+    const { app, port } = await start({ ACCESS_SECRET: SECRET });
+    const owner = await hello(port, { access: await tok("full") });
+    const ownerDoc = (owner.inbox.find((m) => m.type === "welcome") as any).documentId;
+    const demo = await hello(port, { access: await tok("demo"), documentId: ownerDoc, open: true });
+    expect((demo.inbox.find((m) => m.type === "welcome") as any).documentId).not.toBe(ownerDoc);
+    expect(owner.inbox.some((m) => m.type === "taken_over")).toBe(false);
+    demo.ws.send(JSON.stringify({ type: "prompt", text: "a login screen" }));
+    expect(((await demo.next((m) => m.type === "error")) as any).message).toMatch(/demo/i);
+    await hello(port, { access: await tok("demo") });
+    await hello(port, { access: await tok("demo") });
+    const fourth = await hello(port, { access: await tok("demo") });
+    expect(fourth.inbox.some((m) => m.type === "error" && /Demo busy/.test(m.message))).toBe(true);
+    owner.ws.close(); demo.ws.close(); await app.close();
+  });
+});

@@ -1,5 +1,6 @@
 "use client";
 import { gateway, HTTP_BASE } from "@/lib/gateway";
+import { authedFetch } from "@/lib/access";
 import { VIEWS } from "@livecanvas/dsl";
 import { useEffect, useState } from "react";
 
@@ -15,11 +16,11 @@ export function ProjectsModal({ onClose, currentId }: { onClose: () => void; cur
   const [error, setError] = useState<string | null>(null);
   const load = () => {
     setRows(null);
-    fetch(`${HTTP_BASE}/projects${archived ? "?archived=1" : ""}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    authedFetch(`${HTTP_BASE}/projects${archived ? "?archived=1" : ""}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d: { projects: Row[] }) => setRows(d.projects), (e: Error) => setError(e.message));
   };
   useEffect(load, [archived]); // eslint-disable-line react-hooks/exhaustive-deps
-  const toggle = async (id: string, to: "archive" | "restore") => { await fetch(`${HTTP_BASE}/projects/${id}/${to}`, { method: "POST" }); load(); };
+  const toggle = async (id: string, to: "archive" | "restore") => { await authedFetch(`${HTTP_BASE}/projects/${id}/${to}`, { method: "POST" }); load(); };
   const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   return (
     <div role="dialog" aria-modal="true" aria-label="Projects" data-testid="projects-modal" onClick={onClose}

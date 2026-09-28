@@ -1,6 +1,7 @@
 "use client";
 import { ViewGrid } from "@/components/ViewGrid";
 import { gateway, HTTP_BASE } from "@/lib/gateway";
+import { authedFetch } from "@/lib/access";
 import { DesignDocSchema, toProject, type DesignDoc } from "@livecanvas/dsl";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -13,7 +14,7 @@ export default function ReadOnlyProject() {
   const { id } = useParams<{ id: string }>();
   const [state, setState] = useState<{ status: "loading" } | { status: "ok"; doc: DesignDoc; title: string; updatedAt: string } | { status: "gone" }>({ status: "loading" });
   useEffect(() => {
-    fetch(`${HTTP_BASE}/projects/${encodeURIComponent(id)}`, { cache: "no-store" })
+    authedFetch(`${HTTP_BASE}/projects/${encodeURIComponent(id)}`, { cache: "no-store" })
       .then(async (r) => {
         if (!r.ok) return setState({ status: "gone" });
         const d = await r.json();
