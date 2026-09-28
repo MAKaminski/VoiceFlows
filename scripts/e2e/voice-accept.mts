@@ -103,6 +103,9 @@ async function run(i: number) {
   const firstModel = new Map<string, { at: number; trig?: number }>();
   for (const { m, at } of inbox) if (m.type === "ops" && (m.origin === "model" || m.origin === "jev") && !firstModel.has(m.jobId)) firstModel.set(m.jobId, { at, trig: m.trigMs });
   const ttfv1 = [...firstModel.values()].filter((x) => x.trig != null).map((x) => Math.round(x.at - wallOf(x.trig!)));
+  // Attribution: STT lag (transcript arrival − its newest word's audio end) vs everything after it.
+  const sttLag = inbox.flatMap(({ m, at }) => (m.type === "transcript" && m.lastWordEndMs != null ? [Math.round(at - wallOf(m.lastWordEndMs))] : []));
+  if (sttLag.length) console.log(`   stt lag p50 ${pct(sttLag, 50)} ms (n=${sttLag.length})`);
   const version = inbox.find((x) => x.m.type === "version" && x.m.version > 0);
   // One version per utterance (ADR 0010): an early end-of-turn that commits mid-sentence splits it.
   const versions = new Set(inbox.flatMap((x) => (x.m.type === "version" && x.m.version > 0 ? [x.m.version] : []))).size;

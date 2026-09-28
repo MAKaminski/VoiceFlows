@@ -156,3 +156,29 @@
   **82/82** (screen 25/25 · architecture 24/24 · ERD 25/25 · sequence 8/8; approvals settle in ~72 ms with no model
   call). DoD acceptance 10/10 twice: first run right after the deploy TTFV-1 167 ms adj. (cold gateway), rerun
   **TTFV-1 95 ms adj. · settle 680 ms · 1 reflow · $0/min** — unchanged from M7.
+
+## M9 — Home + invite gate, six views that scaffold each other, live PRD, narrated demo (2026-09-28) — ADR 0021
+- **Home page** at `/` (what it is, six views, how it works). **Invite code** opens the studio: a 30-day cookie;
+  `/studio`, `/playground`, `/p`, `/admin` redirect to `/` without it. The gateway now requires an access token on
+  `hello`, `/stt/token` and `/projects*`. `tune` is clamped for everyone.
+- **Two new views:** Constraints (demand/capacity gauges, red at ≥ 80%, rates on edges) and Cost-Value (2×2:
+  quick wins, big bets, fill-ins, money pits). The grid is 3×2.
+- **Everything at once:** one sentence scaffolds the other views, faded and marked *inferred*, in the same
+  version (one undo). Your own names take over placeholders ("react app", "api gateway", "auth0").
+- **Live PRD** drawer (Copy / .md), compiled from the six views. **Intake card** on empty projects.
+- **Narrated demo** at `/demo`: Deepgram Aura-2 in Thalia / Orion / Andromeda. The script's words are fed to the
+  real engine at the clip's word timings. Demo scope caps: 40 calls, 5 min, 3/IP/h, 150/day.
+- Tests: dsl 66, gateway 214. Corpus +19 cases (constraints 8, cost-value 7, scaffolding 4) → 101.
+- **Production:**
+  - **Gate:** wrong code 401; right code → studio; `/studio` without cookie → 307 `/`; gateway 401 without a
+    token.
+  - **Demo:** played end to end in all 3 voices; all six views plus the PRD fill in.
+  - **Corpus: 100/101 (99%)** · settle p50 791 ms · $0.119 for 113 calls. The miss was cost-value `v-list`;
+    after a prompt fix, 7/7 on rerun.
+  - **DoD 10/10** · TTFV-0 −185 ms adj. · **TTFV-1 107 ms adj.** (bar ≤ 110) · settle 701 ms · 1 reflow ·
+    $0/min.
+  - An earlier 10-run set read 173 ms adj. **Attribution** (new harness field): TTFV-1 tracks Deepgram Flux STT
+    lag (31–68 ms in the passing set). The engine's partial → ops is 0.12 ms p50 vs 0.10 ms at M8, measured
+    head-to-head, so that set was a slow patch upstream, not a regression.
+- Found and fixed on production: an inferred Database survived next to Postgres when the model edited the
+  placeholder in the same sentence (takeover now keys on "inferred at sentence start").
