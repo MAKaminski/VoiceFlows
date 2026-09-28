@@ -40,6 +40,16 @@ describe("decisions planner (ADR 0017)", () => {
     expect(d.covered).not.toContain("gateway#1"); // a mention is not a verb
   });
 
+  it("a new clause is not a list: 'publishes to redis and postgres reads it' never pairs the gateway with postgres", () => {
+    const p = planDecisions(view(architectureDoc), "architecture", "the gateway publishes events to redis and postgres consumes them")!;
+    expect(p.pairs.map((x) => [x.from.id, x.to.id])).toEqual([["n_gateway", "n_redis"], ["n_redis", "n_pg"]]);
+  });
+
+  it("a list followed by a preposition stays a list: 'connects redis and postgres to the gateway'", () => {
+    const p = planDecisions(view(architectureDoc), "architecture", "the studio connects redis and postgres to the gateway")!;
+    expect(p.pairs.map((x) => [x.from.id, x.to.id])).toEqual([["n_studio", "n_redis"], ["n_studio", "n_pg"], ["n_redis", "n_gateway"], ["n_pg", "n_gateway"]]);
+  });
+
   it("fan-out (M7): 'the gateway reads from redis and postgres' pairs the gateway with each", () => {
     const p = planDecisions(view(architectureDoc), "architecture", "the gateway reads from redis and postgres")!;
     expect(p.pairs.map((x) => [x.from.id, x.to.id])).toEqual([["n_gateway", "n_redis"], ["n_gateway", "n_pg"]]);

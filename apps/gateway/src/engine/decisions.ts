@@ -17,6 +17,8 @@ const MAX_MENTIONS = 5;          // 5 mentions → 20 ordered pairs → ≤ 40 q
 
 const STOP = new Set(["the", "a", "an", "and", "which", "that", "then", "it", "its", "their", "also", "so", "um", "uh", "like", "both", "all", "or"]);
 /** Words that join mentions into one group: "the api AND the worker both write to postgres" (M7 fan-out). */
+/** Prepositions that continue a list's sentence rather than start a clause ("salesforce and genesys TO shaw"). */
+const PREP = new Set(["to", "from", "into", "with", "via", "through", "by", "of", "on", "in", "for", "at", "over", "behind"]);
 const JOIN = new Set(["and", "or", "both", "the", "a", "an", "as", "well", "plus", "also", "um", "uh", "each", "every"]);
 const singular = (w: string) => w.replace(/ies$/, "y").replace(/(ss|sh|ch|x)es$/, "$1").replace(/s$/, "");
 const norm = (w: string) => singular(w.toLowerCase());
@@ -131,6 +133,22 @@ export function planDecisions(view: DesignDoc, kind: DocKind, raw: string): Plan
       const last = groups.at(-1)?.at(-1);
       if (last && words.slice(last.end, m.start).every((w) => JOIN.has(w)) && words.slice(last.end, m.start).some((w) => w === "and" || w === "or" || w === "plus")) groups.at(-1)!.push(m);
       else groups.push([m]);
+    }
+    // An OBJECT list ("reads from redis and postgres") can hide a new clause: in "publishes jobs to a queue and
+    // a worker consumes them" the worker is followed by its own verb, so it starts a new group (M7 flake:
+    // api→worker was drawn). Subject lists ("the api and the worker both write…") are untouched.
+    for (let g = 0; g < groups.length; g++) {
+      const grp = groups[g]!;
+      if (grp.length < 2) continue;
+      let k = grp[0]!.start - 1;
+      while (k >= 0 && JOIN.has(words[k]!)) k--;
+      if (k < 0) continue; // nothing before the list: it is the subject
+      const split = grp.findIndex((m, j) => {
+        if (j === 0) return false;
+        const next = ms.find((x) => x.start >= m.end)?.start ?? words.length;
+        return said.slice(m.end, next).some((w) => !JOIN.has(w) && !STOP.has(w) && !PREP.has(w));
+      });
+      if (split > 0) groups.splice(g + 1, 0, grp.splice(split));
     }
     for (let g = 0; g + 1 < groups.length; g++) for (const a of groups[g]!) for (const b of groups[g + 1]!) {
       const key = `${pairs.length}`;

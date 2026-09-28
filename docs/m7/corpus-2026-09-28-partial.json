@@ -2,30 +2,42 @@
  "summary": {
   "date": "2026-09-28",
   "url": "wss://gateway-production-1c11.up.railway.app/ws",
-  "cases": 3,
-  "pass": "3/3",
+  "cases": 4,
+  "pass": "4/4",
   "passRate": 1,
   "byView": {
    "screen": "0/0",
-   "architecture": "0/0",
+   "architecture": "1/1",
    "erd": "3/3",
    "sequence": "0/0"
   },
   "known": [],
-  "settleP50": 894,
-  "settleP95": 1205,
+  "settleP50": 751,
+  "settleP95": 806,
   "settleOver1500": 0,
-  "modelCalls": 2,
-  "usd": 0.0022
+  "modelCalls": 4,
+  "usd": 0.0039
  },
  "results": [
+  {
+   "id": "a-rename",
+   "view": "architecture",
+   "pass": true,
+   "failures": [],
+   "settleMs": 784,
+   "firstOpMs": 2538,
+   "calls": 2,
+   "jev": 0,
+   "usd": 0.0019329999999999998,
+   "say": "rename the api to core service"
+  },
   {
    "id": "e-belongs",
    "view": "erd",
    "pass": true,
    "failures": [],
-   "settleMs": 80,
-   "firstOpMs": 1834,
+   "settleMs": 79,
+   "firstOpMs": 1835,
    "calls": 0,
    "jev": 0,
    "usd": 0,
@@ -36,7 +48,7 @@
    "view": "erd",
    "pass": true,
    "failures": [],
-   "settleMs": 894,
+   "settleMs": 751,
    "firstOpMs": null,
    "calls": 1,
    "jev": 0,
@@ -48,11 +60,11 @@
    "view": "erd",
    "pass": true,
    "failures": [],
-   "settleMs": 1205,
-   "firstOpMs": 1129,
+   "settleMs": 806,
+   "firstOpMs": 1858,
    "calls": 1,
    "jev": 0,
-   "usd": 0.001287,
+   "usd": 0.00101,
    "say": "rename users to customers"
   }
  ]

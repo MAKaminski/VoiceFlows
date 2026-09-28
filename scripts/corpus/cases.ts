@@ -103,6 +103,8 @@ export const CASES: CorpusCase[] = [
     expect: { links: [["api", "redis"], ["api", "postgres"]] } },
   { id: "a-queue", view: "architecture", say: "the api publishes jobs to a queue and a worker consumes them",
     expect: { links: [["api", "queue"], ["worker", "queue"]] } },
+  { id: "a-queue-clause", view: "architecture", say: "the api writes jobs to a queue and a worker reads from postgres",
+    expect: { links: [["api", "queue"], ["worker", "postgres"]], noLinks: [] } },
   { id: "a-mulesoft", view: "architecture", say: "mulesoft connects salesforce and genesys to a backend called shaw", hears: ["shaw"],
     expect: { has: ["mulesoft", "salesforce", "genesys", "shaw"], links: [["mulesoft", "salesforce"], ["mulesoft", "genesys"]], minEdges: 3 } },
   { id: "a-owner", view: "architecture", setup: ["a backend called shaw"], say: "shaw is owned by the full stack team", hears: ["owned"],
