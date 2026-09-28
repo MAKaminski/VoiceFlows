@@ -372,6 +372,18 @@ describe("feature flags + admin + vocabulary (ADR 0012)", () => {
     c.ws.close(); await app.close();
   });
 
+  it("a rejected admin request stops at the 401 — a wrong token never flips a flag (2026-09-28)", async () => {
+    // The guard used to return the Fastify reply; replies are thenables, so `await` turned the denial into
+    // `undefined` and the handler ran on after the 401 was sent.
+    const { app, port } = await start({ ADMIN_TOKEN: TOKEN });
+    const bad = await fetch(`http://127.0.0.1:${port}/admin/flags/diagram_erd`, { method: "PUT", headers: { authorization: "Bearer nope", "content-type": "application/json" }, body: JSON.stringify({ enabled: false }) });
+    expect(bad.status).toBe(401);
+    await new Promise((r) => setTimeout(r, 50));
+    const list = await (await fetch(`http://127.0.0.1:${port}/admin/flags`, { headers: { authorization: `Bearer ${TOKEN}` } })).json() as any;
+    expect(list.flags.find((f: any) => f.key === "diagram_erd").enabled).toBe(true);
+    await app.close();
+  });
+
   it("admin CORS answers only the admin origins, never the preview pattern", async () => {
     const { app, port } = await start({ ADMIN_TOKEN: TOKEN, ADMIN_ORIGINS: "https://app.example" });
     const pre = (origin: string) => fetch(`http://127.0.0.1:${port}/admin/flags/diagram_erd`, { method: "OPTIONS", headers: { origin, "access-control-request-method": "PUT", "access-control-request-headers": "authorization" } });

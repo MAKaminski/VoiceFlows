@@ -111,25 +111,32 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
   // ── Admin API (ADR 0012) ───────────────────────────────────────────────────────────────────
   const digest = (s: string) => createHash("sha256").update(s).digest();
   const failures = new Map<string, { n: number; since: number }>();
-  const admin = async (req: { headers: Record<string, unknown>; ip: string }, reply: { code(n: number): { send(b: unknown): unknown } }) => {
-    if (!config.ADMIN_TOKEN) return reply.code(503).send({ error: "admin disabled: set ADMIN_TOKEN" });
+  /**
+   * true = the request was refused (the error reply is already sent; the handler must `return reply`).
+   * Returns a plain boolean on purpose: a Fastify reply is a thenable, so returning it from this async
+   * guard made `await` resolve to undefined and the handler ran on after the 401 — a wrong token could
+   * flip a flag (fixed 2026-09-28).
+   */
+  const denied = (req: { headers: Record<string, unknown>; ip: string }, reply: { code(n: number): { send(b: unknown): unknown } }): boolean => {
+    if (!config.ADMIN_TOKEN) { reply.code(503).send({ error: "admin disabled: set ADMIN_TOKEN" }); return true; }
     const f = failures.get(req.ip);
-    if (f && Date.now() - f.since < 10 * 60_000 && f.n >= 10) return reply.code(429).send({ error: "too many attempts" });
+    if (f && Date.now() - f.since < 10 * 60_000 && f.n >= 10) { reply.code(429).send({ error: "too many attempts" }); return true; }
     const got = String(req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
     if (!timingSafeEqual(digest(got), digest(config.ADMIN_TOKEN))) {
       failures.set(req.ip, f && Date.now() - f.since < 10 * 60_000 ? { n: f.n + 1, since: f.since } : { n: 1, since: Date.now() });
-      return reply.code(401).send({ error: "unauthorized" });
+      reply.code(401).send({ error: "unauthorized" });
+      return true;
     }
-    return null;
+    return false;
   };
   app.get("/admin/flags", async (req, reply) => {
-    const denied = await admin(req, reply); if (denied) return denied;
+    if (denied(req, reply)) return reply;
     const stats = await deps.persistence.flagStats(7);
     const on = flags.all();
     return { flags: Object.entries(FEATURES).map(([key, f]) => ({ key, description: f.description, default: f.default, enabled: on[key as FeatureKey], last7d: stats[key as FeatureKey] ?? { exposed: 0, used: 0, blocked: 0 } })) };
   });
   app.put<{ Params: { key: string }; Body: { enabled?: unknown } }>("/admin/flags/:key", async (req, reply) => {
-    const denied = await admin(req, reply); if (denied) return denied;
+    if (denied(req, reply)) return reply;
     const key = FeatureKey.safeParse(req.params.key);
     if (!key.success || typeof req.body?.enabled !== "boolean") return reply.code(400).send({ error: "need a known key and {enabled: boolean}" });
     await flags.set(key.data, req.body.enabled);
