@@ -74,7 +74,7 @@ async function run(i: number) {
     inbox.push({ m, at });
   });
   await new Promise((r) => ws.once("open", r));
-  ws.send(JSON.stringify({ type: "hello" }));
+  ws.send(JSON.stringify({ type: "hello", ...(process.env.LC_ACCESS ? { access: process.env.LC_ACCESS } : {}) }));
   for (let k = 0; k < 100 && !doc; k++) await sleep(20);
   ws.send(JSON.stringify({ type: "stt_start", mode: "relay" }));
   await sleep(300); // relay opens Flux

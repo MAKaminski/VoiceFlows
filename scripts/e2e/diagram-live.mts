@@ -30,7 +30,7 @@ async function run(c: (typeof CASES)[number]) {
     throw new Error("timeout");
   };
   await new Promise((r) => ws.once("open", r));
-  ws.send(JSON.stringify({ type: "hello" }));
+  ws.send(JSON.stringify({ type: "hello", ...(process.env.LC_ACCESS ? { access: process.env.LC_ACCESS } : {}) }));
   await until((m) => m.type === "doc");
   ws.send(JSON.stringify({ type: "set_view", view: c.kind }));
   await until((m) => m.type === "view" && m.view === c.kind);

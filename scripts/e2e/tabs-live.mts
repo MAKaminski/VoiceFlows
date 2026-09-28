@@ -17,7 +17,7 @@ async function tab(ids: object = {}) {
     throw new Error("timeout");
   };
   await new Promise((r) => ws.once("open", r));
-  ws.send(JSON.stringify({ type: "hello", ...ids }));
+  ws.send(JSON.stringify({ type: "hello", ...(process.env.LC_ACCESS ? { access: process.env.LC_ACCESS } : {}), ...ids }));
   const welcome = await until((m) => m.type === "welcome") as Extract<ServerMsg, { type: "welcome" }>;
   return { ws, inbox, until, welcome, send: (m: object) => ws.send(JSON.stringify(m)) };
 }

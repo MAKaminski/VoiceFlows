@@ -39,7 +39,12 @@ const stateOf = (p: DesignDoc): Record<DocKind, ViewState> =>
 export function takeOver(project: DesignDoc, base: DesignDoc): { steps: ScaffoldStep[]; renames: Array<[string, string]> } {
   const steps: ScaffoldStep[] = [];
   const renames: Array<[string, string]> = [];
-  const now = stateOf(project), before = new Set(VIEWS.flatMap((v) => nodesOf(viewDoc(base, v.kind).root).map((n) => n.id)));
+  const now = stateOf(project), baseNodes = VIEWS.flatMap((v) => nodesOf(viewDoc(base, v.kind).root));
+  const before = new Set(baseNodes.map((n) => n.id));
+  // A placeholder is one inferred when the sentence began: the model may already have touched it (and cleared
+  // the mark) in the same sentence that names its replacement — the race seen on production (2026-09-28).
+  const wasInferred = new Set(baseNodes.filter((n) => n.inferred).map((n) => n.id));
+  const placeholder = (n: N) => !!n.inferred || wasInferred.has(n.id);
   for (const v of VIEWS) {
     const { root, nodes } = now[v.kind];
     const lines: string[] = [];
@@ -49,7 +54,7 @@ export function takeOver(project: DesignDoc, base: DesignDoc): { steps: Scaffold
       if (!slotKinds) continue;
       // Same slot: architecture = same lane and kind; other views = same kind.
       const lane = v.kind === "architecture" ? laneOf(root, fresh.id) : null;
-      const ph = nodes.find((n) => n.inferred && n.id !== fresh.id && slotKinds.includes(String(n.props.kind)) && (lane == null || laneOf(root, n.id) === lane));
+      const ph = nodes.find((n) => placeholder(n) && n.id !== fresh.id && slotKinds.includes(String(n.props.kind)) && (lane == null || laneOf(root, n.id) === lane));
       if (!ph || same(label(ph), label(fresh))) continue;
       for (const e of edgesOf(root)) {
         if (e.props.from === ph.id) lines.push(`~${e.id} from=${fresh.id}`);

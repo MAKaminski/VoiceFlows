@@ -33,7 +33,7 @@ async function once(i: number) {
     }
   };
   await new Promise((r) => ws.once("open", r));
-  ws.send(JSON.stringify({ type: "hello" }));
+  ws.send(JSON.stringify({ type: "hello", ...(process.env.LC_ACCESS ? { access: process.env.LC_ACCESS } : {}) }));
   await until((m) => m.type === "doc");
   const v0 = structuredClone(doc);
   const t0 = performance.now();

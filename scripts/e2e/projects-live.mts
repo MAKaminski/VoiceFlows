@@ -22,7 +22,7 @@ const labels = (n: DesignNode): string[] => [...(n.type === "Node" ? [String(n.p
 const owners = (n: DesignNode): string[] => [...(n.type === "Node" && n.props.owner ? [String(n.props.owner)] : []), ...(n.children ?? []).flatMap(owners)];
 
 await new Promise((r) => ws.once("open", r));
-await until((m) => m.type === "view", send({ type: "hello" }));
+await until((m) => m.type === "view", send({ type: "hello", ...(process.env.LC_ACCESS ? { access: process.env.LC_ACCESS } : {}) }));
 await until((m) => m.type === "view" && m.view === "architecture", send({ type: "set_view", view: "architecture" }));
 const j1 = await typed("our system works across MuleSoft, Salesforce, Genesys and Observe AI, with a Genesys bot, and a backend called Shaw that a full stack development team owns; MuleSoft connects Salesforce and Genesys to Shaw");
 const arch = viewDoc(doc!, "architecture").root;

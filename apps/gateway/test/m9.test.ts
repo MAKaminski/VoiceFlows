@@ -1,4 +1,4 @@
-import { viewDoc, type DesignNode, type DocKind, type ServerMsg } from "@livecanvas/dsl";
+import { takeOver, viewDoc, type DesignNode, type DocKind, type ServerMsg } from "@livecanvas/dsl";
 import { describe, expect, it } from "vitest";
 import { DocSession } from "../src/engine/docSession.js";
 import type { ModelClient } from "../src/engine/model.js";
@@ -66,6 +66,24 @@ describe("cross-view scaffolding (ADR 0021)", () => {
     expect(arch.filter((n) => n.inferred).map((n) => String(n.props.label))).toEqual(["Database"]);
     expect(s.labels("sequence")).toEqual(expect.arrayContaining(["React app", "API gateway"]));
     expect(s.labels("sequence")).not.toContain("API");
+  });
+
+  it("takeover still fires when the model touched the placeholder in the same sentence (production race)", async () => {
+    const s = await session();
+    await s.say("a login screen with email and password"); // → inferred Database (via the users table)
+    const base = s.d.project;
+    const db = s.nodes("architecture").find((n) => n.props.label === "Database")!;
+    expect(db.inferred).toBe(true);
+    // The same sentence: the model sets tech=Postgres on the placeholder (clearing the mark) and adds Postgres.
+    const next = structuredClone(base);
+    const lanes = viewDoc(next, "architecture").root.children!;
+    const lane = lanes.find((l) => l.children?.some((c) => c.id === db.id))!;
+    const touched = lane.children!.find((c) => c.id === db.id)!;
+    delete touched.inferred; touched.props.tech = "Postgres";
+    lane.children!.push({ id: "n_pg", type: "Node", props: { label: "Postgres", kind: String(db.props.kind) } });
+    const { steps, renames } = takeOver(next, base);
+    expect(renames).toEqual([["Database", "Postgres"]]);
+    expect(steps.find((x) => x.view === "architecture")!.lines).toContain(`-${db.id}`);
   });
 
   it("an architecture component scaffolds a participant and a constraints node exactly once — no loop", async () => {

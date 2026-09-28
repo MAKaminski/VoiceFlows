@@ -22,7 +22,7 @@ async function session() {
   };
   await new Promise((r) => ws.once("open", r));
   const send = (m: object) => { const at = inbox.length; ws.send(JSON.stringify(m)); return at; };
-  send({ type: "hello" });
+  send({ type: "hello", ...(process.env.LC_ACCESS ? { access: process.env.LC_ACCESS } : {}) });
   await until((m) => m.type === "shares");
   return { ws, inbox, until, send };
 }

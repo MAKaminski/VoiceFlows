@@ -46,7 +46,7 @@ async function runCase(c: CorpusCase): Promise<Result> {
     return null;
   };
   const send = (m: object) => { const at = inbox.length; ws.send(JSON.stringify(m)); return at; };
-  await until((m) => m.type === "doc", send({ type: "hello" }));
+  await until((m) => m.type === "doc", send({ type: "hello", ...(process.env.LC_ACCESS ? { access: process.env.LC_ACCESS } : {}) }));
   if (c.view !== "screen") await until((m) => m.type === "view" && m.view === c.view, send({ type: "set_view", view: c.view }));
 
   let seq = 0, t = 0;
@@ -107,12 +107,12 @@ const settles = results.map((r) => r.settleMs).filter((x): x is number => x != n
 const summary = {
   date: new Date().toISOString().slice(0, 10), url, cases: results.length,
   pass: `${counted.filter((r) => r.pass).length}/${counted.length}`, passRate: +(counted.filter((r) => r.pass).length / Math.max(1, counted.length)).toFixed(3),
-  byView: { screen: byView("screen"), architecture: byView("architecture"), erd: byView("erd"), sequence: byView("sequence") },
+  byView: { screen: byView("screen"), architecture: byView("architecture"), erd: byView("erd"), sequence: byView("sequence"), constraints: byView("constraints"), cva: byView("cva") },
   known: results.filter((r) => r.known).map((r) => `${r.id}: ${r.pass ? "passed" : "failed"} (${r.known})`),
   settleP50: pct(settles, 50), settleP95: pct(settles, 95), settleOver1500: settles.filter((s) => s > 1500).length,
   modelCalls: results.reduce((s, r) => s + r.calls, 0), usd: +results.reduce((s, r) => s + r.usd, 0).toFixed(4),
 };
-console.log(`\nM7 corpus: ${summary.pass} passed (${Math.round(summary.passRate * 100)}%) · screen ${summary.byView.screen} · architecture ${summary.byView.architecture} · ERD ${summary.byView.erd} · sequence ${summary.byView.sequence}`);
+console.log(`\nCorpus: ${summary.pass} passed (${Math.round(summary.passRate * 100)}%) · screen ${summary.byView.screen} · architecture ${summary.byView.architecture} · ERD ${summary.byView.erd} · sequence ${summary.byView.sequence} · constraints ${summary.byView.constraints} · cost-value ${summary.byView.cva}`);
 console.log(`settle p50 ${summary.settleP50} ms · p95 ${summary.settleP95} ms · ${summary.settleOver1500} over 1,500 ms · ${summary.modelCalls} model calls · $${summary.usd}`);
 if (summary.known.length) console.log(`known blind spots: ${summary.known.join(" · ")}`);
 const out = resolve(import.meta.dirname, "../../docs/m7");

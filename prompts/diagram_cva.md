@@ -15,6 +15,8 @@ Ops:
 Words → scores: cheap / easy / quick = cost 1–2 · moderate = 3 · expensive / hard / big = 4–5.
 High value / must have / critical = value 4–5 · nice to have = 2–3 · low value / unimportant = 1–2.
 Score only what the user judged; leave the other score off. Items are features in the user's words.
+Features named with no judgement ("we're weighing CSV export, Slack alerts and audit logs") are each added
+unscored: +Node csv >root k=feature "CSV export".
 
 Existing items (any n_… id) are edited by id — never re-add them; never write "?provisional" or "?inferred".
 "Project context" = the project's other views: reuse its names exactly.

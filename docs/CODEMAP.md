@@ -5,7 +5,7 @@ _Generated from the TypeScript AST by `pnpm codemap` — do not edit by hand; CI
 | Measure | Count |
 |---|---|
 | Modules | 77 |
-| Lines | 8847 |
+| Lines | 8852 |
 | Top-level symbols | 605 |
 | Exported symbols | 280 |
 | Exported names defined in 2+ modules | 3 |
@@ -47,7 +47,7 @@ flowchart LR
 | [ops.ts](../packages/dsl/src/ops.ts) | 116 | `PatchOp` const · `PatchOp` type · `applyOp` function · `invertOp` function · `mapOpPaths` function |
 | [prd.ts](../packages/dsl/src/prd.ts) | 118 | `compilePrd` function · `prdCoverage` const |
 | [primitives.ts](../packages/dsl/src/primitives.ts) | 143 | `SCREEN_TYPES` const · `DIAGRAM_TYPES` const · `PRIMITIVE_TYPES` const · `PrimitiveType` const · `PrimitiveType` type · `DiagramKind` const · `DiagramKind` type · `Tier` const · `Tier` type · `NodeKind` const · `NodeKind` type · `ColumnSpec` const · `propSchemas` const · `CONTAINER_TYPES` const · `PARENTS` const · `PRIMARY_TEXT_PROP` const · `ARRAY_PROPS` const |
-| [scaffold.ts](../packages/dsl/src/scaffold.ts) | 154 | `ScaffoldStep` interface · `takeOver` function · `scaffold` function |
+| [scaffold.ts](../packages/dsl/src/scaffold.ts) | 159 | `ScaffoldStep` interface · `takeOver` function · `scaffold` function |
 | [suggest.ts](../packages/dsl/src/suggest.ts) | 163 | `colType` function · `ruleSuggestions` function · `isSuggestionCommand` const · `isSaveCommand` const · `parseSave` function · `Resolution` interface · `resolveCommand` function |
 | [tokens.ts](../packages/dsl/src/tokens.ts) | 38 | `ColorToken` const · `LIGHT_FILLS` const · `SpaceToken` const · `RadiusToken` const · `ColorToken` type · `SpaceToken` type · `RadiusToken` type · `TokenSet` const · `TokenSet` type · `defaultTokens` const |
 | [vocabulary.ts](../packages/dsl/src/vocabulary.ts) | 60 | `VocabNode` const · `VocabNode` type · `VocabTerm` const · `VocabTerm` type · `KIND_WORDS` const · `parseDefine` function · `isVocabCommand` const · `isConfirm` const |

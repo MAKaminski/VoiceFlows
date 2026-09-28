@@ -17,7 +17,7 @@ const say = (seq: number, text: string, isFinal = false) => send({ type: "partia
 const check = (name: string, ok: boolean) => { console.log(`${ok ? "PASS" : "FAIL"} ${name}`); if (!ok) process.exitCode = 1; };
 
 await new Promise((r) => ws.once("open", r));
-send({ type: "hello" });
+send({ type: "hello", ...(process.env.LC_ACCESS ? { access: process.env.LC_ACCESS } : {}) });
 const welcome = await until((m) => m.type === "welcome") as Extract<ServerMsg, { type: "welcome" }>;
 check("welcome carries every flag", Object.keys(welcome.flags ?? {}).length === Object.keys(FEATURES).length);
 await until((m) => m.type === "vocab");

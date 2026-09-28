@@ -19,7 +19,7 @@ const send = (m: object) => { const at = inbox.length; ws.send(JSON.stringify(m)
 const version = (v: number, at: number) => until((m) => m.type === "versions" && m.current === v, at);
 
 await new Promise((r) => ws.once("open", r));
-await version(0, send({ type: "hello" }));
+await version(0, send({ type: "hello", ...(process.env.LC_ACCESS ? { access: process.env.LC_ACCESS } : {}) }));
 await until((m) => m.type === "view", send({ type: "set_view", view: "architecture" }));
 await version(1, send({ type: "set_title", title: "Timeline check" }));
 await version(2, send({ type: "prompt", text: "a web app calls an API that writes to Postgres" }));
