@@ -48,6 +48,11 @@ flowchart LR
     F_all_views_feature["All views at once<br/><small>ARD 0020</small>"]
     F_suggestions_feature["Implied suggestions<br/><small>ARD 0020</small>"]
     F_library_feature["Save &amp; open projects<br/><small>ARD 0020</small>"]
+    F_six_views_feature["Constraints and Cost-Value views<br/><small>ARD 0021</small>"]
+    F_scaffold_feature["Everything generates at once<br/><small>ARD 0021</small>"]
+    F_prd_feature["Live PRD<br/><small>ARD 0021</small>"]
+    F_gate_feature["Home page + invite code<br/><small>ARD 0021</small>"]
+    F_demo_feature["Narrated demo<br/><small>ARD 0021</small>"]
   end
   subgraph uses["Components"]
     direction TB
@@ -119,7 +124,7 @@ flowchart LR
   classDef feat fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef comp fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef tab fill:#eaf1ec,stroke:#2C6249,color:#12191B;
-  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary,F_share_links,F_remember_document,F_version_timeline_feature,F_projects,F_jev_decisions_feature,F_open_vocabulary,F_all_views_feature,F_suggestions_feature,F_library_feature feat;
+  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary,F_share_links,F_remember_document,F_version_timeline_feature,F_projects,F_jev_decisions_feature,F_open_vocabulary,F_all_views_feature,F_suggestions_feature,F_library_feature,F_six_views_feature,F_scaffold_feature,F_prd_feature,F_gate_feature,F_demo_feature feat;
   class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_doc_session,C_postgres,C_redis,C_stripe comp;
   class T_design_documents,T_design_versions,T_exports,T_generation_jobs,T_intents,T_latency_events,T_patch_ops,T_plans,T_primitives,T_provider_keys,T_sessions,T_token_sets,T_transcript_segments,T_usage_periods,T_users,T_utterances tab;
 ```
@@ -185,6 +190,29 @@ Uses `@livecanvas/gateway` (`GET /projects`, `GET /projects/:id`, archive/restor
 table). One shared workspace list — public until accounts exist (ADR 0000); a library open never takes over a
 connected editor.
 
+### 2.1e Six views that scaffold each other + a live PRD — ADR 0021
+Uses `@livecanvas/dsl` (`VIEWS` appends Constraints and Cost-Value; `DesignDocSchema` pads 4 → 6 views;
+`layoutConstraints`, `layoutCva`; `scaffold.ts` rule table + `takeOver`; `prd.ts` `compilePrd`), `DocSession`
+(`applyScaffold` at utterance commit, before the version is written; `applyIntake`) and `@livecanvas/web`
+(`DiagramCanvas` gauge + quadrants, `InferredBadge`, 3×2 `ViewGrid`, `PrdDrawer`, `IntakeCard`).
+**Owns no table**: scaffolded nodes are ordinary ops in 2.2's versions (`inferred: true` in the doc JSON); the PRD
+is recomputed from the doc, never stored. No new component kind: scaffolding emits compact lines through the same
+validated apply path as approvals (P2), and the PRD is a pure function of the doc like `layoutDiagram`.
+
+### 2.8 Home page + invite gate — ADR 0021
+Uses `@livecanvas/web` (`/` home, `middleware.ts`, `/api/enter`, `/api/access-token`, `/api/demo-token`,
+`lib/token.ts` Web Crypto HMAC, `lib/access.ts` `authedFetch`) and `@livecanvas/gateway` (`access.ts`
+`verifyAccess`; `hello.access`, bearer tokens on `/stt/token` and `/projects*`; `tune` clamp; `trustProxy` one hop).
+**Owns no table**: the invite code and the signing secret are env vars; usage is 2.3b's `feature_events`
+(`invite_gate`). Revoke = rotate the signing secret on Vercel and Railway.
+
+### 2.9 Narrated demo — ADR 0021
+Uses `@livecanvas/gateway` (`demo.ts`: script, Aura-2 TTS + nova-3 word timings, in-memory cache;
+`/demo/manifest`, `/demo/audio/:voice/:n`; demo scope in `DocSession` with `memoryPersistence`, call budget and
+caps) and `@livecanvas/web` (`/demo` page on its own `demoGateway`, read-only grid + standalone PRD).
+**Owns no table**: demo sessions persist nothing (in-memory store); usage is `feature_events` (`voice_demo`).
+The demo feeds `partial`s — the same message the browser's own STT sends — so it exercises the real engine.
+
 ### 2.2a Remember the document across tabs — ADR 0014
 Uses `@livecanvas/gateway` (live-document registry in `server.ts`: one `DocSession` and one owning tab
 per document; takeover) and `@livecanvas/web` (`lib/gateway.ts` keeps `documentId` in localStorage).
@@ -228,9 +256,9 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Tables with no FK either way | 0 |
 | Distinct error types | 1 |
 | Symbol names defined 3+ times | 1 |
-| ARDs on record | 21 (20 contributing to the diagram) |
-| Components declared by ARDs | 29 |
-| Features declared by ARDs | 20 |
+| ARDs on record | 22 (21 contributing to the diagram) |
+| Components declared by ARDs | 33 |
+| Features declared by ARDs | 25 |
 <!-- arch:end:counts -->
 
 | Component | Layer | Owns | Pattern (§6) |
@@ -245,6 +273,8 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Deepgram | Middleware (external) | STT partials | — |
 | Redis 7 | Back-end | Live doc, active job, pub/sub | — |
 | Postgres 16 | Back-end | System of record (ERD §5) | — |
+| Scaffold + PRD (`packages/dsl`: `scaffold.ts`, `prd.ts`) | Middleware (shared) | Cross-view rules, PRD compile | P2 patch (compact lines), pure fn of the doc |
+| Access (`apps/gateway/src/access.ts`, `apps/web/lib/token.ts`) | Middleware | HMAC tokens cookie/full/demo | P4 validated config |
 | Docker Compose / Vercel / Railway | Infrastructure | Local stack; web hosting; gateway + data (US-East) | P6 generated + checked |
 
 ## 4. System architecture — living
@@ -264,6 +294,7 @@ flowchart TB
     diagram_canvas["DiagramCanvas<br/><small>ARD 0011</small>"]
     keyword_rail["KeywordRail<br/><small>ARD 0012</small>"]
     diagram_layout["layoutDiagram<br/><small>ARD 0011</small>"]
+    prd["PRD compiler<br/><small>ARD 0021</small>"]
     share_popover["SharePopover<br/><small>ARD 0013</small>"]
     version_timeline["VersionTimeline<br/><small>ARD 0015</small>"]
   end
@@ -275,15 +306,18 @@ flowchart TB
     _livecanvas_prompts["@livecanvas/prompts"]
     anthropic["Anthropic Messages API (Haiku 4.5 · Sonnet 5)<br/><small>ARD 0000</small>"]
     compact_expander["Compact op expander → RFC 6902 (packages/dsl)<br/><small>ARD 0002</small>"]
+    scaffold["Cross-view scaffolding (rules)<br/><small>ARD 0021</small>"]
     deepgram["Deepgram Flux streaming STT (flux-general-en)<br/><small>ARD 0007</small><br/><small>M2 bake-off: word lag 91 ms p50 (sfo), update every 240 ms — ADR 0007</small>"]
     doc_session["DocSession — single writer: doc, job controller, versions/undo<br/><small>ARD 0009</small><br/><small>M4: 9/10 · 1 model call/utterance · TTFV-1 756 ms · settle 697 ms · $0.0111/min</small>"]
     flag_service["FlagService<br/><small>ARD 0012</small>"]
     fused_engine["Fused intent+patch engine — header-first, single in-flight<br/><small>ARD 0001</small><br/><small>TTFV-1 target ≤ 1,000 ms p50</small>"]
     share_api["GET /share/:token<br/><small>ARD 0013</small>"]
     suggestions["Implied suggestions (rules + model)<br/><small>ARD 0020</small>"]
+    invite_gate["Invite gate (HMAC access tokens)<br/><small>ARD 0021</small>"]
     jev_decisions["Jev decisions (phase 0)<br/><small>ARD 0017</small>"]
     client_lexicon["Lexicon — provisional nodes (gateway, M4)<br/><small>ARD 0009</small><br/><small>TTFV-0 target ≤ 400 ms p50</small>"]
     live_docs["live document registry<br/><small>ARD 0014</small>"]
+    voice_demo["Narrated demo (Aura-2 + word timings)<br/><small>ARD 0021</small>"]
     project_views["Project (4 views)<br/><small>ARD 0016</small>"]
     project_library["Project library (/projects)<br/><small>ARD 0020</small>"]
     project_notes["project notes rewrite<br/><small>ARD 0016</small>"]
@@ -336,16 +370,19 @@ flowchart TB
   fluency_corpus -.->|"streams cases as partials, scores the design · ARD 0019"| doc_session
   doc_session -.->|"nouns drawn → rule suggestions (~5 ms) · ARD 0020"| suggestions
   project_library -.->|"open {documentId, open} / in_use · ARD 0020"| doc_session
+  doc_session -.->|"utterance commit → inferred ops, same version · ARD 0021"| scaffold
+  invite_gate -.->|"hello {access} → full | demo scope · ARD 0021"| doc_session
+  voice_demo -.->|"script words as partials at clip timings · ARD 0021"| doc_session
   classDef declared stroke-dasharray:5 4,stroke-width:2px;
   classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef be fill:#eaf1ec,stroke:#2C6249,color:#12191B;
   classDef inf fill:#f4efe6,stroke:#8A6210,color:#12191B;
-  class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail,share_view,share_popover,version_timeline,view_grid fe;
-  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,flag_service,admin_api,share_api,live_docs,project_views,project_notes,jev_decisions,suggestions,project_library mw;
+  class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail,share_view,share_popover,version_timeline,view_grid,prd fe;
+  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,flag_service,admin_api,share_api,live_docs,project_views,project_notes,jev_decisions,suggestions,project_library,scaffold,invite_gate,voice_demo mw;
   class postgres,redis be;
   class vercel,railway,fluency_corpus inf;
-  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover,live_docs,version_timeline,project_views,project_notes,jev_decisions,fluency_corpus,suggestions,project_library,view_grid declared;
+  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover,live_docs,version_timeline,project_views,project_notes,jev_decisions,fluency_corpus,suggestions,project_library,view_grid,scaffold,prd,invite_gate,voice_demo declared;
 ```
 <!-- arch:end:components -->
 
@@ -513,6 +550,12 @@ flowchart TD
 the P3 registry (`propSchemas`, `PRIMARY_TEXT_PROP`, `PARENTS`); every diagram edit is a P2 op; the
 per-kind prompts, allowlists and noun tables are registries keyed by kind (P3 shape); `DiagramCanvas`
 memoises per node id (P5). `layoutDiagram` is a pure function of the doc, like `serializeCompact`.
+
+**M9 adds no pattern (ADR 0021).** Proof: the two new views are `Diagram{kind}` roots on the same four
+primitives (P3 registries gain two keys each); scaffolding and intake emit compact lines through `compileLines`,
+the same P2 path approvals use; `compilePrd` and the two layouts are pure functions of the doc. Two HMAC
+implementations exist on purpose — node `crypto` at the gateway, Web Crypto at the Edge middleware — with the
+same `purpose.exp.sig` format; the Edge runtime cannot load node `crypto`.
 
 ## 7. Sprawl watch
 

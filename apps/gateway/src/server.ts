@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FlagService } from "./flags.js";
 import { verifyAccess } from "./access.js";
+import { DEMO_VOICES, demoAudio, type DemoVoice } from "./demo.js";
 import Fastify from "fastify";
 import { loadConfig, type Config } from "./config.js";
 import { getSql } from "./db.js";
@@ -222,6 +223,25 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
       return { id: id.data, archived };
     });
   }
+
+  // ── Voice demo audio (ADR 0021): public, generated once per voice, cached in memory ───────────────
+  const demo = demoAudio(config.DEEPGRAM_API_KEY, (m) => app.log.info(m));
+  // Warm the default voice (~4 s of Aura + transcription) so the first visitor doesn't wait for it.
+  if (config.DEEPGRAM_API_KEY && flags.on("voice_demo") && !process.env.VITEST) void demo.manifest("thalia").catch(() => {});
+  const voiceOf = (v: unknown): DemoVoice | null => (DEMO_VOICES.some((x) => x.id === v) ? (v as DemoVoice) : null);
+  app.get<{ Querystring: { voice?: string } }>("/demo/manifest", async (req, reply) => {
+    if (!flags.on("voice_demo")) return reply.code(404).send({ error: "not found" });
+    const voice = voiceOf(req.query.voice ?? "thalia");
+    if (!voice) return reply.code(400).send({ error: "unknown voice" });
+    try { return { voices: DEMO_VOICES.map(({ id, label }) => ({ id, label })), ...(await demo.manifest(voice)) }; }
+    catch (e) { app.log.warn({ err: (e as Error).message }, "demo: generation failed"); return reply.code(503).send({ error: "demo audio unavailable" }); }
+  });
+  app.get<{ Params: { voice: string; n: string } }>("/demo/audio/:voice/:n", async (req, reply) => {
+    const voice = voiceOf(req.params.voice);
+    const clip = voice ? demo.clip(voice, Number(req.params.n)) : null;
+    if (!clip) return reply.code(404).send({ error: "not found" });
+    return reply.header("content-type", "audio/mpeg").header("cache-control", "public, max-age=86400").send(clip);
+  });
 
   app.get("/healthz", async () => ({
     ok: true,

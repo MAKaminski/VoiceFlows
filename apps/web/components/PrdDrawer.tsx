@@ -5,7 +5,7 @@ import { useMemo, type ReactNode } from "react";
 
 /** Minimal markdown for the PRD: headings, bullets, numbered lines, **bold**, _italic_. */
 function inline(text: string): ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*|_[^_]+_)/g).map((part, i) =>
+  return text.split(/(\*\*[^*]+\*\*|(?<!\w)_[^_]+_(?!\w))/g).map((part, i) =>
     part.startsWith("**") ? <strong key={i}>{part.slice(2, -2)}</strong> : part.startsWith("_") && part.endsWith("_") && part.length > 2 ? <em key={i} style={{ opacity: 0.7 }}>{part.slice(1, -1)}</em> : part);
 }
 export function Markdown({ md }: { md: string }) {

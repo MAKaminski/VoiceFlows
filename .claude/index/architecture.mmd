@@ -8,6 +8,7 @@ flowchart TB
     diagram_canvas["DiagramCanvas<br/><small>ARD 0011</small>"]
     keyword_rail["KeywordRail<br/><small>ARD 0012</small>"]
     diagram_layout["layoutDiagram<br/><small>ARD 0011</small>"]
+    prd["PRD compiler<br/><small>ARD 0021</small>"]
     share_popover["SharePopover<br/><small>ARD 0013</small>"]
     version_timeline["VersionTimeline<br/><small>ARD 0015</small>"]
   end
@@ -19,15 +20,18 @@ flowchart TB
     _livecanvas_prompts["@livecanvas/prompts"]
     anthropic["Anthropic Messages API (Haiku 4.5 · Sonnet 5)<br/><small>ARD 0000</small>"]
     compact_expander["Compact op expander → RFC 6902 (packages/dsl)<br/><small>ARD 0002</small>"]
+    scaffold["Cross-view scaffolding (rules)<br/><small>ARD 0021</small>"]
     deepgram["Deepgram Flux streaming STT (flux-general-en)<br/><small>ARD 0007</small><br/><small>M2 bake-off: word lag 91 ms p50 (sfo), update every 240 ms — ADR 0007</small>"]
     doc_session["DocSession — single writer: doc, job controller, versions/undo<br/><small>ARD 0009</small><br/><small>M4: 9/10 · 1 model call/utterance · TTFV-1 756 ms · settle 697 ms · $0.0111/min</small>"]
     flag_service["FlagService<br/><small>ARD 0012</small>"]
     fused_engine["Fused intent+patch engine — header-first, single in-flight<br/><small>ARD 0001</small><br/><small>TTFV-1 target ≤ 1,000 ms p50</small>"]
     share_api["GET /share/:token<br/><small>ARD 0013</small>"]
     suggestions["Implied suggestions (rules + model)<br/><small>ARD 0020</small>"]
+    invite_gate["Invite gate (HMAC access tokens)<br/><small>ARD 0021</small>"]
     jev_decisions["Jev decisions (phase 0)<br/><small>ARD 0017</small>"]
     client_lexicon["Lexicon — provisional nodes (gateway, M4)<br/><small>ARD 0009</small><br/><small>TTFV-0 target ≤ 400 ms p50</small>"]
     live_docs["live document registry<br/><small>ARD 0014</small>"]
+    voice_demo["Narrated demo (Aura-2 + word timings)<br/><small>ARD 0021</small>"]
     project_views["Project (4 views)<br/><small>ARD 0016</small>"]
     project_library["Project library (/projects)<br/><small>ARD 0020</small>"]
     project_notes["project notes rewrite<br/><small>ARD 0016</small>"]
@@ -80,13 +84,16 @@ flowchart TB
   fluency_corpus -.->|"streams cases as partials, scores the design · ARD 0019"| doc_session
   doc_session -.->|"nouns drawn → rule suggestions (~5 ms) · ARD 0020"| suggestions
   project_library -.->|"open {documentId, open} / in_use · ARD 0020"| doc_session
+  doc_session -.->|"utterance commit → inferred ops, same version · ARD 0021"| scaffold
+  invite_gate -.->|"hello {access} → full | demo scope · ARD 0021"| doc_session
+  voice_demo -.->|"script words as partials at clip timings · ARD 0021"| doc_session
   classDef declared stroke-dasharray:5 4,stroke-width:2px;
   classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef be fill:#eaf1ec,stroke:#2C6249,color:#12191B;
   classDef inf fill:#f4efe6,stroke:#8A6210,color:#12191B;
-  class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail,share_view,share_popover,version_timeline,view_grid fe;
-  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,flag_service,admin_api,share_api,live_docs,project_views,project_notes,jev_decisions,suggestions,project_library mw;
+  class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail,share_view,share_popover,version_timeline,view_grid,prd fe;
+  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,flag_service,admin_api,share_api,live_docs,project_views,project_notes,jev_decisions,suggestions,project_library,scaffold,invite_gate,voice_demo mw;
   class postgres,redis be;
   class vercel,railway,fluency_corpus inf;
-  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover,live_docs,version_timeline,project_views,project_notes,jev_decisions,fluency_corpus,suggestions,project_library,view_grid declared;
+  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover,live_docs,version_timeline,project_views,project_notes,jev_decisions,fluency_corpus,suggestions,project_library,view_grid,scaffold,prd,invite_gate,voice_demo declared;

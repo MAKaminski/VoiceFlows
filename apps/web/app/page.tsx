@@ -63,7 +63,7 @@ export default function Home() {
           <a href="/demo" data-testid="watch-demo" style={{ fontSize: 16, fontWeight: 650, padding: "12px 22px", borderRadius: 999, background: "#2563eb", color: "#fff", textDecoration: "none" }}>
             ▶ Watch the demo
           </a>
-          <Suspense><Enter /></Suspense>
+          <div id="join"><Suspense><Enter /></Suspense></div>
         </div>
       </section>
 

@@ -1,10 +1,10 @@
 {
-  "ards": 21,
-  "ards_contributing": 20,
+  "ards": 22,
+  "ards_contributing": 21,
   "components_from_code": 4,
-  "components_from_ards": 29,
-  "flows_from_ards": 36,
-  "features": 20,
+  "components_from_ards": 33,
+  "flows_from_ards": 39,
+  "features": 25,
   "notes": 10,
   "index": [
     {
@@ -151,6 +151,13 @@
       "num": "0020",
       "file": "0020-all-views-suggestions-library.md",
       "title": "ADR 0020 \u2014 All views at once, implied suggestions, flag history, a shared project library",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0021",
+      "file": "0021-six-views-scaffold-prd-gate-demo.md",
+      "title": "ADR 0021 \u2014 Six views that scaffold each other, a live PRD, an invite gate, a narrated demo",
       "status": "accepted",
       "contributes": true
     }

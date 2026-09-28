@@ -51,6 +51,7 @@ describe("fluency corpus (M7, offline)", () => {
     const by = (v: string) => CASES.filter((c) => c.view === v || c.expect.view === v).length;
     expect(CASES.length).toBeGreaterThanOrEqual(70);
     for (const v of ["screen", "architecture", "erd", "sequence"]) expect(by(v)).toBeGreaterThanOrEqual(8);
+    for (const v of ["constraints", "cva"]) expect(by(v)).toBeGreaterThanOrEqual(6); // M9
     expect(new Set(CASES.map((c) => c.id)).size).toBe(CASES.length);
   });
 

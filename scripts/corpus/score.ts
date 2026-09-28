@@ -1,5 +1,5 @@
 import { viewDoc, type DesignDoc, type DesignNode } from "../../packages/dsl/src/index.js";
-import type { CorpusCase, View } from "./cases.js";
+import type { CorpusCase, Expect, Quadrant, View } from "./cases.js";
 
 /** Loose text match for diagram labels and screen text: case, punctuation and plural ignored. */
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").map((w) => w.replace(/(ies)$/, "y").replace(/s$/, "")).join(" ");
@@ -29,11 +29,26 @@ function select(root: DesignNode, view: View, sel: string): DesignNode[] {
 
 export interface Score { pass: boolean; failures: string[]; view: View }
 
+/** Numbers within 5% (a spoken "five hundred an hour" is 0.1389/s); everything else exactly. */
+const same = (got: string, want: string) => got === want || (Number.isFinite(+got) && Number.isFinite(+want) && got !== "—" && Math.abs(+got - +want) <= Math.abs(+want) * 0.05);
+const quadrantOf = (n: DesignNode): Quadrant | "unscored" => {
+  const c = n.props.cost, v = n.props.value;
+  if (typeof c !== "number" || typeof v !== "number") return "unscored";
+  return v >= 3 ? (c <= 2 ? "quick wins" : "big bets") : (c <= 2 ? "fill-ins" : "money pits");
+};
+
 export function score(project: DesignDoc, activeView: View, c: CorpusCase): Score {
   const e = c.expect;
   const failures: string[] = [];
   const view = e.view ?? c.view;
   if (e.view && activeView !== e.view) failures.push(`ended on ${activeView}, expected ${e.view}`);
+  failures.push(...check(project, view, e));
+  for (const a of e.also ?? []) failures.push(...check(project, a.view, a).map((f) => `${a.view}: ${f}`));
+  return { pass: failures.length === 0, failures, view: activeView };
+}
+
+function check(project: DesignDoc, view: View, e: Omit<Expect, "also">): string[] {
+  const failures: string[] = [];
   const root = viewDoc(project, view).root;
   const edges = all(root).filter((n) => n.type === "Edge");
   const labelOf = (id: unknown) => { const n = all(root).find((x) => x.id === id); return n ? String(n.props.label ?? "") : ""; };
@@ -44,7 +59,7 @@ export function score(project: DesignDoc, activeView: View, c: CorpusCase): Scor
   for (const [s, prop, want] of e.props ?? []) {
     const hits = select(root, view, s);
     const got = hits.map((n) => String((n.props as Record<string, unknown>)[prop] ?? "—"));
-    const ok = prop === "owner" ? got.some((g) => matches(g, want)) : got.includes(want);
+    const ok = prop === "owner" ? got.some((g) => matches(g, want)) : got.some((g) => same(g, want));
     if (!ok) failures.push(`${s}.${prop} = ${got.join("|") || "(no element)"}, expected ${want}`);
   }
   const kids = root.children ?? [];
@@ -64,5 +79,9 @@ export function score(project: DesignDoc, activeView: View, c: CorpusCase): Scor
     const have = ((t?.props.cols as string[] | undefined) ?? []).map((cs) => cs.split(":")[0]!);
     for (const col of cols) if (!have.some((h) => h === col || norm(h).includes(norm(col)))) failures.push(`${table} lacks column ${col} (has ${have.join(",") || "no table"})`);
   }
-  return { pass: failures.length === 0, failures, view: activeView };
+  for (const [item, want] of e.quadrant ?? []) {
+    const got = select(root, view, item).map(quadrantOf);
+    if (!got.includes(want)) failures.push(`${item} is ${got.join("|") || "missing"}, expected ${want}`);
+  }
+  return failures;
 }

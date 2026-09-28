@@ -26,7 +26,10 @@ export interface Expect {
   noLinks?: string[];                           // no edge touches this element
   minEdges?: number;
   cols?: Array<[string, string[]]>;             // table → column names that must exist
+  quadrant?: Array<[string, Quadrant]>;         // cva: item → where its cost/value puts it
+  also?: Array<Omit<Expect, "also"> & { view: View }>; // other views the sentence scaffolds (M9, ADR 0021)
 }
+export type Quadrant = "quick wins" | "big bets" | "fill-ins" | "money pits";
 
 export interface CorpusCase {
   id: string;
@@ -40,6 +43,7 @@ export interface CorpusCase {
 }
 
 const LOGIN = "a login screen with email and password and a sign in button";
+const ARCH = "the web app calls the api and the api writes to postgres";
 
 export const CASES: CorpusCase[] = [
   // ── Screen ─────────────────────────────────────────────────────────────────────────────────
@@ -211,4 +215,48 @@ export const CASES: CorpusCase[] = [
     expect: { has: ["cache"], links: [["web app", "cache"]] } },
   { id: "q-auth", view: "sequence", say: "the app redirects the user to auth and auth returns a code to the app",
     expect: { has: ["auth"], minEdges: 2 } },
+
+  // ── Constraints (M9, ADR 0021): numbers go to the model; "demand"/"capacity" are req/s ─────────
+  { id: "c-capacity", view: "constraints", setup: [ARCH], say: "postgres handles two hundred writes a second", hears: ["two", "hundred"],
+    expect: { props: [["postgres", "capacity", "200"]] } },
+  { id: "c-demand", view: "constraints", setup: [ARCH], say: "at peak the api gets five hundred requests a second", hears: ["five", "hundred"],
+    expect: { props: [["api", "demand", "500"]] } },
+  { id: "c-bottleneck", view: "constraints", setup: [ARCH], say: "the api can only handle a hundred requests a second but we expect three hundred", hears: ["hundred", "three"],
+    expect: { props: [["api", "capacity", "100"], ["api", "demand", "300"]] } },
+  { id: "c-latency", view: "constraints", setup: [ARCH], say: "the api responds in about eighty milliseconds", hears: ["eighty", "milliseconds"],
+    expect: { props: [["api", "latency", "80"]] } },
+  { id: "c-per-hour", view: "constraints", setup: [ARCH], say: "we expect five hundred cases an hour on the web app", hears: ["hour"],
+    expect: { props: [["web app", "demand", "0.139"]] } },
+  { id: "c-queue", view: "constraints", say: "the queue feeds the worker and the worker processes twenty jobs a second", hears: ["twenty"],
+    expect: { has: ["queue", "worker"], props: [["worker", "capacity", "20"]] } },
+  { id: "c-switch", view: "screen", say: "show me the bottlenecks, the database handles fifty writes a second",
+    expect: { view: "constraints", has: ["database"] } },
+  { id: "c-fk-stays", view: "erd", setup: ["users and orders"], say: "add foreign key constraints between users and orders",
+    expect: { view: "erd", has: ["users", "orders"] } },
+
+  // ── Cost-value (M9): cost and value 1–5; quick wins = value ≥ 3 and cost ≤ 2 ─────────────────
+  { id: "v-quick", view: "cva", say: "single sign on is cheap and high value", hears: ["cheap"],
+    expect: { quadrant: [["single sign on", "quick wins"]] } },
+  { id: "v-big", view: "cva", say: "ai routing is expensive but really valuable", hears: ["expensive"],
+    expect: { quadrant: [["ai routing", "big bets"]] } },
+  { id: "v-pit", view: "cva", say: "custom themes are expensive and nobody wants them", hears: ["expensive"],
+    expect: { quadrant: [["custom themes", "money pits"]] } },
+  { id: "v-fill", view: "cva", say: "dark mode is cheap but low value", hears: ["cheap"],
+    expect: { quadrant: [["dark mode", "fill-ins"]] } },
+  { id: "v-list", view: "cva", say: "we are weighing csv export, slack alerts and audit logs",
+    expect: { has: ["csv export", "slack alerts", "audit logs"] } },
+  { id: "v-rescore", view: "cva", setup: ["dark mode is cheap but low value"], say: "actually dark mode is really high value", hears: ["high"],
+    expect: { quadrant: [["dark mode", "quick wins"]] } },
+  { id: "v-switch", view: "screen", say: "let's do a cost value analysis, reporting is expensive and high value",
+    expect: { view: "cva", quadrant: [["reporting", "big bets"]] } },
+
+  // ── Scaffolding (M9): one sentence fills the other views, marked inferred ─────────────────────
+  { id: "x-login", view: "screen", say: LOGIN, instant: true,
+    expect: { has: ["Input:email"], also: [{ view: "architecture", has: ["web app", "api", "auth"] }, { view: "erd", has: ["users"] }, { view: "sequence", has: ["user", "web app"] }, { view: "cva", has: ["sign in"] }] } },
+  { id: "x-erd-db", view: "erd", say: "customers have many orders",
+    expect: { edges: [["customers", "orders"]], also: [{ view: "architecture", has: ["database"] }, { view: "sequence", has: ["database"] }] } },
+  { id: "x-arch", view: "architecture", say: ARCH,
+    expect: { also: [{ view: "sequence", has: ["web app", "api", "postgres"], edges: [["api", "postgres"]] }, { view: "constraints", has: ["web app", "api", "postgres"] }] } },
+  { id: "x-seq", view: "sequence", say: "the browser calls the server and the server queries redis",
+    expect: { also: [{ view: "architecture", has: ["server", "redis"] }] } },
 ];
