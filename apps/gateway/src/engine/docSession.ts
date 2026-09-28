@@ -10,8 +10,11 @@ import { decisionsToLines, planDecisions } from "./decisions.js";
 import type { JevClient } from "./jev.js";
 
 export interface EngineConfig { model: string; system: string; render: (vars: Record<string, string>) => string }
-export interface Tunables { minGapMs: number; callsPerMin: number; burst: number }
-export const DEFAULT_TUNABLES: Tunables = { minGapMs: 150, callsPerMin: 20, burst: 2 };
+export interface Tunables { minGapMs: number; callsPerMin: number; burst: number; silenceSettleMs: number }
+/** silenceSettleMs: commit after this much audio silence since the last word, without waiting for Flux's
+ *  end-of-turn signal (~685 ms after the last word, whatever eager_eot_threshold is). 0 = off. The test
+ *  sentence's longest natural pause is 240 ms (2026-09-27). */
+export const DEFAULT_TUNABLES: Tunables = { minGapMs: 150, callsPerMin: 20, burst: 2, silenceSettleMs: 400 };
 
 type JobKind = "typed" | "speculative" | "settle";
 const BRIEF_CHARS = 480; // ≈ 120 tokens — the project-context cap (ADR 0016 cost math)
@@ -29,7 +32,8 @@ interface Utterance {
   lexIds: Set<string>; // nodes the lexicon drew this utterance (fold targets even after commit clears provisional)
   calledFor: Set<string>; // uncovered content words already sent to the model
   labels: Map<string, { label: string; mine: boolean }>; // noun occurrence key → what it drew (transcript highlighting)
-  drawnAt: Map<string, string>; // noun occurrence key → the node the lexicon drew for it (label refresh, ADR 0017)
+  drawnAt: Map<string, string>;
+  settledWords?: number; // word count when it was committed — more words later means the speaker went on // noun occurrence key → the node the lexicon drew for it (label refresh, ADR 0017)
   lastCallAt: number; ending: boolean; settled: boolean;
 }
 
@@ -205,8 +209,11 @@ export class DocSession {
       this.utt = { seq, baseDoc: this.project, text: "", handled: new Set(), lexIds: new Set(), calledFor: new Set(), labels: new Map(), drawnAt: new Map(), lastCallAt: -Infinity, ending: false, settled: false };
     }
     const u = this.utt;
-    // Speech resumed after an eager settle (Flux TurnResumed): reopen the utterance as a new part.
-    if (u.settled && !isFinal && !isVocabCommand(text) && uncovered(text, u.handled, true, docKind(this.doc)).some((k) => !u.calledFor.has(k))) {
+    // Speech resumed after an early settle (silence rule or Flux TurnResumed): reopen the utterance as a
+    // new part. Any new word counts — before, only model-worthy words did, so nouns the lexicon draws were
+    // dropped for the rest of the turn.
+    const grew = u.settledWords != null && lexTokens(text).length > u.settledWords;
+    if (u.settled && !isVocabCommand(text) && (grew || (!isFinal && uncovered(text, u.handled, true, docKind(this.doc)).some((k) => !u.calledFor.has(k))))) {
       u.settled = false; u.ending = false; u.baseDoc = this.project;
     }
     if (u.settled) return;
@@ -234,6 +241,20 @@ export class DocSession {
     // Final or Flux EagerEndOfTurn: the speaker (probably) stopped — settle as soon as nothing is pending.
     if (isFinal || eager) { u.ending = true; this.settleIfReady(); return; }
     this.maybeSpeculate();
+  }
+
+  /**
+   * Relay-mode audio clock (ms of audio received since listening started — the clock Flux's word times
+   * use). After `silenceSettleMs` of silence past the last word, with nothing pending, settle now instead
+   * of waiting for Flux's end-of-turn signal.
+   */
+  onAudioClock(audioMs: number) {
+    const u = this.utt;
+    const quiet = this.tunables.silenceSettleMs;
+    if (!quiet || !u || u.settled || u.ending || this.active || u.lastWordEndMs == null) return;
+    if (audioMs - u.lastWordEndMs < quiet || this.pending(u).length) return;
+    u.ending = true;
+    this.settleIfReady();
   }
 
   /**
@@ -304,6 +325,7 @@ export class DocSession {
     const u = this.utt;
     if (!u || u.settled) return;
     u.settled = true;
+    u.settledWords = lexTokens(u.text).length;
     const clear: PatchOp[] = [];
     const walk = (n: DesignNode, path: string) => {
       if (n.provisional) clear.push({ op: "remove", path: `${path}/provisional` });

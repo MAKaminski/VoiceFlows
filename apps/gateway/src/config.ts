@@ -29,7 +29,8 @@ const Env = z.object({
   ADMIN_TOKEN: z.string().min(24).optional(),
   // TypeSafe Jev (ADR 0017): typed structural decisions; unset → the model does everything, as before.
   TYPESAFE_API_KEY: z.string().optional(),
-  JEV_TIMEOUT_MS: z.coerce.number().default(250), // bake-off p95 146 ms; past this, fall back to the model
+  JEV_TIMEOUT_MS: z.coerce.number().default(250),
+  SILENCE_SETTLE_MS: z.coerce.number().default(400), // ADR 0018: commit after this much silence; 0 = wait for Flux // bake-off p95 146 ms; past this, fall back to the model
   ADMIN_ORIGINS: z.string().default("https://live-canvas-three.vercel.app,http://localhost:3000"),
 });
 

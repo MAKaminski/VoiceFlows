@@ -104,6 +104,8 @@ async function run(i: number) {
   for (const { m, at } of inbox) if (m.type === "ops" && (m.origin === "model" || m.origin === "jev") && !firstModel.has(m.jobId)) firstModel.set(m.jobId, { at, trig: m.trigMs });
   const ttfv1 = [...firstModel.values()].filter((x) => x.trig != null).map((x) => Math.round(x.at - wallOf(x.trig!)));
   const version = inbox.find((x) => x.m.type === "version" && x.m.version > 0);
+  // One version per utterance (ADR 0010): an early end-of-turn that commits mid-sentence splits it.
+  const versions = new Set(inbox.flatMap((x) => (x.m.type === "version" && x.m.version > 0 ? [x.m.version] : []))).size;
   const settle = version ? Math.round(version.at - wallOf(endOf("top"))) : NaN;
   const jobs = inbox.filter((x) => x.m.type === "job" && x.m.state === "running").map((x) => (x.m as { kind?: string }).kind);
   const tokens = inbox.filter((x) => x.m.type === "job" && (x.m as { inputTokens?: number }).inputTokens != null)
@@ -118,10 +120,10 @@ async function run(i: number) {
   const formBeforeButtonEnds = lexArrival.email != null && lexArrival.password != null && Math.max(lexArrival.email, lexArrival.password) < wallOf(endOf("button"));
   const maxReflows = Math.max(0, ...moves.values());
   const t0med = pct(Object.values(ttfv0), 50), t1med = pct(ttfv1, 50);
-  const pass = layoutOk && formBeforeButtonEnds && maxReflows < 3
+  const pass = versions === 1 && layoutOk && formBeforeButtonEnds && maxReflows < 3
     && t0med + CAPTURE_MS + RENDER_MS <= 400 && (Number.isNaN(t1med) || t1med + CAPTURE_MS + RENDER_MS <= 1000) && settle + CAPTURE_MS + RENDER_MS <= 1200;
   const dollars = (tokens.in * 1 + tokens.out * 5) / 1e6;
-  console.log(`run ${String(i + 1).padStart(2)}: ${pass ? "PASS" : "fail"} · TTFV-0 ${JSON.stringify(ttfv0)} · TTFV-1 [${ttfv1.join(", ")}] · settle ${settle} · reflows ${maxReflows} · form-before-button ${formBeforeButtonEnds} · layout ${layoutOk} · calls ${jobs.join("/")} · $${dollars.toFixed(4)}`);
+  console.log(`run ${String(i + 1).padStart(2)}: ${pass ? "PASS" : "fail"} · TTFV-0 ${JSON.stringify(ttfv0)} · TTFV-1 [${ttfv1.join(", ")}] · settle ${settle} · versions ${versions} · reflows ${maxReflows} · form-before-button ${formBeforeButtonEnds} · layout ${layoutOk} · calls ${jobs.join("/")} · $${dollars.toFixed(4)}`);
   if (process.env.TIMELINE) {
     const topWall = wallOf(endOf("top"));
     for (const { m, at } of inbox) {

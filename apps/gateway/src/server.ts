@@ -202,6 +202,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
       socket.on("message", async (raw: Buffer, isBinary: boolean) => {
         if (isBinary) { // relay-mode audio (80 ms int16 PCM)
           framesIn++;
+          doc?.onAudioClock(framesIn * 80); // 80 ms frames: settle on silence (ADR 0018)
           if (relay) relay.send(raw);
           else if (relayQueue && relayQueue.length < 125) relayQueue.push(raw);
           return;
@@ -231,6 +232,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
                 resumed = opened.documentId === target;
                 const created: LiveDoc = { doc: null as unknown as DocSession, owner: null, release: null, shareLinks: [] };
                 created.doc = new DocSession(opened, { persistence: deps.persistence, model: deps.model, engine: deps.engine, engines: deps.engines, notesEngine: deps.notesEngine, jev: deps.jev, flags: () => flags.all(), send: toOwner(created), log: (m) => app.log.warn(m) });
+                created.doc.tune({ silenceSettleMs: config.SILENCE_SETTLE_MS });
                 created.doc.terms = await deps.persistence.listVocab(opened.documentId).catch(() => []);
                 created.doc.recent = await deps.persistence.recentUtterances(opened.documentId, 8).catch(() => []);
                 created.shareLinks = await deps.persistence.listShares(opened.documentId).catch(() => []);

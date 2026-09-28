@@ -163,3 +163,42 @@ describe("label refresh after STT revisions (ADR 0017)", () => {
     expect(calls).toBe(0);
   });
 });
+
+describe("settle on silence (ADR 0018)", () => {
+  async function make() {
+    const persistence = memoryPersistence();
+    const sent: ServerMsg[] = [];
+    const d = new DocSession(await persistence.openSession(), { persistence, model: null, send: (m) => sent.push(m), engine: { model: "m", system: "s", render: () => "" } });
+    return { d, versions: () => sent.filter((m) => m.type === "version").length };
+  }
+
+  it("commits 400 ms of audio after the last word — not before — without waiting for Flux", async () => {
+    const { d, versions } = await make();
+    d.onTranscript(0, "an email and a password", false, 2000);
+    d.onAudioClock(2399);
+    expect(versions()).toBe(0);
+    d.onAudioClock(2400);
+    expect(versions()).toBe(1);
+    d.onTranscript(0, "an email and a password", true, 2000); // Flux's own end of turn arrives later: no second version
+    expect(versions()).toBe(1);
+  });
+
+  it("the speaker carries on after an early settle: the new words still draw (reopened as a new part)", async () => {
+    const { d, versions } = await make();
+    d.onTranscript(0, "an email", false, 1000);
+    d.onAudioClock(1500);
+    expect(versions()).toBe(1);
+    d.onTranscript(0, "an email and a password", false, 2200);
+    expect(d.doc.root.children!.map((c) => c.props.label)).toEqual(["Email", "Password"]);
+    d.onAudioClock(2700);
+    expect(versions()).toBe(2);
+  });
+
+  it("off when silenceSettleMs is 0", async () => {
+    const { d, versions } = await make();
+    d.tune({ silenceSettleMs: 0 });
+    d.onTranscript(0, "an email", false, 1000);
+    d.onAudioClock(9000);
+    expect(versions()).toBe(0);
+  });
+});
