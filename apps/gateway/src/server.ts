@@ -1,6 +1,7 @@
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import { ClientMsg, FEATURES, FeatureKey, kindFeature, PROTOCOL, ShareToken, toProject, type DocKind, type ServerMsg } from "@livecanvas/dsl";
+import { z } from "zod";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FlagService } from "./flags.js";
 import Fastify from "fastify";
@@ -22,6 +23,7 @@ export interface Deps {
   engine: EngineConfig;
   engines?: Partial<Record<DocKind, EngineConfig>>;
   notesEngine?: EngineConfig; // ADR 0016
+  suggestEngine?: EngineConfig; // ADR 0020: model suggestions (flag suggestions_model, off by default)
   jev?: JevClient; // ADR 0017
   flags?: FlagService;
 }
@@ -46,6 +48,7 @@ export function defaultDeps(config: Config): Deps {
       sequence: engineFor("diagram_sequence", config),
     },
     notesEngine: engineFor("project_notes", config),
+    suggestEngine: engineFor("suggest", config),
     ...(config.TYPESAFE_API_KEY ? { jev: typesafeJev(config.TYPESAFE_API_KEY, config.JEV_TIMEOUT_MS) } : {}),
   };
 }
@@ -131,18 +134,67 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
   };
   app.get("/admin/flags", async (req, reply) => {
     if (denied(req, reply)) return reply;
-    const stats = await deps.persistence.flagStats(7);
+    const [stats, history] = await Promise.all([deps.persistence.flagStats(7), deps.persistence.flagHistory(500)]);
     const on = flags.all();
-    return { flags: Object.entries(FEATURES).map(([key, f]) => ({ key, description: f.description, default: f.default, enabled: on[key as FeatureKey], last7d: stats[key as FeatureKey] ?? { exposed: 0, used: 0, blocked: 0 } })) };
+    return { flags: Object.entries(FEATURES).map(([key, f]) => ({ key, description: f.description, default: f.default, enabled: on[key as FeatureKey],
+      last7d: stats[key as FeatureKey] ?? { exposed: 0, used: 0, blocked: 0 }, lastChange: history.find((h) => h.key === key) ?? null })) };
+  });
+  // Flag history (ADR 0020): who turned what on or off, and when. actor = a short hash of the admin's IP.
+  app.get<{ Querystring: { limit?: string } }>("/admin/flags/history", async (req, reply) => {
+    if (denied(req, reply)) return reply;
+    return { changes: await deps.persistence.flagHistory(Math.min(200, Math.max(1, Number(req.query.limit) || 50))) };
   });
   app.put<{ Params: { key: string }; Body: { enabled?: unknown } }>("/admin/flags/:key", async (req, reply) => {
     if (denied(req, reply)) return reply;
     const key = FeatureKey.safeParse(req.params.key);
     if (!key.success || typeof req.body?.enabled !== "boolean") return reply.code(400).send({ error: "need a known key and {enabled: boolean}" });
-    await flags.set(key.data, req.body.enabled);
+    await flags.set(key.data, req.body.enabled, { source: "admin", actor: createHash("sha256").update(req.ip).digest("hex").slice(0, 8) });
     app.log.info({ key: key.data, enabled: req.body.enabled, ip: req.ip }, "admin: flag flipped");
     return { key: key.data, enabled: req.body.enabled };
   });
+
+  // ── Project library (ADR 0020): one shared workspace list of SAVED projects (no accounts yet — anyone with
+  // the site can see and open them; the user's choice). Rate-limited per IP; the flag switches it off at once.
+  const hits = new Map<string, { n: number; since: number }>();
+  const limited = (ip: string, max: number) => {
+    const h = hits.get(ip);
+    if (!h || Date.now() - h.since > 10 * 60_000) { hits.set(ip, { n: 1, since: Date.now() }); return false; }
+    return ++h.n > max;
+  };
+  const libraryOff = (reply: { code(n: number): { send(b: unknown): unknown } }) => {
+    if (flags.on("project_library")) return false;
+    deps.persistence.featureEvent(null, "project_library", "blocked");
+    reply.code(404).send({ error: "not found" });
+    return true;
+  };
+  const DocumentId = z.string().uuid();
+  app.get<{ Querystring: { archived?: string } }>("/projects", async (req, reply) => {
+    reply.header("cache-control", "no-store").header("x-robots-tag", "noindex");
+    if (libraryOff(reply)) return reply;
+    if (limited(req.ip, 300)) return reply.code(429).send({ error: "too many requests" });
+    return { projects: await deps.persistence.listProjects(req.query.archived === "1", 200) };
+  });
+  app.get<{ Params: { id: string } }>("/projects/:id", async (req, reply) => {
+    reply.header("cache-control", "no-store").header("x-robots-tag", "noindex");
+    if (libraryOff(reply)) return reply;
+    if (limited(req.ip, 300)) return reply.code(429).send({ error: "too many requests" });
+    const id = DocumentId.safeParse(req.params.id);
+    const p = id.success ? await deps.persistence.readProject(id.data) : null;
+    if (!p) return reply.code(404).send({ error: "not found" });
+    const liveDoc = live.get(req.params.id)?.doc; // the owner's unsaved-but-applied edits are newer than the row
+    return { ...p, doc: toProject(liveDoc ? liveDoc.project : p.doc), ...(liveDoc ? { version: liveDoc.versionInfo().version } : {}) };
+  });
+  for (const [path, archived] of [["archive", true], ["restore", false]] as const) {
+    app.post<{ Params: { id: string } }>(`/projects/:id/${path}`, async (req, reply) => {
+      reply.header("cache-control", "no-store");
+      if (libraryOff(reply)) return reply;
+      if (limited(req.ip, 60)) return reply.code(429).send({ error: "too many requests" });
+      const id = DocumentId.safeParse(req.params.id);
+      if (!id.success || !(await deps.persistence.setArchived(id.data, archived))) return reply.code(404).send({ error: "not found" });
+      app.log.info({ id: id.data, archived }, "library: project archived/restored");
+      return { id: id.data, archived };
+    });
+  }
 
   app.get("/healthz", async () => ({
     ok: true,
@@ -240,8 +292,12 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
               if (!remember && msg.documentId) deps.persistence.featureEvent(null, "remember_document", "blocked");
               // Which document: this tab's own (reload) or, with the flag, this browser's last one.
               const prior = msg.sessionId ? await deps.persistence.resumeSession(msg.sessionId) : null;
-              const target = prior?.documentId ?? (remember ? msg.documentId : undefined);
+              // Opened from the library: the picked project wins over this tab's previous session (plan-critic M8 #6).
+              const opening = !!msg.open && !!msg.documentId && flags.on("project_library");
+              const target = opening ? msg.documentId : prior?.documentId ?? (remember ? msg.documentId : undefined);
               let e = target ? live.get(target) : undefined;
+              // …but a library open never kicks out someone editing it: offered read-only instead (M8 #7).
+              if (opening && e?.owner) { send({ type: "in_use", documentId: target! }); return; }
               let resumed = !!e;
               if (!e) {
                 // Queued writes of a tab that just closed must land before we read the document back.
@@ -249,7 +305,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
                 const opened = (target ? await deps.persistence.openOnDocument(target) : null) ?? (await deps.persistence.openSession());
                 resumed = opened.documentId === target;
                 const created: LiveDoc = { doc: null as unknown as DocSession, owner: null, release: null, shareLinks: [] };
-                created.doc = new DocSession(opened, { persistence: deps.persistence, model: deps.model, engine: deps.engine, engines: deps.engines, notesEngine: deps.notesEngine, jev: deps.jev, flags: () => flags.all(), send: toOwner(created), log: (m) => app.log.warn(m) });
+                created.doc = new DocSession(opened, { persistence: deps.persistence, model: deps.model, engine: deps.engine, engines: deps.engines, notesEngine: deps.notesEngine, suggestEngine: deps.suggestEngine, jev: deps.jev, flags: () => flags.all(), send: toOwner(created), log: (m) => app.log.warn(m) });
                 created.doc.tune({ silenceSettleMs: config.SILENCE_SETTLE_MS });
                 created.doc.terms = await deps.persistence.listVocab(opened.documentId).catch(() => []);
                 created.doc.recent = await deps.persistence.recentUtterances(opened.documentId, 8).catch(() => []);
@@ -276,6 +332,9 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
               send({ type: "vocab", terms: doc.terms });
               if (flags.on("version_timeline")) send(doc.timelineMsg());
               if (flags.on("share_links")) send({ type: "shares", links: e.shareLinks });
+              if (flags.on("project_library")) send(doc.projectMsg());
+              if (flags.on("suggestions")) send(doc.suggestionsMsg()); // replayed on reload/takeover (plan-critic M8 #5)
+              if (opening) deps.persistence.featureEvent(doc.sessionId, "project_library", "used");
               for (const [k, on] of Object.entries(flags.all())) if (on) deps.persistence.featureEvent(doc.sessionId, k as FeatureKey, "exposed");
             } catch (e) { fail("could not open session", e); }
             return;
@@ -348,6 +407,15 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
             }
             return send({ type: "shares", links: e.shareLinks });
           }
+          case "suggestion_approve":
+            if (!permit("suggestions")) return;
+            return doc!.resolveSuggestions("approve", msg.ids.map((id) => ({ id, ...(msg.cols?.[id] ? { cols: msg.cols[id] } : {}) })));
+          case "suggestion_reject":
+            if (!permit("suggestions")) return;
+            return doc!.resolveSuggestions("reject", msg.ids.map((id) => ({ id, ...(msg.cols?.[id] ? { cols: msg.cols[id] } : {}) })));
+          case "save_project":
+            if (!permit("project_library")) return;
+            return void doc!.saveProject(msg.title);
           case "share_revoke":
             if (!permit("share_links")) return;
             try {

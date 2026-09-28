@@ -57,8 +57,10 @@ async function seed(sql: postgres.Sql) {
   }
   // Feature flags (ADR 0012): new keys get their default; an admin's `enabled` choice is never overwritten.
   for (const [key, f] of Object.entries(FEATURES)) {
-    await sql`insert into feature_flags (key, enabled, description) values (${key}, ${f.default}, ${f.description})
-              on conflict (key) do update set description = excluded.description`;
+    const [row] = await sql<{ inserted: boolean }[]>`insert into feature_flags (key, enabled, description) values (${key}, ${f.default}, ${f.description})
+              on conflict (key) do update set description = excluded.description returning (xmax = 0) as inserted`;
+    // Flag history (ADR 0020): a brand-new flag is recorded once, as set by the seed.
+    if (row?.inserted) await sql`insert into feature_flag_changes (feature_key, enabled, source) values (${key}, ${f.default}, 'seed')`;
   }
   console.log(`migrate: seeded anonymous user, default token set, ${Object.keys(propSchemas).length} primitives, ${Object.keys(FEATURES).length} feature flags`);
 }

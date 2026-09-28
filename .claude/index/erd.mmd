@@ -6,6 +6,7 @@ erDiagram
     design_versions ||--o{ exports : version_id
     feature_flags ||--o{ feature_events : feature_key
     sessions ||--o{ feature_events : session_id
+    feature_flags ||--o{ feature_flag_changes : feature_key
     users ||--o{ feature_flags : updated_by
     intents ||--o{ generation_jobs : intent_id
     sessions ||--o{ generation_jobs : session_id

@@ -6,6 +6,7 @@ erDiagram
     design_versions ||--o{ exports : version_id
     feature_flags ||--o{ feature_events : feature_key
     sessions ||--o{ feature_events : session_id
+    feature_flags ||--o{ feature_flag_changes : feature_key
     users ||--o{ feature_flags : updated_by
     intents ||--o{ generation_jobs : intent_id
     sessions ||--o{ generation_jobs : session_id
@@ -27,6 +28,7 @@ erDiagram
         jsonb current_doc
         int current_version
         timestamptz created_at
+        timestamptz updated_at
     }
     design_versions {
         uuid id PK
@@ -52,6 +54,14 @@ erDiagram
         uuid session_id FK
         text action
         timestamptz created_at
+    }
+    feature_flag_changes {
+        bigserial id PK
+        text feature_key FK
+        boolean enabled
+        text source
+        text actor
+        timestamptz changed_at
     }
     feature_flags {
         text key PK

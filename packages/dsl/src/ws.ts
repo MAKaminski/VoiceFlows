@@ -37,7 +37,8 @@ export type SharedDoc = z.infer<typeof SharedDoc>;
 // Client → gateway (JSON text frames; relay-mode audio travels as binary frames alongside)
 export const ClientMsg = z.discriminatedUnion("type", [
   // documentId: reopen this browser's last document in a new tab (flag remember_document, ADR 0014).
-  z.object({ type: z.literal("hello"), sessionId: z.string().optional(), documentId: z.string().uuid().optional() }),
+  // open: the user picked this project from the library — it wins over the tab's previous session (ADR 0020).
+  z.object({ type: z.literal("hello"), sessionId: z.string().optional(), documentId: z.string().uuid().optional(), open: z.boolean().optional() }),
   z.object({ type: z.literal("stt_start"), mode: z.enum(["direct", "relay", "webspeech"]) }),
   z.object({ type: z.literal("stt_stop") }),
   z.object({ type: z.literal("partial"), ...Transcript }),
@@ -61,15 +62,31 @@ export const ClientMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("goto_version"), version: z.number().int().nonnegative() }), // version timeline (ADR 0015)
   z.object({ type: z.literal("share_create") }),
   z.object({ type: z.literal("share_revoke"), token: ShareToken }),
+  // Implied suggestions (ADR 0020): approve or reject by id; `cols` narrows a column suggestion to some columns.
+  z.object({ type: z.literal("suggestion_approve"), ids: z.array(z.string()).min(1).max(50), cols: z.record(z.string(), z.array(z.string())).optional() }),
+  z.object({ type: z.literal("suggestion_reject"), ids: z.array(z.string()).min(1).max(50), cols: z.record(z.string(), z.array(z.string())).optional() }),
+  // Project library (ADR 0020): keep this project in the shared list, optionally naming it.
+  z.object({ type: z.literal("save_project"), title: z.string().max(80).optional() }),
 ]);
 export type ClientMsg = z.infer<typeof ClientMsg>;
 
 /** Who produced an op batch — M4's "keep ops that still validate" rule needs origin + jobId. */
-export const OpOrigin = z.enum(["model", "lexicon", "undo", "redo", "rollback", "goto", "jev"]);
+export const OpOrigin = z.enum(["model", "lexicon", "undo", "redo", "rollback", "goto", "jev", "approve"]);
 export type OpOrigin = z.infer<typeof OpOrigin>;
 
 /** drawn = the lexicon drew it (0 ms) · yours = drawn from the user's own word · model = sent to the model. */
-export const WordMark = z.object({ key: z.string(), as: z.enum(["drawn", "yours", "model"]), label: z.string().optional() });
+export const WordMark = z.object({ key: z.string(), as: z.enum(["drawn", "yours", "model", "command"]), label: z.string().optional() });
+
+/**
+ * An implied suggestion (ADR 0020): what usually belongs with what was said, NOT in the doc until approved —
+ * so versions, undo and share links never carry it. `cols` = a column suggestion for table `target` (its ops are
+ * computed at approve time against the table's current columns); otherwise `lines` are compact op lines.
+ */
+export const Suggestion = z.object({
+  id: z.string(), view: DocKind, title: z.string(), source: z.enum(["rule", "model"]),
+  target: z.string().optional(), cols: z.array(z.string()).optional(), lines: z.array(z.string()).optional(),
+});
+export type Suggestion = z.infer<typeof Suggestion>;
 export type WordMark = z.infer<typeof WordMark>;
 
 export const VersionSummary = z.object({
@@ -106,7 +123,7 @@ export const ServerMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ops"), jobId: z.string(), origin: OpOrigin, ops: z.array(PatchOp), trigMs: z.number().optional() }),
   z.object({
     type: z.literal("job"), jobId: z.string(), state: z.enum(["running", "done", "aborted", "failed"]),
-    kind: z.enum(["typed", "speculative", "settle", "notes"]).optional(), text: z.string().optional(), firstOpMs: z.number().optional(),
+    kind: z.enum(["typed", "speculative", "settle", "notes", "suggest"]).optional(), text: z.string().optional(), firstOpMs: z.number().optional(),
     opCount: z.number().int().optional(), detail: z.string().optional(), inputTokens: z.number().int().optional(), outputTokens: z.number().int().optional(),
   }),
   z.object({ type: z.literal("version"), ...VersionInfo }),
@@ -114,6 +131,11 @@ export const ServerMsg = z.discriminatedUnion("type", [
   // path = ancestors of `current` plus the redo chain ahead of it (drawn solid); `items` are the last 200.
   z.object({ type: z.literal("versions"), current: z.number().int().nonnegative(), path: z.array(z.number().int().nonnegative()), items: z.array(VersionSummary) }),
   z.object({ type: z.literal("status"), pending: z.string().nullable() }),
+  z.object({ type: z.literal("suggestions"), items: z.array(Suggestion) }), // pending, all views (ADR 0020)
+  // Library state of this project: saved = listed in the shared workspace (ADR 0020).
+  z.object({ type: z.literal("project"), savedAt: z.string().nullable(), title: z.string().optional() }),
+  // Opened from the library while another tab is editing it: never taken over — offered read-only instead.
+  z.object({ type: z.literal("in_use"), documentId: z.string() }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
 export type ServerMsg = z.infer<typeof ServerMsg>;

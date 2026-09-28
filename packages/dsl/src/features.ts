@@ -20,12 +20,22 @@ export const FEATURES = {
   remember_document: { default: true, description: "Remember the document: a new tab reopens this browser's last document" },
   version_timeline: { default: true, description: "Version timeline: see every version of the document and jump to any of them" },
   share_links: { default: true, description: "Share links: a public read-only link to the version on screen" },
+  all_views: { default: true, description: "All views at once: Screen, Architecture, ERD and Sequence side by side, updating live (ADR 0020)" },
+  suggestions: { default: true, description: "Implied suggestions: typical columns and pieces pre-recommended instantly; approve by voice or click (ADR 0020)" },
+  suggestions_model: { default: false, description: "Model suggestions: a background model pass proposes more after each sentence (+~$0.008/min, ADR 0020)" },
+  project_library: { default: true, description: "Projects: save a project and open saved ones from a shared workspace list (ADR 0020)" },
   diagram_metrics: { default: false, description: "Teaser: duration / throughput annotations on edges (not built yet)" },
 } as const;
 
 export const FeatureKey = z.enum(Object.keys(FEATURES) as [keyof typeof FEATURES, ...Array<keyof typeof FEATURES>]);
 export type FeatureKey = z.infer<typeof FeatureKey>;
-export const Flags = z.record(FeatureKey, z.boolean());
+/**
+ * Tolerant on purpose (plan-critic M8 #8): a strict record rejects both missing and unknown keys, so a web build
+ * one flag behind (or ahead of) the gateway dropped the welcome and hung. Unknown keys are ignored, missing
+ * ones take their default.
+ */
+export const Flags = z.record(z.string(), z.boolean()).transform((r): Record<FeatureKey, boolean> =>
+  Object.fromEntries(Object.entries(FEATURES).map(([k, v]) => [k, typeof r[k] === "boolean" ? r[k] : v.default])) as Record<FeatureKey, boolean>);
 export type Flags = Record<FeatureKey, boolean>;
 
 export const defaultFlags = (): Flags =>

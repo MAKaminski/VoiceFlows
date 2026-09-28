@@ -1,4 +1,4 @@
-import { emptyProject, type DesignDoc, type DocKind, type FeatureKey, type Flags, type IntentHeader, type PatchOp, type VocabTerm } from "@livecanvas/dsl";
+import { emptyProject, VIEWS, viewCount, viewDoc, toProject, type DesignDoc, type DocKind, type FeatureKey, type Flags, type IntentHeader, type PatchOp, type VocabTerm } from "@livecanvas/dsl";
 import { randomUUID } from "node:crypto";
 import type postgres from "postgres";
 
@@ -7,7 +7,17 @@ export const ANON_EMAIL = "anonymous@livecanvas.local";
 
 export interface Segment { utteranceSeq: number; text: string; isFinal: boolean; tMs: number }
 export interface VersionRow { version: number; parent: number | null; doc: DesignDoc; at?: string }
-export interface OpenedSession { sessionId: string; documentId: string; versions: VersionRow[]; current: number }
+export interface OpenedSession { sessionId: string; documentId: string; versions: VersionRow[]; current: number; savedAt?: string | null }
+/** A saved project in the shared workspace list (ADR 0020). */
+export interface ProjectRow { id: string; title: string; updatedAt: string; savedAt: string; archived: boolean; counts: Partial<Record<DocKind, number>> }
+export interface FlagChange { key: FeatureKey; enabled: boolean; source: "admin" | "seed"; actor: string | null; at: string }
+
+/** Title + per-view element counts of a project doc — kept on design_documents for the library list. */
+export function projectMeta(doc: DesignDoc): { title: string; counts: Record<DocKind, number> } {
+  const p = toProject(doc);
+  const title = String((p.root.props as { title?: string }).title ?? "").trim() || "Untitled";
+  return { title, counts: Object.fromEntries(VIEWS.map((v) => [v.kind, viewCount(viewDoc(p, v.kind).root)])) as Record<DocKind, number> };
+}
 
 /**
  * Persistence, always off the hot path (ARCHITECTURE §4.2): every write method returns at once and
@@ -38,7 +48,17 @@ export interface Persistence {
   flush(): Promise<void>;
   // ── Flags & usage (ADR 0012). Reads run at boot, session open and in admin calls — never mid-speech.
   loadFlags(): Promise<Partial<Flags>>;
-  setFlag(key: FeatureKey, enabled: boolean): Promise<void>;
+  setFlag(key: FeatureKey, enabled: boolean, change?: { source: "admin" | "seed"; actor?: string | null }): Promise<void>;
+  /** Newest first (ADR 0020). */
+  flagHistory(limit: number): Promise<FlagChange[]>;
+  // ── Project library (ADR 0020): a shared workspace list of saved projects.
+  /** Marks the project saved (listed) and returns when; the title comes from the doc on every setCurrent. */
+  saveProject(documentId: string): Promise<string | null>;
+  listProjects(archived: boolean, limit: number): Promise<ProjectRow[]>;
+  /** Only saved projects can be archived/restored; false if not found. */
+  setArchived(documentId: string, archived: boolean): Promise<boolean>;
+  /** Read-only snapshot of a saved project (opened while another tab edits it). */
+  readProject(documentId: string): Promise<{ doc: DesignDoc; version: number; updatedAt: string; title: string } | null>;
   featureEvent(sessionId: string | null, key: FeatureKey, action: FeatureAction): void;
   flagStats(days: number): Promise<Partial<Record<FeatureKey, Record<FeatureAction, number>>>>;
   // ── Vocabulary, scoped to a document until accounts exist.
@@ -69,11 +89,18 @@ export function memoryPersistence(): Persistence & { rows: Array<Segment & { ses
   const events: Array<{ sessionId: string | null; key: FeatureKey; action: FeatureAction }> = [];
   const vocab = new Map<string, VocabTerm[]>();
   const shares = new Map<string, { documentId: string; version: number; revoked: boolean }>();
+  const history: FlagChange[] = [];
+  const meta = new Map<string, { savedAt: string | null; archived: boolean; updatedAt: string; doc: DesignDoc; version: number }>();
+  const touch = (documentId: string, doc: DesignDoc, version: number) => {
+    const m = meta.get(documentId);
+    meta.set(documentId, { savedAt: m?.savedAt ?? null, archived: m?.archived ?? false, updatedAt: new Date().toISOString(), doc: structuredClone(doc), version });
+  };
   return {
     rows, calls, events,
     openSession: async () => {
-      const s = { sessionId: randomUUID(), documentId: randomUUID(), versions: [{ version: 0, parent: null, doc: emptyProject() }], current: 0 };
+      const s = { sessionId: randomUUID(), documentId: randomUUID(), versions: [{ version: 0, parent: null, doc: emptyProject() }], current: 0, savedAt: null };
       sessions.set(s.sessionId, s);
+      touch(s.documentId, s.versions[0]!.doc, 0);
       return structuredClone(s);
     },
     resumeSession: async (id) => (sessions.has(id) ? structuredClone(sessions.get(id)!) : null),
@@ -81,7 +108,7 @@ export function memoryPersistence(): Persistence & { rows: Array<Segment & { ses
     openOnDocument: async (documentId) => {
       const prev = [...sessions.values()].find((x) => x.documentId === documentId);
       if (!prev) return null;
-      const s = { ...structuredClone(prev), sessionId: randomUUID() };
+      const s = { ...structuredClone(prev), sessionId: randomUUID(), savedAt: meta.get(documentId)?.savedAt ?? null };
       sessions.set(s.sessionId, s);
       return structuredClone(s);
     },
@@ -105,12 +132,32 @@ export function memoryPersistence(): Persistence & { rows: Array<Segment & { ses
       calls.push({ method: "setCurrent", args: [sessionId, r] });
       const s = [...sessions.values()].find((x) => x.documentId === r.documentId);
       if (s) s.current = r.version;
+      touch(r.documentId, r.doc, r.version);
     },
     latency: log("latency"),
     endSession: log("endSession"),
     flush: async () => {},
     loadFlags: async () => ({ ...flags }),
-    setFlag: async (key, enabled) => { flags[key] = enabled; },
+    setFlag: async (key, enabled, change) => {
+      flags[key] = enabled;
+      if (change) history.unshift({ key, enabled, source: change.source, actor: change.actor ?? null, at: new Date().toISOString() });
+    },
+    flagHistory: async (limit) => history.slice(0, limit),
+    saveProject: async (documentId) => {
+      const m = meta.get(documentId);
+      if (!m) return null;
+      m.savedAt ??= new Date().toISOString();
+      for (const x of sessions.values()) if (x.documentId === documentId) x.savedAt = m.savedAt;
+      return m.savedAt;
+    },
+    listProjects: async (archived, limit) => [...meta].filter(([, m]) => m.savedAt && m.archived === archived)
+      .sort((a, b) => b[1].updatedAt.localeCompare(a[1].updatedAt)).slice(0, limit)
+      .map(([id, m]) => { const x = projectMeta(m.doc); return { id, title: x.title, updatedAt: m.updatedAt, savedAt: m.savedAt!, archived: m.archived, counts: x.counts }; }),
+    setArchived: async (documentId, archived) => { const m = meta.get(documentId); if (!m?.savedAt) return false; m.archived = archived; return true; },
+    readProject: async (documentId) => {
+      const m = meta.get(documentId);
+      return m?.savedAt && !m.archived ? { doc: structuredClone(m.doc), version: m.version, updatedAt: m.updatedAt, title: projectMeta(m.doc).title } : null;
+    },
     featureEvent: (sessionId, key, action) => void events.push({ sessionId, key, action }),
     flagStats: async () => {
       const out: Partial<Record<FeatureKey, Record<FeatureAction, number>>> = {};
@@ -144,8 +191,8 @@ export function pgPersistence(sql: postgres.Sql, log: (e: unknown) => void = con
   const json = (v: unknown) => sql.json(v as never);
 
   const load = async (sessionId: string): Promise<OpenedSession | null> => {
-    const [s] = await sql<{ document_id: string; current_version: number }[]>`
-      select s.document_id, d.current_version from sessions s join design_documents d on d.id = s.document_id where s.id = ${sessionId}`;
+    const [s] = await sql<{ document_id: string; current_version: number; saved_at: Date | null }[]>`
+      select s.document_id, d.current_version, d.saved_at from sessions s join design_documents d on d.id = s.document_id where s.id = ${sessionId}`;
     if (!s) return null;
     let rows = await sql<{ version: number; parent_version: number | null; doc: DesignDoc; created_at?: Date }[]>`
       select version, parent_version, doc, created_at from design_versions where document_id = ${s.document_id} order by version`;
@@ -155,9 +202,9 @@ export function pgPersistence(sql: postgres.Sql, log: (e: unknown) => void = con
         insert into design_versions (document_id, version, doc)
         select id, 0, current_doc from design_documents where id = ${s.document_id}
         returning version, parent_version, doc`;
-      return { sessionId, documentId: s.document_id, current: 0, versions: rows.map((r) => ({ version: r.version, parent: r.parent_version, doc: r.doc })) };
+      return { sessionId, documentId: s.document_id, current: 0, savedAt: s.saved_at ? new Date(s.saved_at).toISOString() : null, versions: rows.map((r) => ({ version: r.version, parent: r.parent_version, doc: r.doc })) };
     }
-    return { sessionId, documentId: s.document_id, current: s.current_version, versions: rows.map((r) => ({ version: r.version, parent: r.parent_version, doc: r.doc, ...(r.created_at ? { at: new Date(r.created_at).toISOString() } : {}) })) };
+    return { sessionId, documentId: s.document_id, current: s.current_version, savedAt: s.saved_at ? new Date(s.saved_at).toISOString() : null, versions: rows.map((r) => ({ version: r.version, parent: r.parent_version, doc: r.doc, ...(r.created_at ? { at: new Date(r.created_at).toISOString() } : {}) })) };
   };
 
   return {
@@ -172,7 +219,7 @@ export function pgPersistence(sql: postgres.Sql, log: (e: unknown) => void = con
         s as (insert into sessions (user_id, document_id, stt_provider) select user_id, id, 'pending' from d returning id, document_id)
         select id as session_id, document_id from s`;
       if (!row) throw new Error("seed rows missing: run migrate (anonymous user + default token set)");
-      return { sessionId: row.session_id, documentId: row.document_id, versions: [{ version: 0, parent: null, doc }], current: 0 };
+      return { sessionId: row.session_id, documentId: row.document_id, versions: [{ version: 0, parent: null, doc }], current: 0, savedAt: null };
     },
     resumeSession: (sessionId) => load(sessionId).catch((e) => { log(e); return null; }),
     async recentUtterances(documentId, n) {
@@ -238,7 +285,9 @@ export function pgPersistence(sql: postgres.Sql, log: (e: unknown) => void = con
         values (${r.documentId}, ${r.version}, ${r.parent}, ${json(r.doc)}, ${r.jobId})`);
     },
     setCurrent(sessionId, r) {
-      enqueue(sessionId, () => sql`update design_documents set current_version = ${r.version}, current_doc = ${json(r.doc)} where id = ${r.documentId}`);
+      const m = projectMeta(r.doc);
+      enqueue(sessionId, () => sql`update design_documents set current_version = ${r.version}, current_doc = ${json(r.doc)},
+        title = ${m.title}, view_counts = ${json(m.counts)}, updated_at = now() where id = ${r.documentId}`);
     },
     latency(sessionId, r) {
       enqueue(sessionId, () => sql`
@@ -259,8 +308,34 @@ export function pgPersistence(sql: postgres.Sql, log: (e: unknown) => void = con
       const rows = await sql<{ key: FeatureKey; enabled: boolean }[]>`select key, enabled from feature_flags`;
       return Object.fromEntries(rows.map((r) => [r.key, r.enabled])) as Partial<Flags>;
     },
-    async setFlag(key, enabled) {
+    async setFlag(key, enabled, change) {
       await sql`update feature_flags set enabled = ${enabled}, updated_at = now() where key = ${key}`;
+      if (change) await sql`insert into feature_flag_changes (feature_key, enabled, source, actor) values (${key}, ${enabled}, ${change.source}, ${change.actor ?? null})`;
+    },
+    async flagHistory(limit) {
+      const rows = await sql<{ key: FeatureKey; enabled: boolean; source: "admin" | "seed"; actor: string | null; at: Date }[]>`
+        select feature_key as key, enabled, source, actor, changed_at as at from feature_flag_changes order by changed_at desc, id desc limit ${limit}`;
+      return rows.map((r) => ({ ...r, at: new Date(r.at).toISOString() }));
+    },
+    async saveProject(documentId) {
+      const [row] = await sql<{ saved_at: Date }[]>`
+        update design_documents set saved_at = coalesce(saved_at, now()) where id = ${documentId} returning saved_at`;
+      return row ? new Date(row.saved_at).toISOString() : null;
+    },
+    async listProjects(archived, limit) {
+      const rows = await sql<{ id: string; title: string; updated_at: Date; saved_at: Date; archived_at: Date | null; view_counts: Record<DocKind, number> | null }[]>`
+        select id, title, updated_at, saved_at, archived_at, view_counts from design_documents
+        where saved_at is not null and (archived_at is not null) = ${archived} order by updated_at desc limit ${limit}`;
+      return rows.map((r) => ({ id: r.id, title: r.title, updatedAt: new Date(r.updated_at).toISOString(), savedAt: new Date(r.saved_at).toISOString(), archived: !!r.archived_at, counts: r.view_counts ?? {} }));
+    },
+    async setArchived(documentId, archived) {
+      const rows = await sql`update design_documents set archived_at = ${archived ? sql`now()` : null} where id = ${documentId} and saved_at is not null returning id`;
+      return rows.length > 0;
+    },
+    async readProject(documentId) {
+      const [r] = await sql<{ current_doc: DesignDoc; current_version: number; updated_at: Date; title: string }[]>`
+        select current_doc, current_version, updated_at, title from design_documents where id = ${documentId} and saved_at is not null and archived_at is null`;
+      return r ? { doc: r.current_doc, version: r.current_version, updatedAt: new Date(r.updated_at).toISOString(), title: r.title } : null;
     },
     featureEvent(sessionId, key, action) {
       enqueue(sessionId ?? "global", () => sql`insert into feature_events (feature_key, session_id, action) values (${key}, ${sessionId}, ${action})`);

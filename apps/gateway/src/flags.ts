@@ -17,8 +17,9 @@ export class FlagService {
   }
   all(): Flags { return { ...this.flags }; }
   on(key: FeatureKey): boolean { return this.flags[key]; }
-  async set(key: FeatureKey, enabled: boolean) {
-    await this.persistence.setFlag(key, enabled);
+  /** `change` records who flipped it in the flag history (ADR 0020). */
+  async set(key: FeatureKey, enabled: boolean, change?: { source: "admin" | "seed"; actor?: string | null }) {
+    await this.persistence.setFlag(key, enabled, change);
     this.flags[key] = enabled;
     this.log(`flags: ${key} → ${enabled ? "on" : "off"}`);
     for (const l of this.listeners) l(this.all());

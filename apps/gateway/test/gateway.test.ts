@@ -676,3 +676,94 @@ describe("version timeline over the socket (ADR 0015)", () => {
     c.ws.close(); await app.close();
   });
 });
+
+describe("project library + flag history (ADR 0020)", () => {
+  const TOKEN = "t".repeat(32);
+  const hello = async (port: number, extra: Record<string, unknown> = {}) => {
+    const c = client(port); await c.open;
+    c.ws.send(JSON.stringify({ type: "hello", ...extra }));
+    await c.next((m) => m.type === "welcome" || m.type === "in_use");
+    return c;
+  };
+  const docIdOf = (c: ReturnType<typeof client>) => (c.inbox.find((m) => m.type === "welcome") as any)?.documentId as string;
+
+  it("save lists the project; archive hides it; restore brings it back; unsaved projects are never listed", async () => {
+    const { app, port } = await start();
+    const a = await hello(port);
+    const b = await hello(port); // never saved
+    a.ws.send(JSON.stringify({ type: "save_project", title: "Contact center" }));
+    await a.next((m) => m.type === "project" && m.savedAt != null);
+    const list = async (q = "") => ((await (await fetch(`http://127.0.0.1:${port}/projects${q}`)).json()) as any).projects as Array<{ id: string; title: string }>;
+    expect((await list()).map((p) => p.title)).toEqual(["Contact center"]);
+    expect((await list()).map((p) => p.id)).not.toContain(docIdOf(b));
+    const id = docIdOf(a);
+    expect((await fetch(`http://127.0.0.1:${port}/projects/${id}/archive`, { method: "POST" })).status).toBe(200);
+    expect(await list()).toEqual([]);
+    expect((await list("?archived=1")).map((p) => p.id)).toEqual([id]);
+    await fetch(`http://127.0.0.1:${port}/projects/${id}/restore`, { method: "POST" });
+    expect((await list()).map((p) => p.id)).toEqual([id]);
+    expect((await fetch(`http://127.0.0.1:${port}/projects/${docIdOf(b)}/archive`, { method: "POST" })).status).toBe(404); // unsaved
+    a.ws.close(); b.ws.close(); await app.close();
+  });
+
+  it("opening from the library lands on the picked project, not the tab's old one; an owned project is offered read-only", async () => {
+    const { app, port } = await start();
+    const a = await hello(port);
+    a.ws.send(JSON.stringify({ type: "save_project", title: "A" }));
+    await a.next((m) => m.type === "project" && m.savedAt != null);
+    const b = await hello(port);
+    const bSession = (b.inbox.find((m) => m.type === "welcome") as any).sessionId;
+    b.ws.close();
+    await new Promise((r) => setTimeout(r, 30));
+    // Tab B (sessionId still in its storage) opens A from the library while A's owner is connected → in_use, no takeover.
+    const c = await hello(port, { sessionId: bSession, documentId: docIdOf(a), open: true });
+    expect(c.inbox.some((m) => m.type === "in_use")).toBe(true);
+    expect(a.inbox.some((m) => m.type === "taken_over")).toBe(false);
+    const ro = (await (await fetch(`http://127.0.0.1:${port}/projects/${docIdOf(a)}`)).json()) as any;
+    expect(ro.title).toBe("A");
+    // Once A's tab is gone, the same open lands on A (not on B's old document).
+    a.ws.close();
+    await new Promise((r) => setTimeout(r, 30));
+    const d = await hello(port, { sessionId: bSession, documentId: docIdOf(a), open: true });
+    expect(docIdOf(d)).toBe(docIdOf(a));
+    c.ws.close(); d.ws.close(); await app.close();
+  });
+
+  it("the library is behind its flag", async () => {
+    const { app, port } = await start({ ADMIN_TOKEN: TOKEN });
+    await fetch(`http://127.0.0.1:${port}/admin/flags/project_library`, { method: "PUT", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ enabled: false }) });
+    expect((await fetch(`http://127.0.0.1:${port}/projects`)).status).toBe(404);
+    await app.close();
+  });
+
+  it("flag history records admin flips (actor = short hash, never the IP) and never a rejected one", async () => {
+    const { app, port } = await start({ ADMIN_TOKEN: TOKEN });
+    const put = (auth: string, enabled: boolean) => fetch(`http://127.0.0.1:${port}/admin/flags/share_links`, { method: "PUT", headers: { authorization: `Bearer ${auth}`, "content-type": "application/json" }, body: JSON.stringify({ enabled }) });
+    expect((await put("nope", false)).status).toBe(401);
+    await put(TOKEN, false);
+    await put(TOKEN, true);
+    const h = (await (await fetch(`http://127.0.0.1:${port}/admin/flags/history`, { headers: { authorization: `Bearer ${TOKEN}` } })).json()) as any;
+    expect(h.changes.map((c: any) => [c.key, c.enabled, c.source])).toEqual([["share_links", true, "admin"], ["share_links", false, "admin"]]);
+    expect(h.changes[0].actor).toMatch(/^[0-9a-f]{8}$/);
+    const flagsList = (await (await fetch(`http://127.0.0.1:${port}/admin/flags`, { headers: { authorization: `Bearer ${TOKEN}` } })).json()) as any;
+    expect(flagsList.flags.find((f: any) => f.key === "share_links").lastChange.enabled).toBe(true);
+    expect((await fetch(`http://127.0.0.1:${port}/admin/flags/history`)).status).toBe(401);
+    await app.close();
+  });
+
+  it("pending suggestions are replayed to a tab that reloads (plan-critic M8 #5)", async () => {
+    const { app, port } = await start();
+    const a = await hello(port);
+    const { sessionId } = a.inbox.find((m) => m.type === "welcome") as any;
+    a.ws.send(JSON.stringify({ type: "set_view", view: "erd" }));
+    await a.next((m) => m.type === "view" && m.view === "erd");
+    a.ws.send(JSON.stringify({ type: "partial", utteranceSeq: 0, text: "customers and cases", isFinal: true, tMs: 900 }));
+    await a.next((m) => m.type === "suggestions" && m.items.length > 0);
+    a.ws.close();
+    await new Promise((r) => setTimeout(r, 30));
+    const b = await hello(port, { sessionId });
+    const s = (await b.next((m) => m.type === "suggestions")) as any;
+    expect(s.items.map((x: any) => x.target)).toContain("n_p_cases");
+    b.ws.close(); await app.close();
+  });
+});

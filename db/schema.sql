@@ -28,7 +28,11 @@ CREATE TABLE design_documents (
   current_doc jsonb NOT NULL,
   current_version int NOT NULL DEFAULT 0,
   token_set_id uuid NOT NULL REFERENCES token_sets(id),
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  saved_at timestamptz,
+  archived_at timestamptz,
+  view_counts jsonb
 );
 
 CREATE TABLE sessions (
@@ -149,6 +153,15 @@ CREATE TABLE feature_events (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE feature_flag_changes (
+  id bigserial PRIMARY KEY,
+  feature_key text NOT NULL REFERENCES feature_flags(key),
+  enabled boolean NOT NULL,
+  source text NOT NULL CHECK (source IN ('admin','seed')),
+  actor text,
+  changed_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE vocabulary_terms (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   document_id uuid NOT NULL REFERENCES design_documents(id),
@@ -172,3 +185,7 @@ CREATE INDEX ON latency_events (job_id, stage);
 CREATE INDEX ON latency_events (utterance_id, stage);
 
 CREATE INDEX ON feature_events (feature_key, created_at);
+
+CREATE INDEX ON feature_flag_changes (feature_key, changed_at DESC);
+
+CREATE INDEX ON design_documents (updated_at DESC) WHERE saved_at IS NOT NULL;

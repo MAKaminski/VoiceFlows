@@ -1,5 +1,5 @@
 import {
-  applyOp, COLOR, DesignDocSchema, docKind, fixSpeech, lexiconWords, refreshProvisional, emptyProject, emptyView, expandCompact, mapOpPaths, toProject, toProjectPath, viewDoc, VIEWS, viewCount, withView, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
+  applyOp, COLOR, isSaveCommand, isSuggestionCommand, parseSave, resolveCommand, ruleSuggestions, type Suggestion, DesignDocSchema, docKind, fixSpeech, lexiconWords, refreshProvisional, emptyProject, emptyView, expandCompact, mapOpPaths, toProject, toProjectPath, viewDoc, VIEWS, viewCount, withView, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
   lexTokens, occurrenceKeys, parseDefine, parseHeader, serializeCompact, type CompactContext, type DesignDoc, type DesignNode, type DocKind, type FeatureKey,
   type Flags, type IntentHeader, type VersionSummary, type WordMark, type OpOrigin, type PatchOp, type ServerMsg, type VocabNode, type VocabTerm,
 } from "@livecanvas/dsl";
@@ -163,6 +163,7 @@ export class DocSession {
       engines?: Partial<Record<DocKind, EngineConfig>>; // per diagram kind (ADR 0011); falls back to `engine`
       flags?: () => Flags; // ADR 0012; absent = everything on
       notesEngine?: EngineConfig; // ADR 0016: the project-notes rewrite (background, never on the draw path)
+      suggestEngine?: EngineConfig; // ADR 0020: model suggestions after a sentence (flag suggestions_model)
       jev?: JevClient; // ADR 0017: typed structural decisions before (or instead of) the model call
     },
   ) {
@@ -173,6 +174,206 @@ export class DocSession {
     this.project = structuredClone(this.versions.get(this.current)!.doc);
     // Open on the first view with content (a fresh project opens on the screen).
     this.activeView = this.focus = VIEWS.find((v) => viewCount(viewDoc(this.project, v.kind).root) > 0)?.kind ?? "screen";
+    this.savedAt = opened.savedAt ?? null;
+    // Rule suggestions follow from the project itself, so a reopened session offers them again (plan-critic M8 #5);
+    // rejections and model suggestions live only as long as the session (ADR 0020).
+    this.refreshSuggestions();
+  }
+
+  // ── Project library (ADR 0020) ───────────────────────────────────────────────────────────
+  /** When this project was saved into the shared workspace list (null = not listed). */
+  savedAt: string | null;
+  projectMsg(): ServerMsg {
+    const title = (this.project.root.props as { title?: string }).title;
+    return { type: "project", savedAt: this.savedAt, ...(title ? { title } : {}) };
+  }
+  /** Lists the project (and names it, if a title is given). The title write is an ordinary version. */
+  async saveProject(title?: string) {
+    if (title?.trim()) this.setTitle(title);
+    const at = await this.deps.persistence.saveProject(this.documentId).catch((e) => { this.deps.log?.(`library: save failed (${(e as Error).message})`); return null; });
+    if (at) { this.savedAt = at; this.feature("project_library", "used"); }
+    else this.deps.send({ type: "error", message: "Could not save the project — try again" });
+    this.deps.send(this.projectMsg());
+  }
+
+  // ── Implied suggestions (ADR 0020) ───────────────────────────────────────────────────────
+  /** Pending suggestions, all views. Session state — never in the doc until approved. */
+  private suggestions = new Map<string, Suggestion>();
+  /** Rejected suggestion ids, and `id#column` for rejected columns — never offered again this session. */
+  private rejected = new Set<string>();
+  /** Approvals/rejections that arrived while a sentence was open or a job ran (plan-critic M8 #4). */
+  private queuedResolves: Array<{ verb: "approve" | "reject"; picks: Array<{ id: string; cols?: string[] }> }> = [];
+  private suggestSig = "";
+  private suggestModelAt = -Infinity;
+  private suggestModelRunning = false;
+
+  suggestionsMsg(): ServerMsg { return { type: "suggestions", items: [...this.suggestions.values()] }; }
+
+  /** Recomputes rule suggestions for every view, keeps live model ones, and tells the browser if anything changed. */
+  private refreshSuggestions() {
+    if (!this.flagOn("suggestions")) { if (this.suggestions.size) { this.suggestions.clear(); this.pushSuggestions(); } return; }
+    const next = new Map<string, Suggestion>();
+    for (const v of VIEWS) {
+      const perView: Suggestion[] = [];
+      for (const s of ruleSuggestions(viewDoc(this.project, v.kind), v.kind)) {
+        if (this.rejected.has(s.id)) continue;
+        if (s.cols) {
+          const cols = s.cols.filter((c) => !this.rejected.has(`${s.id}#${c.split(":")[0]}`));
+          if (!cols.length) continue;
+          perView.push({ ...s, cols, title: `${s.title.split(":")[0]}: ${cols.map((c) => c.split(":")[0]).join(", ")}` });
+        } else perView.push(s);
+      }
+      for (const s of this.suggestions.values()) {
+        if (s.source === "model" && s.view === v.kind && !this.rejected.has(s.id) && (!s.target || findNode(this.project.root, s.target))) perView.push(s);
+      }
+      perView.slice(0, 8).forEach((s) => next.set(s.id, s));
+    }
+    this.suggestions = next;
+    this.pushSuggestions();
+  }
+  private pushSuggestions() {
+    const sig = JSON.stringify([...this.suggestions.values()]);
+    if (sig === this.suggestSig) return;
+    this.suggestSig = sig;
+    this.deps.send(this.suggestionsMsg());
+  }
+
+  /** Approve or reject (click or voice). Waits until no sentence is open and no job runs — one clean version. */
+  resolveSuggestions(verb: "approve" | "reject", picks: Array<{ id: string; cols?: string[] }>) {
+    if (this.active || (this.utt && !this.utt.settled)) { this.queuedResolves.push({ verb, picks }); return; }
+    this.applyResolution(verb, picks);
+  }
+  private flushResolves() {
+    if (this.active || (this.utt && !this.utt.settled)) return;
+    const q = this.queuedResolves;
+    this.queuedResolves = [];
+    for (const r of q) this.applyResolution(r.verb, r.picks);
+  }
+  private applyResolution(verb: "approve" | "reject", picks: Array<{ id: string; cols?: string[] }>) {
+    const chosen = picks.map((p) => ({ p, s: this.suggestions.get(p.id) })).filter((x): x is { p: typeof x.p; s: Suggestion } => !!x.s);
+    if (!chosen.length) return;
+    this.feature("suggestions", "used");
+    if (verb === "reject") {
+      for (const { p, s } of chosen) {
+        if (p.cols && s.cols) p.cols.forEach((c) => this.rejected.add(`${s.id}#${c.split(":")[0]}`));
+        else this.rejected.add(s.id);
+      }
+      return this.refreshSuggestions();
+    }
+    const jobId = randomUUID();
+    let applied = 0;
+    for (const v of VIEWS) {
+      for (const { p, s } of chosen.filter((x) => x.s.view === v.kind)) {
+        const lines = s.cols ? this.colLines(v.kind, s.target!, p.cols ?? s.cols) : (s.lines ?? []);
+        const r = lines.length ? this.compileLines(v.kind, lines) : null;
+        if (!r) { this.deps.log?.(`suggestions: ${s.id} no longer applies`); continue; }
+        this.within(v.kind, () => { this.doc = r.doc; this.emitOps(jobId, "approve", r.ops); });
+        applied++;
+      }
+    }
+    if (!applied) return this.refreshSuggestions();
+    this.writeVersion(null);
+    this.announceVersion(); // refreshes suggestions: approved ones no longer apply
+  }
+  /** `~table cols=<current + new>` — the append is computed now, so columns added since are kept (M8). */
+  private colLines(view: DocKind, target: string, cols: string[]): string[] {
+    const node = findNode(viewDoc(this.project, view).root, target)?.node;
+    if (!node) return [];
+    const current = (node.props.cols as string[] | undefined) ?? [];
+    const have = new Set(current.map((c) => c.split(":")[0]));
+    const add = cols.filter((c) => !have.has(c.split(":")[0]));
+    return add.length ? [`~${target} cols=${[...current, ...add].join(",")}`] : [];
+  }
+  /** Compact lines → ops against a copy of a view, validated; null if any line fails (nothing applied). */
+  private compileLines(view: DocKind, lines: string[]): { ops: PatchOp[]; doc: DesignDoc } | null {
+    return this.within(view, () => {
+      let cand = this.doc;
+      const aliases = new Map<string, string>();
+      const ctx: CompactContext = {
+        resolve: (ref) => (ref === "root" ? "/root" : findNode(cand.root, aliases.get(ref) ?? ref)?.path ?? null),
+        assignId: (alias) => {
+          const base = `n_${alias.toLowerCase().replace(/^n_/, "").replace(/[^a-z0-9_]/g, "") || "node"}`;
+          let id = base, n = 2;
+          while (findNode(this.project.root, id) || findNode(cand.root, id) || [...aliases.values()].includes(id)) id = `${base}_${n++}`;
+          aliases.set(alias, id);
+          return id;
+        },
+        idOf: (ref) => aliases.get(ref) ?? (findNode(cand.root, ref) ? ref : null),
+      };
+      const typeOf = (ref: string) => findNode(cand.root, aliases.get(ref) ?? ref)?.node.type ?? null;
+      const ops: PatchOp[] = [];
+      try { for (const line of lines) for (const op of expandCompact(line, ctx, typeOf)) { cand = applyOp(cand, op); ops.push(op); } }
+      catch { return null; }
+      return ops.length && DesignDocSchema.safeParse(cand).success ? { ops, doc: cand } : null;
+    });
+  }
+  /** Spoken "approve …" / "reject …" (final transcript only — "approve all … but status" must not fire at the pause). */
+  private async suggestionCommand(text: string) {
+    const items = [...this.suggestions.values()];
+    if (!items.length) {
+      const vocab = this.terms.find((t) => t.status === "proposed"); // "approve" also confirms a pending word
+      if (vocab && /^\W*(?:so |ok |okay |yes |yeah )?(?:approve|accept)\b/i.test(text)) return this.confirmTerm(vocab.id);
+      return this.deps.send({ type: "error", message: "Nothing to approve right now" });
+    }
+    const active = items.filter((s) => s.view === this.activeView);
+    let r = resolveCommand(text, active.length ? active : items);
+    if (r.unresolved && active.length < items.length) r = resolveCommand(text, items);
+    if (r.unresolved && this.deps.jev) r = await this.jevResolve(text, items, r.verb);
+    if (r.unresolved || !r.picks.length) return this.deps.send({ type: "error", message: "Which suggestion? Say “approve”, or name it: “approve the case columns”" });
+    this.resolveSuggestions(r.verb, r.picks);
+  }
+  /** Jev fallback for a scoped command nothing matched: one approve/reject/leave choice per suggestion. */
+  private async jevResolve(text: string, items: Suggestion[], verb: "approve" | "reject") {
+    const key = (s: Suggestion) => `s${items.indexOf(s)}`;
+    try {
+      const res = await this.deps.jev!({
+        state: `Pending suggestions: ${items.map((s) => `${key(s)} = ${s.title}`).join("; ")}. The user said: "${text}"`,
+        questions: Object.fromEntries(items.map((s) => [key(s), { type: "choice", instructions: `What does the user want done with the suggestion "${s.title}"?`,
+          criteria: { approve: "Approve it (add it to the design)", reject: "Reject it", leave: "Not mentioned — leave it pending" } }])),
+      });
+      const picks = items.filter((s) => { const a = res.answers[key(s)]; return a?.type === "choice" && a.confidence >= 0.8 && a.choice === verb; }).map((s) => ({ id: s.id }));
+      return { verb, picks, unresolved: picks.length === 0 };
+    } catch { return { verb, picks: [], unresolved: true }; }
+  }
+
+  /**
+   * Tier 2 (flag suggestions_model, OFF by default — +72% $/min, ADR 0020): after a settled sentence, one
+   * background call proposes up to 4 more. Own limiter (≤ 6/min), never while a sentence is open or a job runs.
+   */
+  private maybeSuggestModel(said: string) {
+    const engine = this.deps.suggestEngine;
+    if (!engine || !this.deps.model || !this.flagOn("suggestions") || !this.flagOn("suggestions_model")) return;
+    if (this.suggestModelRunning || this.active || (this.utt && !this.utt.settled) || performance.now() - this.suggestModelAt < 10_000) return;
+    this.suggestModelRunning = true;
+    this.suggestModelAt = performance.now();
+    const view = this.activeView;
+    const jobId = randomUUID();
+    const stream = this.deps.model({
+      model: engine.model, system: engine.system, maxTokens: 300, signal: new AbortController().signal,
+      user: engine.render({ project_brief: this.brief(), view, doc_compact: compactFor(viewDoc(this.project, view)) || "(empty)", said }),
+    });
+    this.deps.send({ type: "job", jobId, state: "running", kind: "suggest" });
+    void (async () => {
+      try {
+        const groups: Array<{ title: string; lines: string[] }> = [];
+        for await (const { line } of stream.lines) {
+          if (line.startsWith("#")) groups.push({ title: line.replace(/^#+\s*/, "").slice(0, 80), lines: [] });
+          else groups.at(-1)?.lines.push(line);
+        }
+        const usage = await stream.usage;
+        let n = 0;
+        for (const g of groups.slice(0, 4)) {
+          if (!g.title || !g.lines.length || !this.compileLines(view, g.lines)) continue; // dry run: only valid ones are offered
+          const id = `model:${jobId.slice(0, 8)}:${n++}`;
+          this.suggestions.set(id, { id, view, title: g.title, source: "model", lines: g.lines });
+        }
+        this.refreshSuggestions();
+        this.deps.send({ type: "job", jobId, state: "done", kind: "suggest", ...usage });
+      } catch (e) {
+        this.deps.log?.(`suggestions: model pass failed (${(e as Error).message})`);
+        this.deps.send({ type: "job", jobId, state: "failed", kind: "suggest" });
+      } finally { this.suggestModelRunning = false; }
+    })();
   }
 
   /** This document's user words (ADR 0012): confirmed ones draw; at most one `proposed` awaits confirm. */
@@ -182,6 +383,10 @@ export class DocSession {
   get sessionId() { return this.opened.sessionId; }
   get documentId() { return this.opened.documentId; }
   private flagOn(k: FeatureKey) { return this.deps.flags?.()[k] ?? true; }
+  /** A suggestion or save command (ADR 0020), each only while its feature is on. */
+  private isCommand(text: string) {
+    return (this.flagOn("suggestions") && isSuggestionCommand(text)) || (this.flagOn("project_library") && isSaveCommand(text));
+  }
   private feature(k: FeatureKey, action: "used" | "blocked") { this.deps.persistence.featureEvent(this.sessionId, k, action); }
   versionInfo() {
     return { version: this.current, canUndo: this.versions.get(this.current)?.parent != null || this.dirty(), canRedo: this.redoTarget() != null };
@@ -254,7 +459,7 @@ export class DocSession {
     // new part. Any new word counts — before, only model-worthy words did, so nouns the lexicon draws were
     // dropped for the rest of the turn.
     const grew = u.settledWords != null && lexTokens(text).length > u.settledWords;
-    if (u.settled && !isVocabCommand(text) && (grew || (!isFinal && uncovered(text, u.handled, true, docKind(this.doc)).some((k) => !u.calledFor.has(k))))) {
+    if (u.settled && !isVocabCommand(text) && !this.isCommand(text) && (grew || (!isFinal && uncovered(text, u.handled, true, docKind(this.doc)).some((k) => !u.calledFor.has(k))))) {
       u.settled = false; u.ending = false; u.baseDoc = this.project;
     }
     if (u.settled) return;
@@ -269,6 +474,16 @@ export class DocSession {
       if (isFinal || eager) this.vocabCommand(u);
       return;
     }
+    // "approve …" / "reject …" / "save the project": commands (ADR 0020) — never drawn, never sent to the model,
+    // acted on at the FINAL transcript only (plan-critic M8 #2).
+    if (this.isCommand(text)) {
+      if (!isFinal) return;
+      u.settled = true; u.ending = true;
+      if (u.lexIds.size) this.restoreProject(u.baseDoc, randomUUID(), "rollback"); // drawn before the command was recognisable
+      if (this.flagOn("suggestions") && isSuggestionCommand(text)) void this.suggestionCommand(text);
+      else if (this.flagOn("project_library") && isSaveCommand(text)) void this.saveProject(parseSave(text).title);
+      return;
+    }
 
     // Tier 0: lexicon → provisional nodes, no model call (ADR 0001/0009).
     // Naming another view switches to it and draws there; nothing in the old view is touched (ADR 0016).
@@ -278,6 +493,7 @@ export class DocSession {
     for (const k of lex.consumed) u.handled.add(k);
     for (const c of lex.created) u.labels.set(c.key, { label: labelOf(lex.ops, c.id), mine: !!c.mine });
     if (lex.ops.length) { this.applyLexicon(lex.ops, seq, lastWordEndMs, lex.created.map((c) => c.id)); lex.created.forEach((c) => { u.lexIds.add(c.id); this.lexOrigin.add(c.id); u.drawnAt.set(c.key, c.id); }); }
+    if (lex.created.length) this.refreshSuggestions(); // "cases" arrives already offering subject/status/priority (ADR 0020)
     // STT revised a word ("sign and" → "sign in"): fix the label of what the lexicon already drew.
     const fixes = refreshProvisional(text, this.doc, u.drawnAt);
     if (fixes.length) this.applyLexicon(fixes, seq, lastWordEndMs, []);
@@ -312,6 +528,7 @@ export class DocSession {
   wordMarks(): WordMark[] {
     const u = this.utt;
     if (!u) return [];
+    if (this.isCommand(u.text)) return occurrenceKeys(lexTokens(u.text)).map((key) => ({ key, as: "command" as const }));
     const marks: WordMark[] = [];
     for (const k of u.handled) {
       const l = u.labels.get(k);
@@ -422,7 +639,10 @@ export class DocSession {
     }
     const uid = this.deps.persistence.utterance(this.sessionId, u.seq, "voice");
     this.deps.persistence.latency(this.sessionId, { utteranceId: uid, stage: "settled", tMs: u.lastWordEndMs ?? 0 });
+    const changed = JSON.stringify(this.project) !== JSON.stringify(u.baseDoc);
     this.announceVersion();
+    this.flushResolves();
+    if (changed) this.maybeSuggestModel(u.text);
   }
 
   // ── Typed prompts (M3 semantics) ─────────────────────────────────────────────────────────
@@ -695,10 +915,12 @@ export class DocSession {
     }
     this.deps.persistence.jobEnd(this.sessionId, { id: job.id, status: state, ...usage });
     this.deps.send({ type: "job", jobId: job.id, state, kind: job.kind, firstOpMs, opCount: job.applied, detail, ...usage });
+    if (job.kind === "typed") this.flushResolves();
   }
 
   /** `version` + (with the flag) the timeline — every place the pointer moves calls this. */
   private announceVersion() {
+    this.refreshSuggestions();
     this.deps.send({ type: "version", ...this.versionInfo() });
     if (this.flagOn("version_timeline")) this.deps.send(this.timelineMsg());
   }
