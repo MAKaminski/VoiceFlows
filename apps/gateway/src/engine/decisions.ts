@@ -17,7 +17,7 @@ const MAX_MENTIONS = 5;          // 5 mentions → 20 ordered pairs → ≤ 40 q
 
 const STOP = new Set(["the", "a", "an", "and", "which", "that", "then", "it", "its", "their", "also", "so", "um", "uh", "like", "both", "all", "or"]);
 /** Words that join mentions into one group: "the api AND the worker both write to postgres" (M7 fan-out). */
-const JOIN = new Set(["and", "or", "both", "the", "a", "an", "as", "well", "plus", "also", "um", "uh"]);
+const JOIN = new Set(["and", "or", "both", "the", "a", "an", "as", "well", "plus", "also", "um", "uh", "each", "every"]);
 const singular = (w: string) => w.replace(/ies$/, "y").replace(/(ss|sh|ch|x)es$/, "$1").replace(/s$/, "");
 const norm = (w: string) => singular(w.toLowerCase());
 
@@ -45,12 +45,23 @@ export interface Plan {
   state: string;
   questions: Record<string, JevQuestion>;
   /** gap: the token span between the two groups — the verb phrase and the words the answer covers. */
-  pairs: Array<{ key: string; from: Mention; to: Mention; gap: [number, number]; fan?: boolean }>;
+  /** owned: the ERD sentence says the FIRST belongs to the second ("each order belongs to a customer") —
+   *  decided by grammar: the second is the one side, no question asked. */
+  pairs: Array<{ key: string; from: Mention; to: Mention; gap: [number, number]; fan?: boolean; owned?: boolean }>;
   screen?: { targets: Mention[]; where: "first" | "last"; direct?: Mention };
   words: string[];
   /** The same tokens after speech repair ("rights to" → "writes to"); index-aligned with `words`. */
   said: string[];
 }
+
+/**
+ * "X belongs to Y" and its kin put Y on the one side. Jev and Haiku both read the subject as the "one" side
+ * and drew orders → customers (ADR 0017 blind spot); this is grammar, not a judgement, so it is a rule.
+ * A negation in the gap leaves it to Jev.
+ */
+const OWNED = [["belongs", "to"], ["belong", "to"], ["belonging", "to"], ["owned", "by"], ["part", "of"], ["assigned", "to"], ["child", "of"]];
+export const ownedBy = (gap: string[]) =>
+  !gap.some((w) => ["not", "doesn't", "don't", "never", "no"].includes(w)) && OWNED.some(([a, b]) => gap.some((w, i) => w === a && gap[i + 1] === b));
 
 const REL: Record<string, (a: string, b: string) => string> = {
   architecture: (a, b) => `${a} sends to / calls / writes to / reads from / publishes to ${b}`,
@@ -124,7 +135,9 @@ export function planDecisions(view: DesignDoc, kind: DocKind, raw: string): Plan
     for (let g = 0; g + 1 < groups.length; g++) for (const a of groups[g]!) for (const b of groups[g + 1]!) {
       const key = `${pairs.length}`;
       const fan = groups[g]!.length > 1 || groups[g + 1]!.length > 1;
-      pairs.push({ key, from: a, to: b, gap: [groups[g]!.at(-1)!.end, groups[g + 1]![0]!.start], ...(fan ? { fan } : {}) });
+      const gap: [number, number] = [groups[g]!.at(-1)!.end, groups[g + 1]![0]!.start];
+      if (kind === "erd" && ownedBy(said.slice(...gap))) { pairs.push({ key, from: a, to: b, gap, owned: true }); continue; } // grammar decides: no question
+      pairs.push({ key, from: a, to: b, gap, ...(fan ? { fan } : {}) });
       const [ra, rb] = [readable(a.label), readable(b.label)]; // readable keys: ids halved Jev's confidence
       questions[`rel:${key}`] = { type: "choice", instructions: `Does the transcript connect ${a.label} and ${b.label}, and in which direction?`,
         criteria: { [`${ra}->${rb}`]: REL[kind]!(a.label, b.label), [`${rb}->${ra}`]: REL[kind]!(b.label, a.label), none: `No connection between ${a.label} and ${b.label} is described` } };
@@ -170,10 +183,28 @@ export function decisionsToLines(plan: Plan, answers: Record<string, JevAnswer>,
   }
 
   const fkAdded = new Map<string, string[]>();
+  /** ERD relationship: `from` is the one side; the many side gets `<from>_id` as a foreign key. */
+  const emitErd = (from: Mention, to: Mention, card: string, alias: string) => {
+    const fk = `${singular(from.label.toLowerCase()).replace(/[^a-z0-9]+/g, "_")}_id:uuid:fk`;
+    const current = fkAdded.get(to.id) ?? cols(to.id);
+    if (!current.some((c) => c.split(":")[0] === fk.split(":")[0])) {
+      const next = [...current, fk];
+      fkAdded.set(to.id, next);
+      lines.push(`~${to.id} cols=${next.join(",")}`);
+    }
+    lines.push(`+Edge ${alias} >root from=${from.id} to=${to.id} card=${card} "${card === "1:1" ? "has one" : "has many"}"`);
+  };
   for (const p of plan.pairs) {
     const rel = answers[`rel:${p.key}`];
-    if (rel?.type !== "choice" || rel.confidence < CHOICE_MIN) { unsure++; continue; }
     const [lo, hi] = p.gap;
+    if (p.owned) { // "each order belongs to a customer": customers 1:n orders, fk on orders
+      for (let i = lo; i < hi; i++) if (!STOP.has(plan.words[i]!) && !AUX.has(plan.words[i]!)) coveredIdx.add(i);
+      n++;
+      emitErd(p.to, p.from, "1:n", `jev${n}`);
+      accepted++;
+      continue;
+    }
+    if (rel?.type !== "choice" || rel.confidence < CHOICE_MIN) { unsure++; continue; }
     // Confidently not a connection: nothing to draw. Fan-out pairs were never in the bake-off, so there a
     // "none" is left to the model instead of trusted (plan-critic M7).
     if (rel.choice === "none") { if (p.fan) unsure++; else accepted++; continue; }
@@ -192,17 +223,7 @@ export function decisionsToLines(plan: Plan, answers: Record<string, JevAnswer>,
       const kind = choice(`kind:${p.key}`);
       const msg = label.replace(/\s+(to|from|on|in|at)$/, ""); // "returns token to" → "Returns token"
       lines.push(`+Edge jev${n} >root from=${from.id} to=${to.id}${kind && kind !== "sync" ? ` style=${kind}` : ""} "${sentence(msg) || "Message"}"`);
-    } else {
-      const card = choice(`card:${p.key}`) ?? "1:n";
-      const fk = `${singular(from.label.toLowerCase()).replace(/[^a-z0-9]+/g, "_")}_id:uuid:fk`;
-      const current = fkAdded.get(to.id) ?? cols(to.id);
-      if (!current.some((c) => c.split(":")[0] === fk.split(":")[0])) {
-        const next = [...current, fk];
-        fkAdded.set(to.id, next);
-        lines.push(`~${to.id} cols=${next.join(",")}`);
-      }
-      lines.push(`+Edge jev${n} >root from=${from.id} to=${to.id} card=${card} "${card === "1:1" ? "has one" : "has many"}"`);
-    }
+    } else emitErd(from, to, choice(`card:${p.key}`) ?? "1:n", `jev${n}`);
     accepted++;
   }
   const occ = occurrenceKeys(plan.words);

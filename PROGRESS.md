@@ -134,3 +134,7 @@
   The "belongs to" direction blind spot is still wrong (not scored). Bar ≥ 90%.
 - **DoD acceptance after deploy (10 runs, real audio): 10/10 · TTFV-0 p50 −195 ms adj. · TTFV-1 p50 85 ms adj.
   (was 112) · settle p50 670 ms (was 695) · 1 reflow · $0/min.**
+- "Belongs to" blind spot closed by rule (ADR 0017 amendment, 2026-09-28): "each order belongs to a customer" →
+  customers 1:n orders with `customer_id` on orders, instantly and with no model call. It also covers "owned by",
+  "part of", "assigned to", fan-out ("each comment and each ticket is owned by an agent"), and leaves
+  negations to Jev. Corpus: 77 cases, all scored.

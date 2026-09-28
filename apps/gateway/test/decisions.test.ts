@@ -53,6 +53,25 @@ describe("decisions planner (ADR 0017)", () => {
     expect(d.covered).toContain("rights#1"); // highlight keys come from what the user saw
   });
 
+  it("'each document belongs to a user' is decided by grammar: users is the one side, no question asked", () => {
+    const p = planDecisions(view(erdDoc), "erd", "each document belongs to a user")!;
+    expect(p.questions).toEqual({});
+    const d = decisionsToLines(p, {}, () => ["id:uuid:pk"]);
+    expect(d.lines).toEqual(["~n_documents cols=id:uuid:pk,user_id:uuid:fk", '+Edge jev1 >root from=n_users to=n_documents card=1:n "has many"']);
+    expect(d.covered).toContain("belongs#1");
+  });
+
+  it("'each session and each document is owned by a user' puts users on the one side of both", () => {
+    const p = planDecisions(view(erdDoc), "erd", "each session and each document is owned by a user")!;
+    const d = decisionsToLines(p, {}, () => ["id:uuid:pk"]);
+    expect(d.lines.filter((l) => l.startsWith("+Edge")).map((l) => l.match(/from=(\S+) to=(\S+)/)!.slice(1))).toEqual([["n_users", "n_sessions"], ["n_users", "n_documents"]]);
+  });
+
+  it("a negated 'does not belong to' is left to Jev", () => {
+    const p = planDecisions(view(erdDoc), "erd", "a document does not belong to a user")!;
+    expect(Object.keys(p.questions)).toContain("rel:0");
+  });
+
   it("negation stays adjacent: 'calls redis but not postgres' never pairs the gateway with postgres", () => {
     const p = planDecisions(view(architectureDoc), "architecture", "the gateway calls redis but not postgres")!;
     expect(p.pairs.map((x) => [x.from.id, x.to.id])).toEqual([["n_gateway", "n_redis"], ["n_redis", "n_pg"]]);

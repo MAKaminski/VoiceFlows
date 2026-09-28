@@ -16,7 +16,8 @@ Ops:
 Columns: name:type[:pk|:fk], snake_case, comma-separated, no spaces; types uuid text int bigint
 numeric bool timestamptz date jsonb; id:uuid:pk first. Tables: lowercase plural snake_case.
 "A user has many orders" → user_id:uuid:fk on orders AND an Edge users→orders card=1:n.
-One-to-one: card=1:1. Many-to-many: a join table with two fks and two 1:n edges.
+"Each order belongs to a customer" (also: is owned by, is part of, is assigned to) → the OTHER table is the
+"one" side: customer_id:uuid:fk on orders AND an Edge customers→orders card=1:n. One-to-one: card=1:1. Many-to-many: a join table with two fks and two 1:n edges.
 
 Existing tables (any n_… id, including ?provisional ones just drawn from speech with only
 id:uuid:pk) are edited by id — never re-add or remove them; never write "?provisional". Add a Node

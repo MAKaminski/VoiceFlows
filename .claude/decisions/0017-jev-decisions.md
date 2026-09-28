@@ -35,6 +35,12 @@ p50 722 ms, 95.1 %; Jev ≈ $0.00004 per call vs $0.00067.
 − Jev is 12 days old (launched 2026-09-15); a timeout or outage costs ≤ 250 ms before the model takes over.
 − Non-adjacent relations ("the api and the worker both write to postgres") still go to the model.
 
+## Amendment (2026-09-28): "belongs to" is grammar
+The known blind spot ("X belongs to Y" drawn X→Y by both Jev and Haiku) is closed by rule, like "logo on top":
+in the ERD, a gap reading belongs/belong/belonging to, owned by, part of, assigned to or child of puts the
+second mention on the one side (Edge Y→X card=1:n, `y_id` fk on X), with no question asked and no model
+call. A negation in the gap leaves it to Jev. The ERD prompt carries the same rule for the model path.
+
 ## Result (2026-09-27, Railway)
 Screen acceptance 10/10: TTFV-1 p50 116 ms (172 ms adjusted; was 775–901 ms with the model), settle 754 ms,
 1 reflow, $0/min on the definition-of-done sentence (no model call). Live tuning that got there: readable

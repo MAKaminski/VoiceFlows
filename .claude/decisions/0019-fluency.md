@@ -43,8 +43,8 @@ Root causes, from the code:
 7. **Forced calls are charged to the bucket.** The bucket may go into debt, capped at the burst size, so the
    long-run rate stays at 20 calls/min.
 8. **The hedged client closes both inner streams before awaiting usage.**
-9. **The fluency corpus is the regression bar.** `scripts/corpus/cases.ts` holds 74 cases (73 scored, 1 known
-   blind spot) in the way people talk, across all four views, and has two runners:
+9. **The fluency corpus is the regression bar.** `scripts/corpus/cases.ts` holds 77 cases (all scored since the
+   "belongs to" rule) in the way people talk, across all four views, and has two runners:
    - offline (`apps/gateway/test/corpus.test.ts`, CI) checks the engine: every word that needs the model
      reaches it, instant cases make no call, one version per sentence;
    - live (`scripts/e2e/corpus-live.mts`) scores the finished design. **Bar: ≥ 90% of cases.**
