@@ -103,3 +103,18 @@ describe("cross-view scaffolding (ADR 0021)", () => {
     expect(viewDoc(d.project, "architecture").root.children!.every((l) => !(l.children?.length))).toBe(true);
   });
 });
+
+describe("quick start intake (ADR 0021)", () => {
+  it("seeds title and notes, and each named system becomes a component that scaffolds the other views — one version", async () => {
+    const s = await session();
+    const before = s.versions();
+    s.d.applyIntake({ building: "a customer support desk", users: "agents and customers", systems: "Salesforce, Genesys and Slack" });
+    expect(s.versions()).toBe(before + 1);
+    expect(s.d.project.root.props.title).toBe("Customer support desk");
+    expect(String(s.d.project.root.props.notes)).toContain("Used by agents and customers.");
+    expect(s.labels("architecture").sort()).toEqual(["Genesys", "Salesforce", "Slack"]);
+    expect(s.labels("sequence").sort()).toEqual(["Genesys", "Salesforce", "Slack"]);
+    expect(s.labels("cva").sort()).toEqual(["Genesys", "Salesforce", "Slack"]);
+    expect(s.nodes("architecture").some((n) => n.inferred)).toBe(false); // the user named them
+  });
+});

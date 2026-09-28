@@ -15,6 +15,8 @@ import { ViewGrid } from "@/components/ViewGrid";
 import { SuggestionTray } from "@/components/SuggestionTray";
 import { ProjectsModal } from "@/components/ProjectsModal";
 import { FeaturesPopover } from "@/components/FeaturesPopover";
+import { PrdDrawer } from "@/components/PrdDrawer";
+import { IntakeCard } from "@/components/IntakeCard";
 import { useFeatures } from "@/store/features";
 import { kindFeature, viewCount, viewDoc, VIEWS } from "@livecanvas/dsl";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
@@ -45,6 +47,7 @@ export default function Studio() {
   }, []);
   const chooseLayout = (l: "grid" | "focus") => { setLayout(l); try { localStorage.setItem("lc.layout", l); } catch {} };
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [prdOpen, setPrdOpen] = useState(false);
 
   const start = useCallback(async () => {
     reset();
@@ -158,6 +161,10 @@ export default function Studio() {
             <button type="button" data-testid="projects" onClick={() => setProjectsOpen(true)} style={pill("transparent", "inherit")}>Projects</button>
           </>
         )}
+        {flags.prd_view && project.root.type === "Project" && (
+          <button type="button" data-testid="prd" aria-pressed={prdOpen} onClick={() => { setPrdOpen((o) => !o); if (!prdOpen) gateway.send({ type: "ui_event", feature: "prd_view", action: "used" }); }}
+            style={pill(prdOpen ? "#0f172a" : "transparent", prdOpen ? "#fff" : "inherit")}>PRD</button>
+        )}
         <SharePopover />
         <FeaturesPopover />
         <a href="/admin" data-testid="admin-link" title="Admin: switch features on or off and see who changed what"
@@ -196,12 +203,18 @@ export default function Studio() {
         </div>
       )}
       {kind !== "screen" && !grid && <KeywordRail kind={kind} />}
-      {grid ? <ViewGrid project={project} active={kind} /> : (
-        <>
-          <div style={{ flex: 1 }}><Canvas doc={doc} /></div>
-          <SuggestionTray view={kind} />
-        </>
-      )}
+      {flags.project_intake && connected && project.root.type === "Project" && !projectTitle && project.root.children!.every((v) => viewCount(v) === 0) && <IntakeCard />}
+      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          {grid ? <ViewGrid project={project} active={kind} /> : (
+            <>
+              <div style={{ flex: 1 }}><Canvas doc={doc} /></div>
+              <SuggestionTray view={kind} />
+            </>
+          )}
+        </div>
+        {prdOpen && flags.prd_view && project.root.type === "Project" && <PrdDrawer project={project} onClose={() => setPrdOpen(false)} />}
+      </div>
       {projectsOpen && <ProjectsModal onClose={() => setProjectsOpen(false)} currentId={documentId ?? undefined} />}
       <TranscriptStrip />
       {hud && <Hud />}

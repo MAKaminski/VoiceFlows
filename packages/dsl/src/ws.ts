@@ -67,6 +67,10 @@ export const ClientMsg = z.discriminatedUnion("type", [
   z.object({ type: z.literal("suggestion_reject"), ids: z.array(z.string()).min(1).max(50), cols: z.record(z.string(), z.array(z.string())).optional() }),
   // Project library (ADR 0020): keep this project in the shared list, optionally naming it.
   z.object({ type: z.literal("save_project"), title: z.string().max(80).optional() }),
+  // Quick start (ADR 0021): three optional answers that seed a new project.
+  z.object({ type: z.literal("intake"), building: z.string().max(300).optional(), users: z.string().max(200).optional(), systems: z.string().max(300).optional() }),
+  // Usage of client-only features (ADR 0021) — a fixed allowlist, so it can't write arbitrary rows.
+  z.object({ type: z.literal("ui_event"), feature: z.enum(["prd_view", "voice_demo", "all_views"]), action: z.enum(["used", "exposed"]) }),
 ]);
 export type ClientMsg = z.infer<typeof ClientMsg>;
 

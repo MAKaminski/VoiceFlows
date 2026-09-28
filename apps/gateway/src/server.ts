@@ -415,6 +415,11 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
           case "suggestion_reject":
             if (!permit("suggestions")) return;
             return doc!.resolveSuggestions("reject", msg.ids.map((id) => ({ id, ...(msg.cols?.[id] ? { cols: msg.cols[id] } : {}) })));
+          case "intake":
+            if (!permit("project_intake")) return;
+            return doc!.applyIntake(msg);
+          case "ui_event":
+            return doc!.uiEvent(msg.feature, msg.action);
           case "save_project":
             if (!permit("project_library")) return;
             return void doc!.saveProject(msg.title);

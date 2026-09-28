@@ -292,6 +292,36 @@ export class DocSession {
     if (total) this.feature("cross_view_scaffold", "used");
   }
 
+  /**
+   * Quick start (ADR 0021): "what are you building / who uses it / which systems" seed the title and notes, and
+   * each named system becomes an architecture component — which then scaffolds the other views. One version.
+   */
+  applyIntake(a: { building?: string; users?: string; systems?: string }) {
+    const pre = this.project;
+    const props = this.project.root.props as { title?: string; notes?: string };
+    const building = a.building?.trim(), users = a.users?.trim(), systems = a.systems?.trim();
+    const ops: PatchOp[] = [];
+    if (building && !props.title) ops.push({ op: "add", path: "/root/props/title", value: building.replace(/^(an?|the)\s+/i, "").replace(/\b[a-z]/, (c) => c.toUpperCase()).slice(0, 80) });
+    const notes = [building && `Building ${building}.`, users && `Used by ${users}.`, systems && `Works with ${systems}.`].filter(Boolean).join(" ").slice(0, 560);
+    if (notes) ops.push({ op: "add", path: "/root/props/notes", value: props.notes ? `${props.notes} ${notes}`.slice(0, 560) : notes });
+    for (const op of ops) this.project = applyOp(this.project, op);
+    if (ops.length) this.emitRaw(randomUUID(), "model", ops);
+    const names = (systems ?? "").split(/,|\band\b|;/).map((x) => x.trim().replace(/^(the|our|a)\s+/i, "")).filter((x) => x.length > 1 && x.length < 40).slice(0, 8);
+    const lane = (viewDoc(this.project, "architecture").root.children ?? []).find((c) => c.type === "Layer" && c.props.tier === "api")?.id;
+    if (lane && names.length) {
+      const lines = names.map((n, i) => `+Node sys${i} >${lane} k=external "${n.replace(/"/g, "'").replace(/\b[a-z]/g, (c) => c.toUpperCase())}"`);
+      const r = this.compileLines("architecture", lines);
+      if (r) this.within("architecture", () => { this.doc = r.doc; this.emitOps(randomUUID(), "model", r.ops); });
+    }
+    this.applyScaffold(pre, "");
+    if (JSON.stringify(this.project) === JSON.stringify(pre)) return;
+    this.feature("project_intake", "used");
+    this.writeVersion(null);
+    this.announceVersion();
+  }
+  /** Client-only feature usage (PRD opened, demo played) — ADR 0021. */
+  uiEvent(feature: FeatureKey, action: "used" | "exposed") { if (action === "used") this.feature(feature, "used"); else this.deps.persistence.featureEvent(this.sessionId, feature, "exposed"); }
+
   private flushResolves() {
     if (this.active || (this.utt && !this.utt.settled)) return;
     const q = this.queuedResolves;

@@ -40,3 +40,17 @@ describe("six views (ADR 0021)", () => {
     expect(q("n_c")).toBeUndefined(); // below the matrix
   });
 });
+
+import { compilePrd } from "../src/index.js";
+describe("PRD (ADR 0021)", () => {
+  it("compiles every view into sections and lists empty views as open questions", () => {
+    const p = emptyProject();
+    const withTitle = { ...p, root: { ...p.root, props: { title: "Support Desk", notes: "A help desk for agents and customers." } } };
+    const md = compilePrd(withTitle);
+    expect(md).toMatch(/^# Support Desk — Product requirements/);
+    expect(md).toContain("A help desk for agents and customers.");
+    expect(md).toContain("## Open questions");
+    expect(md).toContain("What data does it store?");
+    expect(compilePrd(withTitle)).toBe(md); // deterministic
+  });
+});

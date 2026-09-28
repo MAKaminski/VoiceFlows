@@ -36,7 +36,7 @@ const Cell = memo(function Cell({ kind, label, root, project, active, readOnly }
       <header style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", fontSize: 13, fontWeight: 650, borderBottom: "1px solid var(--lc-chrome-border)" }}>
         <span>{label}</span>
         <span style={{ fontSize: 11, fontWeight: 500, opacity: 0.6 }}>{n ? `${n} element${n === 1 ? "" : "s"}` : "empty"}</span>
-        {active && !readOnly && <span style={{ marginLeft: "auto", fontSize: 11, color: "#2563eb" }}>🎙 speaking to {label}</span>}
+        {active && !readOnly && <span style={{ marginLeft: "auto", fontSize: 11, color: "#2563eb" }}>🎙 focus: {label}</span>}
       </header>
       <div style={{ flex: 1, minHeight: 0 }}><Canvas doc={doc} fit /></div>
       {!readOnly && <SuggestionTray view={kind} />}
