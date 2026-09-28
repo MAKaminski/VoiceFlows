@@ -220,10 +220,15 @@ const STRONG_TRIGGERS: Array<[string[], DocKind]> = [
   [["er", "diagram"], "erd"], [["database", "diagram"], "erd"], [["entity", "diagram"], "erd"], [["table", "diagram"], "erd"],
   [["sequence", "diagram"], "sequence"], [["sequence", "flow"], "sequence"], [["flow", "diagram"], "sequence"],
   [["wireframe"], "screen"], [["the", "ui"], "screen"],
+  // ADR 0021 — "constraints"/"throughput" alone are loose: "foreign key constraints" must stay in the ERD.
+  [["bottlenecks"], "constraints"], [["bottleneck"], "constraints"], [["constraints", "view"], "constraints"], [["rates", "and", "limits"], "constraints"],
+  [["cost", "value"], "cva"], [["value", "analysis"], "cva"], [["prioritization", "matrix"], "cva"], [["cva"], "cva"], [["c", "v", "a"], "cva"],
 ];
 const LOOSE_TRIGGERS: Array<[string[], DocKind]> = [
   [["system", "design"], "architecture"], [["database", "schema"], "erd"], [["schema"], "erd"], [["the", "tables"], "erd"],
   [["sequence"], "sequence"], [["screen"], "screen"], [["page"], "screen"],
+  [["constraints"], "constraints"], [["throughput"], "constraints"], [["capacity"], "constraints"],
+  [["prioritization"], "cva"], [["priorities"], "cva"],
 ];
 
 export function requestedKind(words: string[], loose = true): DocKind | null {
@@ -311,7 +316,24 @@ const SEQ_NOUNS: NounTable = [
   [["model"], actor("LLM", "external")], [["llm"], actor("LLM", "external")], [["email"], actor("Email service", "external")],
 ];
 
-const NOUN_TABLES: Record<Exclude<DocKind, "screen">, NounTable> = { architecture: ARCH_NOUNS, erd: ERD_NOUNS, sequence: SEQ_NOUNS };
+/** Constraints: the same components as the architecture, laid out as a pipeline (no lanes). */
+const CONSTRAINT_NOUNS: NounTable = ARCH_NOUNS.map(([p, n]) => [p, { label: n.label, kind: n.kind, ...(n.tech ? { tech: n.tech } : {}) }]);
+/** Cost-value: product features (and the named systems people weigh). */
+const feature = (label: string): DiagramNoun => ({ label, kind: "feature" });
+const CVA_NOUNS: NounTable = [
+  [["sign", "in"], feature("Sign in")], [["log", "in"], feature("Sign in")], [["login"], feature("Sign in")], [["sign", "up"], feature("Sign up")],
+  [["single", "sign", "on"], feature("Single sign-on")], [["sso"], feature("Single sign-on")], [["two", "factor"], feature("Two-factor auth")],
+  [["checkout"], feature("Checkout")], [["payments"], feature("Payments")], [["search"], feature("Search")], [["notifications"], feature("Notifications")],
+  [["dashboard"], feature("Dashboard")], [["reporting"], feature("Reporting")], [["reports"], feature("Reporting")], [["analytics"], feature("Analytics")],
+  [["onboarding"], feature("Onboarding")], [["chat"], feature("Chat")], [["live", "chat"], feature("Live chat")], [["ai", "routing"], feature("AI routing")],
+  [["recommendations"], feature("Recommendations")], [["exports"], feature("Exports")], [["mobile", "app"], feature("Mobile app")],
+  [["offline", "mode"], feature("Offline mode")], [["dark", "mode"], feature("Dark mode")], [["integrations"], feature("Integrations")],
+  [["audit", "log"], feature("Audit log")], [["billing"], feature("Billing")], [["subscriptions"], feature("Subscriptions")],
+  [["file", "uploads"], feature("File uploads")], [["comments"], feature("Comments")], [["email", "alerts"], feature("Email alerts")],
+  [["auth"], feature("Auth")], [["caching"], feature("Caching")],
+];
+
+const NOUN_TABLES: Record<Exclude<DocKind, "screen">, NounTable> = { architecture: ARCH_NOUNS, erd: ERD_NOUNS, sequence: SEQ_NOUNS, constraints: CONSTRAINT_NOUNS, cva: CVA_NOUNS };
 
 /** Category nouns that a definite article can point back with ("the app", "the database"). */
 const GENERIC = new Set(["App", "API", "Database", "Server", "Client", "Backend", "Gateway", "Web app", "Mobile app", "Browser", "Queue",
@@ -435,6 +457,10 @@ export function diagramVocabulary(kind: Exclude<DocKind, "screen">): { terms: Vo
       example: "users with an email, each user has many orders, orders have a total and a status" },
     sequence: { terms, relations: ["sends", "calls", "returns", "validates", "saves", "then"],
       example: "the user logs in on the web app, the app posts credentials to the API, the API checks Postgres and returns a token" },
+    constraints: { terms, relations: ["per second", "at peak", "handles up to", "latency under", "bottleneck"],
+      example: "we expect five hundred requests a second at peak, Postgres handles two hundred writes a second, the API answers in under a hundred milliseconds" },
+    cva: { terms, relations: ["cheap", "expensive", "high value", "low value", "must have", "nice to have"],
+      example: "sign in is cheap and high value, AI routing is expensive but high value, dark mode is cheap and low value" },
   }[kind];
 }
 

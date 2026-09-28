@@ -13,7 +13,7 @@
  * "Title" = a title-variant Text; "root" = the screen itself. Diagrams: a label, matched loosely
  * (case, punctuation and plural ignored).
  */
-export type View = "screen" | "architecture" | "erd" | "sequence";
+export type View = "screen" | "architecture" | "erd" | "sequence" | "constraints" | "cva";
 
 export interface Expect {
   view?: View;                                  // the view the project ends on

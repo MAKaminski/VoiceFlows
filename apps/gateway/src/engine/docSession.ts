@@ -81,6 +81,12 @@ const DIAGRAM_CONTENT: Record<Exclude<DocKind, "screen">, Set<string>> = {
     "uses", "through", "via", "behind", "proxies", "caches", "publishes", "subscribes", "consumes", "enqueues", "pushes", "pulls", "streams",
     "stores", "deployed", "deploy", "hosted", "hosts", "runs", "https", "grpc", "rest", "webhook", "webhooks", "events", "async", "sync",
     "service", "services", "lambda", "functions", "microservice", "search", "analytics", "cron", "scheduler", "email", "sms", "payments", "login"]),
+  // ADR 0021: rates, capacity and latency; and cost / value judgements.
+  constraints: new Set([...EDIT, "per", "second", "seconds", "minute", "hour", "requests", "rps", "qps", "writes", "reads", "peak", "capacity",
+    "handles", "handle", "latency", "milliseconds", "ms", "throughput", "bottleneck", "limit", "limits", "max", "maximum", "concurrent", "load",
+    "traffic", "hundred", "thousand", "million", "expect", "calls", "sends", "writes", "reads", "rate", "sla", "uptime"]),
+  cva: new Set([...EDIT, "cheap", "expensive", "costly", "cost", "costs", "value", "valuable", "high", "low", "must", "nice", "priority",
+    "effort", "impact", "easy", "hard", "quick", "win", "bet", "worth", "free", "pricey", "critical", "optional", "important"]),
   erd: new Set([...EDIT, "has", "have", "many", "belongs", "references", "foreign", "key", "column", "columns", "field", "fields", "add", "also", "plus", "contains", "includes", "holds", "stores", "tracks",
     "join", "between", "one", "id", "email", "name", "status", "price", "total", "amount", "created", "updated", "date", "timestamp",
     "type", "unique", "index", "nullable", "boolean", "count", "quantity", "role", "password", "url", "description", "slug", "owner"]),

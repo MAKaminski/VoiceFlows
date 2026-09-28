@@ -16,12 +16,12 @@ const Direction = z.enum(["row", "column"]);
 const Id = z.string().regex(/^n_[a-z0-9_]+$/);
 
 /** The three diagram kinds (ADR 0011). Deliberately closed: no free-form diagramming. */
-export const DiagramKind = z.enum(["architecture", "erd", "sequence"]);
+export const DiagramKind = z.enum(["architecture", "erd", "sequence", "constraints", "cva"]); // + constraints, cva (ADR 0021)
 export type DiagramKind = z.infer<typeof DiagramKind>;
 /** Architecture lanes = the four layers (Frontend, APIs, Database, Infrastructure). */
 export const Tier = z.enum(["frontend", "api", "data", "infra", "other"]); // "other": a named extra lane (ADR 0016)
 export type Tier = z.infer<typeof Tier>;
-export const NodeKind = z.enum(["user", "client", "service", "db", "cache", "queue", "storage", "external", "cdn", "auth", "worker", "entity"]);
+export const NodeKind = z.enum(["user", "client", "service", "db", "cache", "queue", "storage", "external", "cdn", "auth", "worker", "entity", "feature"]);
 export type NodeKind = z.infer<typeof NodeKind>;
 /** ERD column: `name:type` with optional `:pk` / `:fk`. */
 export const ColumnSpec = z.string().regex(/^[a-z_][a-z0-9_]*:[a-z0-9_()\[\]]+(:pk|:fk)?$/i);
@@ -101,6 +101,14 @@ export const propSchemas = {
     tech: z.string().optional(),
     cols: z.array(ColumnSpec).optional(),
     owner: z.string().max(40).optional(), // the team that owns it ("full-stack team") — a badge, not a box
+    // Constraints view (ADR 0021): peak demand and capacity in `unit`s per second, p50 latency in ms.
+    demand: z.number().nonnegative().optional(),
+    capacity: z.number().positive().optional(),
+    latency: z.number().nonnegative().optional(),
+    unit: z.string().max(24).optional(),
+    // Cost-value view (ADR 0021): 1 = low, 5 = high.
+    cost: z.number().int().min(1).max(5).optional(),
+    value: z.number().int().min(1).max(5).optional(),
   }),
   Edge: z.object({
     from: Id,
@@ -108,6 +116,7 @@ export const propSchemas = {
     label: z.string().optional(),
     style: z.enum(["sync", "async", "return"]).optional(),
     card: z.enum(["1:1", "1:n", "n:1", "n:n"]).optional(),
+    rate: z.number().nonnegative().optional(), // constraints: requests (or unit) per second on this hop
   }),
 } satisfies Record<PrimitiveType, z.ZodTypeAny>;
 

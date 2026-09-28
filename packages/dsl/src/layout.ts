@@ -21,7 +21,7 @@ export interface EdgeRoute {
 export interface LaneBox extends Rect { id: string; tier: string; label: string }
 export interface Lifeline { id: string; x: number; y1: number; y2: number }
 export interface DiagramLayout {
-  kind: "architecture" | "erd" | "sequence";
+  kind: "architecture" | "erd" | "sequence" | "constraints" | "cva";
   width: number; height: number;
   nodes: Record<string, Rect>;
   lanes: LaneBox[];
@@ -31,15 +31,104 @@ export interface DiagramLayout {
 
 export const ARCH = { PAD: 24, GUTTER: 156, NODE_W: 188, NODE_H: 68, COL_GAP: 64, ROW_GAP: 48, LANE_PAD: 28, LANE_GAP: 24, WRAP: 5, MIN_COLS: 3 } as const;
 export const ERD = { PAD: 48, COLS: 3, W: 240, HEAD_H: 42, ROW_H: 28, FOOT: 8, COL_GAP: 120, ROW_GAP: 44 } as const;
+export const CON = { PAD: 32, W: 220, H: 104, COL_GAP: 84, ROW_GAP: 64, WRAP: 4 } as const;
+export const CVA = { PAD: 40, AXIS: 36, SIZE: 520, ITEM_W: 150, ITEM_H: 38, STRIP_GAP: 36, STRIP_COLS: 4 } as const;
 export const SEQ = { PAD: 32, COL_W: 212, HEAD_W: 168, HEAD_H: 56, FIRST: 48, ROW_H: 54, SELF_W: 44, TAIL: 36 } as const;
 
 export function layoutDiagram(doc: DesignDoc): DiagramLayout | null {
   const root = doc.root;
   if (root.type !== "Diagram") return null;
   const kind = root.props.kind as DiagramLayout["kind"];
-  if (kind === "architecture") return layoutArchitecture(root);
-  if (kind === "erd") return layoutErd(root);
-  return layoutSequence(root);
+  switch (kind) { // explicit: a new kind must choose a layout, never fall into another's (ADR 0021)
+    case "architecture": return layoutArchitecture(root);
+    case "erd": return layoutErd(root);
+    case "sequence": return layoutSequence(root);
+    case "constraints": return layoutConstraints(root);
+    case "cva": return layoutCva(root);
+    default: return null;
+  }
+}
+
+// ── Constraints (ADR 0021): a pipeline of components, append-stable rows of 4 ─────────────────────
+
+/** demand / capacity of a constraints node, or null when either is unknown. ≥ 0.8 = a bottleneck. */
+export function utilization(n: DesignNode): number | null {
+  const d = Number(n.props.demand), c = Number(n.props.capacity);
+  return Number.isFinite(d) && Number.isFinite(c) && c > 0 && n.props.demand != null && n.props.capacity != null ? d / c : null;
+}
+
+function layoutConstraints(root: DesignNode): DiagramLayout {
+  const { PAD, W, H, COL_GAP, ROW_GAP, WRAP } = CON;
+  const items = (root.children ?? []).filter((c) => c.type === "Node");
+  const nodes: Record<string, Rect> = {};
+  items.forEach((n, i) => {
+    const row = Math.floor(i / WRAP), col = i % WRAP;
+    nodes[n.id] = { x: PAD + col * (W + COL_GAP), y: PAD + row * (H + ROW_GAP), w: W, h: H };
+  });
+  const edges: EdgeRoute[] = [];
+  for (const e of edgesOf(root)) {
+    const a = nodes[String(e.props.from)], b = nodes[String(e.props.to)];
+    if (!a || !b) continue;
+    let pts: Array<[number, number]>;
+    if (Math.abs(a.y - b.y) < 1) { // same row: straight across, or around the top when going backwards
+      pts = b.x > a.x ? [[a.x + W, a.y + H / 2], [b.x, b.y + H / 2]] : [[a.x + W / 2, a.y], [a.x + W / 2, a.y - ROW_GAP / 3], [b.x + W / 2, b.y - ROW_GAP / 3], [b.x + W / 2, b.y]];
+    } else { // next rows: down through the row gap
+      const mid = Math.min(a.y, b.y) + H + ROW_GAP / 2;
+      const [top, bot] = a.y < b.y ? [a, b] : [b, a];
+      pts = [[top.x + W / 2, top.y + H], [top.x + W / 2, mid], [bot.x + W / 2, mid], [bot.x + W / 2, bot.y]];
+      if (a.y > b.y) pts.reverse();
+    }
+    pts = simplify(pts);
+    const [lx, ly] = labelPoint(pts);
+    const rate = e.props.rate != null ? `${fmtRate(Number(e.props.rate))}/s` : "";
+    const label = [String(e.props.label ?? ""), rate].filter(Boolean).join(" · ");
+    edges.push({ id: e.id, from: String(e.props.from), to: String(e.props.to), points: pts, d: roundedPath(pts), ...(label ? { label } : {}),
+      labelX: lx, labelY: ly, style: styleOf(e), start: "none", end: "arrow" });
+  }
+  const rows = Math.max(1, Math.ceil(items.length / WRAP)), cols = Math.max(2, Math.min(WRAP, items.length));
+  return { kind: "constraints", width: PAD * 2 + cols * (W + COL_GAP) - COL_GAP, height: PAD * 2 + rows * (H + ROW_GAP) - ROW_GAP, nodes, lanes: [], edges, lifelines: [] };
+}
+export const fmtRate = (n: number) => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(Math.round(n * 10) / 10));
+
+// ── Cost-value (ADR 0021): a 2×2 matrix, x = cost, y = value; unscored items in a strip below ─────
+
+export const QUADRANTS = [
+  { id: "quick", label: "Quick wins", hint: "low cost · high value" }, { id: "big", label: "Big bets", hint: "high cost · high value" },
+  { id: "fill", label: "Fill-ins", hint: "low cost · low value" }, { id: "pit", label: "Money pits", hint: "high cost · low value" },
+] as const;
+
+function layoutCva(root: DesignNode): DiagramLayout {
+  const { PAD, AXIS, SIZE, ITEM_W, ITEM_H, STRIP_GAP, STRIP_COLS } = CVA;
+  const items = (root.children ?? []).filter((c) => c.type === "Node");
+  const x0 = PAD + AXIS, y0 = PAD, half = SIZE / 2;
+  const lanes: LaneBox[] = [
+    { id: "q_quick", tier: "quick", label: "Quick wins", x: x0, y: y0, w: half, h: half },
+    { id: "q_big", tier: "big", label: "Big bets", x: x0 + half, y: y0, w: half, h: half },
+    { id: "q_fill", tier: "fill", label: "Fill-ins", x: x0, y: y0 + half, w: half, h: half },
+    { id: "q_pit", tier: "pit", label: "Money pits", x: x0 + half, y: y0 + half, w: half, h: half },
+  ];
+  const nodes: Record<string, Rect> = {};
+  const taken = new Map<string, number>(); // same score → stack downwards
+  let unscored = 0;
+  const stripY = y0 + SIZE + AXIS + STRIP_GAP;
+  for (const n of items) {
+    const cost = Number(n.props.cost), value = Number(n.props.value);
+    if (n.props.cost == null || n.props.value == null || !Number.isFinite(cost) || !Number.isFinite(value)) {
+      const col = unscored % STRIP_COLS, row = Math.floor(unscored / STRIP_COLS);
+      nodes[n.id] = { x: x0 + col * (ITEM_W + 16), y: stripY + row * (ITEM_H + 12), w: ITEM_W, h: ITEM_H };
+      unscored++;
+      continue;
+    }
+    const cx = x0 + ((cost - 1) / 4) * (SIZE - ITEM_W - 24) + 12;
+    const cy = y0 + ((5 - value) / 4) * (SIZE - ITEM_H - 24) + 12;
+    const key = `${cost}:${value}`;
+    const k = taken.get(key) ?? 0;
+    taken.set(key, k + 1);
+    nodes[n.id] = { x: cx, y: cy + k * (ITEM_H + 6), w: ITEM_W, h: ITEM_H };
+  }
+  const stripRows = Math.ceil(unscored / STRIP_COLS);
+  const height = stripY + (stripRows ? stripRows * (ITEM_H + 12) : 0) + PAD;
+  return { kind: "cva", width: x0 + SIZE + PAD, height, nodes, lanes, edges: [], lifelines: [] };
 }
 
 // ── Architecture ────────────────────────────────────────────────────────────────────────────────

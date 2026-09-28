@@ -9,7 +9,7 @@ import { useEffect, useRef } from "react";
  * version on screen (its ancestors and what redo would reach) is solid; other branches are faded.
  * Click one to jump to it — like undo/redo, and the next edit branches from there.
  */
-const KIND = { screen: "Screen", architecture: "Arch", erd: "ERD", sequence: "Seq" } as const;
+const KIND = { screen: "Screen", architecture: "Arch", erd: "ERD", sequence: "Seq", constraints: "Load", cva: "Cost-value" } as const;
 const time = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
 
 function change(v: VersionSummary, parentKind?: VersionSummary["kind"]) {

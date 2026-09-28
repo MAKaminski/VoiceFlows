@@ -46,6 +46,8 @@ export function defaultDeps(config: Config): Deps {
       architecture: engineFor("diagram_architecture", config),
       erd: engineFor("diagram_erd", config),
       sequence: engineFor("diagram_sequence", config),
+      constraints: engineFor("diagram_constraints", config),
+      cva: engineFor("diagram_cva", config),
     },
     notesEngine: engineFor("project_notes", config),
     suggestEngine: engineFor("suggest", config),

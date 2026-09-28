@@ -14,7 +14,7 @@ export function ViewGrid({ project, active, readOnly }: { project: DesignDoc; ac
   const { flags } = useFeatures();
   const shown = VIEWS.filter((v) => v.kind === "screen" || !flags.projects || flags[kindFeature(v.kind)]);
   return (
-    <div data-testid="view-grid" style={{ flex: 1, minHeight: "calc(100vh - 190px)", display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 12, padding: 12 }}>
+    <div data-testid="view-grid" style={{ flex: 1, minHeight: "calc(100vh - 190px)", display: "grid", gridTemplateColumns: `repeat(${shown.length > 4 ? 3 : 2}, 1fr)`, gridTemplateRows: `repeat(${Math.ceil(shown.length / (shown.length > 4 ? 3 : 2))}, 1fr)`, gap: 12, padding: 12 }}>
       {shown.map((v) => (
         <Cell key={v.kind} kind={v.kind} label={v.label} root={project.root.children?.[VIEWS.indexOf(v)]} project={project}
           active={active === v.kind} readOnly={!!readOnly} />

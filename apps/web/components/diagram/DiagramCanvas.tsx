@@ -1,5 +1,5 @@
 "use client";
-import { layoutDiagram, type DesignDoc, type DesignNode, type DiagramLayout, type EdgeRoute, type Rect } from "@livecanvas/dsl";
+import { fmtRate, layoutDiagram, utilization, type DesignDoc, type DesignNode, type DiagramLayout, type EdgeRoute, type Rect } from "@livecanvas/dsl";
 import {
   Boxes, Cloud, Cog, Database, Globe, HardDrive, KeyRound, Layers, Link2, Monitor, Network, Server, Table2, User, Zap, type LucideIcon,
 } from "lucide-react";
@@ -31,6 +31,18 @@ const KIND_ICON: Record<string, LucideIcon> = {
 };
 const LANE_ICON: Record<string, LucideIcon> = { frontend: Monitor, api: Network, data: Database, infra: Boxes };
 
+const EMPTY: Record<string, string> = {
+  erd: "Name your tables — “users, orders, products…”",
+  sequence: "Name who talks — “the user, the web app, the API…”",
+  constraints: "Say the load — “500 requests a second at peak, Postgres handles 200 writes a second”",
+  cva: "Weigh features — “sign in is cheap and high value, AI routing is expensive but high value”",
+};
+/** Scaffolded from another view (ADR 0021): dashed and marked until this view's own speech touches it. */
+const inferredCls = (n: DesignNode) => [n.provisional ? "lc-provisional" : "", n.inferred ? "lc-inferred" : ""].filter(Boolean).join(" ") || undefined;
+const InferredBadge = ({ n }: { n: DesignNode }) => (n.inferred
+  ? <span title="Inferred from another view — say it here to confirm or change it" style={{ position: "absolute", bottom: -9, left: 10, fontSize: 10, fontWeight: 600, padding: "0 6px", borderRadius: 999, background: "#f1f5f9", color: "#64748b", border: "1px dashed #94a3b8" }}>inferred</span>
+  : null);
+
 const INK = "#0f172a", MUTED = "#64748b", LINE = "#94a3b8", EDGE = "#475569";
 const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 
@@ -54,20 +66,23 @@ export function DiagramCanvas({ doc }: { doc: DesignDoc }) {
         color: INK, fontFamily: "inherit",
       }}>
         {title && <div style={{ position: "absolute", left: 24, top: -34, fontSize: 18, fontWeight: 650, letterSpacing: -0.2 }}>{title}</div>}
-        {layout.lanes.map((l) => <Lane key={l.id} lane={l} count={byId.get(l.id)?.children?.length ?? 0} />)}
+        {layout.kind === "cva" ? <Quadrants layout={layout} /> : layout.lanes.map((l) => <Lane key={l.id} lane={l} count={byId.get(l.id)?.children?.length ?? 0} />)}
         <Edges layout={layout} ns={doc.root.id} />
         <EdgeLabels layout={layout} />
         {Object.entries(layout.nodes).map(([id, r]) => {
           const n = byId.get(id);
           if (!n) return null;
-          return layout.kind === "erd" ? <Entity key={id} node={n} rect={r} /> : <Box key={id} node={n} rect={r} tone={toneFor(n, byId, doc)} />;
+          if (layout.kind === "erd") return <Entity key={id} node={n} rect={r} />;
+          if (layout.kind === "constraints") return <Gauge key={id} node={n} rect={r} tone={toneFor(n, byId, doc)} />;
+          if (layout.kind === "cva") return <Item key={id} node={n} rect={r} />;
+          return <Box key={id} node={n} rect={r} tone={toneFor(n, byId, doc)} />;
         })}
         {layout.kind === "erd" && suggested.filter((x) => x.cols && x.target && layout.nodes[x.target]).map((x) => (
           <SuggestedCols key={x.id} id={x.id} cols={x.cols!} rect={layout.nodes[x.target!]!} />
         ))}
         {empty && layout.kind !== "architecture" && (
           <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: MUTED, fontSize: 14 }}>
-            {layout.kind === "erd" ? "Name your tables — “users, orders, products…”" : "Name who talks — “the user, the web app, the API…”"}
+            {EMPTY[layout.kind] ?? ""}
           </div>
         )}
       </div>
@@ -115,8 +130,9 @@ const Box = memo(function Box({ node, rect, tone }: { node: DesignNode; rect: Re
   const tech = raw && raw.toLowerCase() !== String(node.props.label).toLowerCase() ? raw : undefined; // "Postgres / Postgres" reads as noise
   return (
     <div data-node-id={node.id} data-type="Node" style={{ display: "contents" }}>
-      <div className={node.provisional ? "lc-provisional" : undefined} style={{ ...cardBase, left: rect.x, top: rect.y, width: rect.w, height: rect.h,
+      <div className={inferredCls(node)} style={{ ...cardBase, left: rect.x, top: rect.y, width: rect.w, height: rect.h,
         border: `1px solid ${tone.border}`, display: "flex", alignItems: "center", gap: 12, padding: "0 14px", ...(node.provisional ? {} : { animation: "lc-pop .18s ease-out" }) }}>
+        <InferredBadge n={node} />
         <span style={{ width: 36, height: 36, borderRadius: 10, background: tone.tint, display: "grid", placeItems: "center", flex: "none" }}>
           <Icon size={18} color={tone.accent} strokeWidth={2.2} />
         </span>
@@ -138,7 +154,7 @@ const Entity = memo(function Entity({ node, rect }: { node: DesignNode; rect: Re
   const cols = ((node.props.cols as string[] | undefined) ?? []).map((c) => c.split(":"));
   return (
     <div data-node-id={node.id} data-type="Node" style={{ display: "contents" }}>
-      <div className={node.provisional ? "lc-provisional" : undefined} style={{ ...cardBase, left: rect.x, top: rect.y, width: rect.w, height: rect.h,
+      <div className={inferredCls(node)} style={{ ...cardBase, left: rect.x, top: rect.y, width: rect.w, height: rect.h,
         border: `1px solid ${t.border}`, overflow: "hidden", ...(node.provisional ? {} : { animation: "lc-pop .18s ease-out" }) }}>
         <div style={{ height: 42, display: "flex", alignItems: "center", gap: 8, padding: "0 14px", background: t.tint, borderBottom: `1px solid ${t.border}` }}>
           <Table2 size={16} color={t.accent} strokeWidth={2.2} />
@@ -250,3 +266,75 @@ function SuggestedCols({ id, cols, rect }: { id: string; cols: string[]; rect: R
     </div>
   );
 }
+
+// ── Constraints (ADR 0021) ───────────────────────────────────────────────────────────────────────
+
+/** A component with its load: demand vs capacity as a bar (red at ≥ 80% — a bottleneck), latency as a chip. */
+const Gauge = memo(function Gauge({ node, rect, tone }: { node: DesignNode; rect: Rect; tone: Tone }) {
+  const Icon = KIND_ICON[String(node.props.kind)] ?? Server;
+  const u = utilization(node);
+  const hot = u != null && u >= 0.8;
+  const unit = String(node.props.unit ?? "req");
+  const fmt = (v: unknown) => (typeof v === "number" ? `${fmtRate(v)}/s` : "—");
+  return (
+    <div data-node-id={node.id} data-type="Node" style={{ display: "contents" }}>
+      <div className={inferredCls(node)} style={{ ...cardBase, left: rect.x, top: rect.y, width: rect.w, height: rect.h, padding: "10px 14px",
+        border: `1.5px solid ${hot ? "#dc2626" : tone.border}`, display: "flex", flexDirection: "column", gap: 6, animation: "lc-pop .18s ease-out" }}>
+        <InferredBadge n={node} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Icon size={16} color={tone.accent} strokeWidth={2.2} />
+          <span style={{ fontSize: 14, fontWeight: 650, color: INK, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(node.props.label)}</span>
+          {typeof node.props.latency === "number" && <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 999, background: "#f1f5f9", color: MUTED }}>{node.props.latency} ms</span>}
+        </div>
+        <div style={{ height: 8, borderRadius: 999, background: "#f1f5f9", overflow: "hidden" }}>
+          <div style={{ width: `${Math.min(100, Math.round((u ?? 0) * 100))}%`, height: "100%", background: hot ? "#dc2626" : u != null && u >= 0.6 ? "#d97706" : "#16a34a" }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: MUTED }}>
+          <span>demand {fmt(node.props.demand)}</span>
+          <span style={{ color: hot ? "#dc2626" : MUTED, fontWeight: hot ? 700 : 500 }}>{hot ? `bottleneck · ${Math.round(u! * 100)}%` : `capacity ${fmt(node.props.capacity)}`}</span>
+        </div>
+        <span style={{ fontSize: 10.5, color: "#94a3b8" }}>{unit}</span>
+      </div>
+    </div>
+  );
+});
+
+// ── Cost-value (ADR 0021) ────────────────────────────────────────────────────────────────────────
+
+const QUAD: Record<string, { tint: string; ink: string; hint: string }> = {
+  quick: { tint: "#ecfdf5", ink: "#047857", hint: "low cost · high value" },
+  big: { tint: "#eff6ff", ink: "#1d4ed8", hint: "high cost · high value" },
+  fill: { tint: "#f8fafc", ink: "#475569", hint: "low cost · low value" },
+  pit: { tint: "#fef2f2", ink: "#b91c1c", hint: "high cost · low value" },
+};
+function Quadrants({ layout }: { layout: DiagramLayout }) {
+  const [a, , , d] = layout.lanes;
+  return (
+    <>
+      {layout.lanes.map((q) => (
+        <div key={q.id} style={{ position: "absolute", left: q.x, top: q.y, width: q.w, height: q.h, background: QUAD[q.tier]?.tint, border: "1px solid #e2e8f0" }}>
+          <div style={{ position: "absolute", left: 10, top: 8, fontSize: 12, fontWeight: 700, color: QUAD[q.tier]?.ink }}>{q.label}</div>
+          <div style={{ position: "absolute", left: 10, top: 24, fontSize: 10.5, color: MUTED }}>{QUAD[q.tier]?.hint}</div>
+        </div>
+      ))}
+      {a && d && <>
+        <div style={{ position: "absolute", left: a.x, top: d.y + d.h + 8, width: a.w * 2, textAlign: "center", fontSize: 11.5, color: MUTED, fontWeight: 600 }}>cost →</div>
+        <div style={{ position: "absolute", left: a.x - 30, top: a.y + a.h - 6, transform: "rotate(-90deg)", transformOrigin: "left top", fontSize: 11.5, color: MUTED, fontWeight: 600, whiteSpace: "nowrap" }}>value →</div>
+        {Object.keys(layout.nodes).length > 0 && <div style={{ position: "absolute", left: a.x, top: d.y + d.h + 30, fontSize: 11, color: MUTED }}>Not scored yet</div>}
+      </>}
+    </>
+  );
+}
+const Item = memo(function Item({ node, rect }: { node: DesignNode; rect: Rect }) {
+  const scored = typeof node.props.cost === "number" && typeof node.props.value === "number";
+  return (
+    <div data-node-id={node.id} data-type="Node" style={{ display: "contents" }}>
+      <div className={inferredCls(node)} title={scored ? `cost ${node.props.cost}/5 · value ${node.props.value}/5` : "Not scored — say how costly and how valuable it is"}
+        style={{ ...cardBase, left: rect.x, top: rect.y, width: rect.w, height: rect.h, padding: "0 10px", display: "flex", alignItems: "center", gap: 6,
+          border: `1px ${scored ? "solid" : "dashed"} #cbd5e1`, fontSize: 12.5, fontWeight: 600, color: INK, animation: "lc-pop .18s ease-out" }}>
+        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(node.props.label)}</span>
+        {scored && <span style={{ fontSize: 10.5, color: MUTED, fontWeight: 500 }}>{String(node.props.cost)}·{String(node.props.value)}</span>}
+      </div>
+    </div>
+  );
+});

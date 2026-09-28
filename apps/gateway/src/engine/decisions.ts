@@ -69,11 +69,13 @@ const REL: Record<string, (a: string, b: string) => string> = {
   architecture: (a, b) => `${a} sends to / calls / writes to / reads from / publishes to ${b}`,
   erd: (a, b) => `each ${a} has many (or one) ${b} — ${a} is the one side`,
   sequence: (a, b) => `${a} sends a message to ${b}`,
+  constraints: (a, b) => `traffic flows from ${a} to ${b}`,
 };
 const STYLE: Record<string, { key: string; q: (t: string) => JevQuestion }> = {
   architecture: { key: "style", q: (t) => ({ type: "choice", instructions: `How does this connection communicate? Transcript: "${t}"`, criteria: { sync: "Request/response: calls, queries, reads, writes", async: "Fire-and-forget: queues, events, publishes, webhooks" } }) },
   erd: { key: "card", q: (t) => ({ type: "choice", instructions: `Cardinality from the first table to the second? Transcript: "${t}"`, criteria: { "1:n": "one to many", "1:1": "one to one" } }) },
   sequence: { key: "kind", q: (t) => ({ type: "choice", instructions: `What kind of message is it? Transcript: "${t}"`, criteria: { sync: "A request or call", return: "A reply that returns something to the caller", async: "Fire-and-forget (enqueue, notify)" } }) },
+  constraints: { key: "style", q: (t) => ({ type: "choice", instructions: `Is this hop synchronous or queued? Transcript: "${t}"`, criteria: { sync: "Request/response", async: "Queued / asynchronous" } }) },
 };
 /** Option key Jev can read: "Observe.AI" → "observe_ai", "Sign in" → "sign_in". */
 export const readable = (label: string) => label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "item";
@@ -124,7 +126,8 @@ export function planDecisions(view: DesignDoc, kind: DocKind, raw: string): Plan
     walk(root);
     const ms = mentions(nodes, words);
     if (ms.length < 2) return null;
-    state = `${kind === "erd" ? "Entity-relationship diagram" : kind === "sequence" ? "Sequence diagram" : "Architecture diagram"}. Elements mentioned: ${ms.map((m) => m.label).join(", ")}. Transcript: "${text}"`;
+    if (kind === "cva") return null; // cost-value items have no relations to decide (ADR 0021)
+    state = `${({ erd: "Entity-relationship diagram", sequence: "Sequence diagram", constraints: "Constraints (throughput) diagram", architecture: "Architecture diagram" } as Record<string, string>)[kind] ?? "Diagram"}. Elements mentioned: ${ms.map((m) => m.label).join(", ")}. Transcript: "${text}"`;
     // One 3-way Choice per pair of ADJACENT GROUPS of mentions (a→b, b→a, none) — the format re-measured in
     // the bake-off (plan-critic M6 #2). Mentions joined only by and/or/both form a group, so "the api and the
     // worker both write to postgres" asks api–postgres AND worker–postgres (M7: the api edge was lost).
@@ -234,7 +237,7 @@ export function decisionsToLines(plan: Plan, answers: Record<string, JevAnswer>,
     const label = verbPhrase(plan.said, p.gap, names);
     for (let i = lo; i < hi; i++) if (!STOP.has(plan.words[i]!) && !AUX.has(plan.words[i]!)) coveredIdx.add(i); // only words that mean something get highlighted
     n++;
-    if (plan.view === "architecture") {
+    if (plan.view === "architecture" || plan.view === "constraints") {
       const style = choice(`style:${p.key}`);
       lines.push(`+Edge jev${n} >root from=${from.id} to=${to.id}${style === "async" ? " style=async" : ""}${label ? ` "${label}"` : ""}`);
     } else if (plan.view === "sequence") {

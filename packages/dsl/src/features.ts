@@ -20,11 +20,17 @@ export const FEATURES = {
   remember_document: { default: true, description: "Remember the document: a new tab reopens this browser's last document" },
   version_timeline: { default: true, description: "Version timeline: see every version of the document and jump to any of them" },
   share_links: { default: true, description: "Share links: a public read-only link to the version on screen" },
+  diagram_constraints: { default: true, description: "Constraints view: rates, capacity, latency and bottlenecks per component (ADR 0021)" },
+  diagram_cva: { default: true, description: "Cost-value view: features on a cost × value matrix — quick wins, big bets, fill-ins, money pits (ADR 0021)" },
+  cross_view_scaffold: { default: true, description: "Scaffolding: what you say in one view fills in the others, marked inferred, one undo (ADR 0021)" },
+  prd_view: { default: true, description: "PRD: a product requirements doc compiled live from all six views (ADR 0021)" },
+  project_intake: { default: true, description: "Quick start: three optional questions that seed a new project (ADR 0021)" },
+  voice_demo: { default: true, description: "Voice demo: a narrated, live build of a product on the home page (ADR 0021)" },
+  invite_gate: { default: true, description: "Invite gate: the product needs an invite code (enforced once ACCESS_SECRET is set, ADR 0021)" },
   all_views: { default: true, description: "All views at once: Screen, Architecture, ERD and Sequence side by side, updating live (ADR 0020)" },
   suggestions: { default: true, description: "Implied suggestions: typical columns and pieces pre-recommended instantly; approve by voice or click (ADR 0020)" },
   suggestions_model: { default: false, description: "Model suggestions: a background model pass proposes more after each sentence (+~$0.008/min, ADR 0020)" },
   project_library: { default: true, description: "Projects: save a project and open saved ones from a shared workspace list (ADR 0020)" },
-  diagram_metrics: { default: false, description: "Teaser: duration / throughput annotations on edges (not built yet)" },
 } as const;
 
 export const FeatureKey = z.enum(Object.keys(FEATURES) as [keyof typeof FEATURES, ...Array<keyof typeof FEATURES>]);

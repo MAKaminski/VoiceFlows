@@ -11,6 +11,7 @@ import { ARRAY_PROPS, CONTAINER_TYPES, PRIMARY_TEXT_PROP, PrimitiveType } from "
 export const SHORT_KEYS: Record<string, string> = {
   v: "variant", s: "size", c: "color", g: "gap", p: "padding", d: "direction",
   a: "align", j: "justify", r: "radius", k: "kind", f: "fill", w: "width", h: "height",
+  dm: "demand", cp: "capacity", lt: "latency", ct: "cost", vl: "value", rt: "rate", // ADR 0021
 };
 
 export interface CompactContext {

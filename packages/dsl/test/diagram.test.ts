@@ -207,7 +207,7 @@ describe("vocabulary (ADR 0012)", () => {
 
   it("feature registry: every key has a default; diagram kinds map to their flag", () => {
     expect(defaultFlags().speak_to_create).toBe(true);
-    expect(defaultFlags().diagram_metrics).toBe(false);
+    expect(defaultFlags().suggestions_model).toBe(false);
     expect(kindFeature("erd")).toBe("diagram_erd");
     expect(kindFeature("screen")).toBe("speak_to_create");
   });

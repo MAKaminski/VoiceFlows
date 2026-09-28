@@ -14,6 +14,8 @@ const TARGETS: Record<DiagramKind, string[]> = {
   architecture: ["service", "database", "cache", "queue", "storage", "external", "auth", "worker", "client", "cdn", "hosting"],
   erd: ["table"],
   sequence: ["user", "client", "service", "database", "queue", "external"],
+  constraints: ["service", "database", "cache", "queue", "external", "worker"],
+  cva: ["feature"],
 };
 
 const chip = (bg: string, fg: string, extra: CSSProperties = {}): CSSProperties => ({

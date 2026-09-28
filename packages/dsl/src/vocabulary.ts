@@ -25,6 +25,7 @@ export const KIND_WORDS: Record<string, { kind: VocabNode["kind"]; tier?: VocabN
   cdn: { kind: "cdn", tier: "infra" }, host: { kind: "service", tier: "infra" }, hosting: { kind: "service", tier: "infra" },
   platform: { kind: "service", tier: "infra" }, infrastructure: { kind: "service", tier: "infra" },
   table: { kind: "entity" }, entity: { kind: "entity" }, user: { kind: "user" }, actor: { kind: "user" }, person: { kind: "user" },
+  feature: { kind: "feature" }, capability: { kind: "feature" }, // cost-value items (ADR 0021)
 };
 
 const titleCase = (s: string) => s.replace(/\b[a-z]/g, (c) => c.toUpperCase());
@@ -45,6 +46,8 @@ export function parseDefine(text: string, kind: z.infer<typeof DiagramKind>): { 
   if (!target || !phrase) return null;
   if (kind === "erd") return { phrase, node: { label: phrase.replace(/\s+/g, "_"), kind: "entity" } };
   if (kind === "sequence") return { phrase, node: { label: titleCase(phrase), kind: target.kind === "entity" ? "service" : target.kind } };
+  // Constraints and cost-value views have no lanes: any kind word draws a plain item there (ADR 0021).
+  if (kind === "constraints" || kind === "cva") return { phrase, node: { label: titleCase(phrase), kind: kind === "cva" ? "feature" : target.kind === "entity" ? "service" : target.kind } };
   if (!target.tier) return null;
   return { phrase, node: { label: titleCase(phrase), kind: target.kind, tier: target.tier } };
 }

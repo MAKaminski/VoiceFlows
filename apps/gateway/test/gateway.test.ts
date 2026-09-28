@@ -448,10 +448,10 @@ describe.skipIf(!DB)("flags, usage and vocabulary in Postgres (ADR 0012)", () =>
   it("round-trips flags, counts feature events, and upserts/deletes vocabulary per document", async () => {
     const p = pgPersistence(sql, (e) => { throw e; });
     const { sessionId: sid, documentId: did } = await p.openSession();
-    const before = (await p.loadFlags()).diagram_metrics;
-    await p.setFlag("diagram_metrics", true);
-    expect((await p.loadFlags()).diagram_metrics).toBe(true);
-    await p.setFlag("diagram_metrics", before ?? false);
+    const before = (await p.loadFlags()).suggestions_model;
+    await p.setFlag("suggestions_model", true);
+    expect((await p.loadFlags()).suggestions_model).toBe(true);
+    await p.setFlag("suggestions_model", before ?? false);
     const n0 = (await p.flagStats(1)).custom_vocabulary?.used ?? 0;
     p.featureEvent(sid, "custom_vocabulary", "used");
     const term = { id: crypto.randomUUID(), kind: "architecture" as const, phrase: "ledger", node: { label: "Ledger", kind: "queue" as const, tier: "api" as const }, status: "proposed" as const };

@@ -6,6 +6,7 @@ export interface DesignNode {
   type: PrimitiveType;
   props: Record<string, unknown>;
   provisional?: boolean; // set by the lexicon tier (D15); cleared when the model touches the node
+  inferred?: boolean; // scaffolded from another view (ADR 0021); cleared when this view's own speech edits it
   children?: DesignNode[];
 }
 
@@ -18,6 +19,7 @@ export const DesignNodeSchema: z.ZodType<DesignNode> = z.lazy(() =>
       type: PrimitiveType,
       props: z.record(z.string(), z.unknown()),
       provisional: z.boolean().optional(),
+      inferred: z.boolean().optional(),
       children: z.array(DesignNodeSchema).optional(),
     })
     .superRefine((node, ctx) => {
@@ -85,7 +87,19 @@ function checkTree(root: DesignNode): string | null {
   return null;
 }
 
-export const DesignDocSchema = z
+/**
+ * A project saved with fewer views (M6–M8 had four) gets the new empty views appended BEFORE validation, so every
+ * parse — doc snapshots, share links, version history, the read-only page — keeps working (plan-critic M9 #6).
+ * Views are only ever appended, so existing `/root/children/<i>` paths never move (ADR 0021).
+ */
+function padViews(input: unknown): unknown {
+  const doc = input as { root?: { type?: string; children?: unknown[] } } | null;
+  const kids = doc?.root?.type === "Project" ? doc.root.children : undefined;
+  if (!Array.isArray(kids) || kids.length >= VIEWS.length) return input;
+  return { ...doc, root: { ...doc!.root, children: [...kids, ...VIEWS.slice(kids.length).map((v) => emptyView(v.kind))] } };
+}
+
+const DocShape = z
   .object({
     id: z.string(),
     tokens: z.string(),
@@ -95,9 +109,10 @@ export const DesignDocSchema = z
     const err = checkTree(doc.root);
     if (err) ctx.addIssue({ code: "custom", message: err });
   });
-export type DesignDoc = z.infer<typeof DesignDocSchema>;
+export const DesignDocSchema = z.preprocess(padViews, DocShape);
+export type DesignDoc = z.infer<typeof DocShape>;
 
-/** What a doc is: a phone screen or one of the three diagram kinds. */
+/** What a doc is: a phone screen or one of the diagram kinds. */
 export const DocKind = z.enum(["screen", ...DiagramKind.options]);
 export type DocKind = z.infer<typeof DocKind>;
 
@@ -110,6 +125,9 @@ export const VIEWS: ReadonlyArray<{ kind: DocKind; id: string; label: string }> 
   { kind: "architecture", id: "n_view_architecture", label: "Architecture" },
   { kind: "erd", id: "n_view_erd", label: "ERD" },
   { kind: "sequence", id: "n_view_sequence", label: "Sequence" },
+  // ADR 0021: appended, never inserted — stored op paths are index-based.
+  { kind: "constraints", id: "n_view_constraints", label: "Constraints" },
+  { kind: "cva", id: "n_view_cva", label: "Cost-Value" },
 ];
 export const viewIndex = (kind: DocKind) => VIEWS.findIndex((v) => v.kind === kind);
 
@@ -122,7 +140,7 @@ export function emptyProject(id = "doc"): DesignDoc {
 
 /** Upgrades a single-view doc (pre-M6) into a project; that view keeps its content. Idempotent. */
 export function toProject(doc: DesignDoc): DesignDoc {
-  if (doc.root.type === "Project") return doc;
+  if (doc.root.type === "Project") return padViews(doc) as DesignDoc;
   const kind = docKind(doc);
   return { ...doc, root: { id: "n_root", type: "Project", props: {}, children: VIEWS.map((v) => (v.kind === kind ? { ...doc.root, id: v.id } : emptyView(v.kind))) } };
 }
