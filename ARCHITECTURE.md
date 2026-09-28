@@ -45,6 +45,9 @@ flowchart LR
     F_projects["Projects: Screen · Architecture · ERD · Sequence<br/><small>ARD 0016</small>"]
     F_jev_decisions_feature["Jev decisions<br/><small>ARD 0017</small>"]
     F_open_vocabulary["Speak freely (open vocabulary)<br/><small>ARD 0019</small>"]
+    F_all_views_feature["All views at once<br/><small>ARD 0020</small>"]
+    F_suggestions_feature["Implied suggestions<br/><small>ARD 0020</small>"]
+    F_library_feature["Save &amp; open projects<br/><small>ARD 0020</small>"]
   end
   subgraph uses["Components"]
     direction TB
@@ -116,7 +119,7 @@ flowchart LR
   classDef feat fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef comp fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef tab fill:#eaf1ec,stroke:#2C6249,color:#12191B;
-  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary,F_share_links,F_remember_document,F_version_timeline_feature,F_projects,F_jev_decisions_feature,F_open_vocabulary feat;
+  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary,F_share_links,F_remember_document,F_version_timeline_feature,F_projects,F_jev_decisions_feature,F_open_vocabulary,F_all_views_feature,F_suggestions_feature,F_library_feature feat;
   class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_doc_session,C_postgres,C_redis,C_stripe comp;
   class T_design_documents,T_design_versions,T_exports,T_generation_jobs,T_intents,T_latency_events,T_patch_ops,T_plans,T_primitives,T_provider_keys,T_sessions,T_token_sets,T_transcript_segments,T_usage_periods,T_users,T_utterances tab;
 ```
@@ -166,6 +169,22 @@ the other `scripts/e2e` harnesses.
 Uses `DocSession` (`timelineMsg`, `gotoVersion`, redo hint) and `VersionTimeline` in the studio.
 **Owns no table**: reads `design_versions` (2.2) — summaries are computed in the gateway, never stored.
 
+### 2.1d All views at once + implied suggestions — ADR 0020
+Uses `@livecanvas/web` (`ViewGrid`, `FitBox`, `SuggestionTray`, suggested-column overlay in `DiagramCanvas`;
+`metricsTap` scoped to the active view root and its scale), `@livecanvas/dsl` (`suggest.ts`: rule suggestions,
+command parsing, deterministic scope) and `DocSession` (suggestions as session state; approve → one version,
+queued behind an open sentence or job; tier-2 model pass behind `suggestions_model`, off by default).
+**Owns no table**: suggestions never persist until approved — then they are ordinary ops in 2.2's versions.
+No new component kind: the grid reuses `Canvas` per view; suggestions reuse the compact-line apply path (P-patterns).
+
+### 2.2c Project library: save & open — ADR 0020
+Uses `@livecanvas/gateway` (`GET /projects`, `GET /projects/:id`, archive/restore, `save_project`, `hello.open`,
+`in_use`), `persist.ts` (`saveProject`, `listProjects`, `setArchived`, `readProject`; `setCurrent` keeps title,
+`updated_at`, `view_counts`) and `@livecanvas/web` (`ProjectsModal`, Save button, `/p/[id]` read-only view).
+**Owns** the `saved_at`, `archived_at`, `updated_at`, `view_counts` columns of 2.2's `design_documents` (no new
+table). One shared workspace list — public until accounts exist (ADR 0000); a library open never takes over a
+connected editor.
+
 ### 2.2a Remember the document across tabs — ADR 0014
 Uses `@livecanvas/gateway` (live-document registry in `server.ts`: one `DocSession` and one owning tab
 per document; takeover) and `@livecanvas/web` (`lib/gateway.ts` keeps `documentId` in localStorage).
@@ -174,8 +193,9 @@ per document; takeover) and `@livecanvas/web` (`lib/gateway.ts` keeps `documentI
 ### 2.3b Feature flags & usage — ADR 0012
 Uses `@livecanvas/dsl` (`FEATURES` registry), `@livecanvas/gateway` (`FlagService`, `/admin/flags`,
 `permit()` at every feature entry point) and `@livecanvas/web` (`/admin`, `store/features.ts`).
-**Owns** `feature_flags`, `feature_events`. Every other feature writes `feature_events` rows through
-the persistence queue; none reads them.
+**Owns** `feature_flags`, `feature_events`, `feature_flag_changes` (ADR 0020: who turned what on/off and when —
+admin changes with an 8-hex actor fingerprint, and new flags from the migrate seed). Every other feature writes
+`feature_events` rows through the persistence queue; none reads them. The studio's Features popover is read-only.
 
 ### 2.3c Vocabulary: keywords + user words — ADR 0012
 Uses `@livecanvas/dsl` (`diagramVocabulary`, `parseDefine`, lexicon `terms`), `DocSession`
@@ -203,14 +223,14 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Measure | Count |
 |---|---|
 | Components | 4 |
-| Tables | 16 |
-| Foreign keys | 20 |
+| Tables | 17 |
+| Foreign keys | 21 |
 | Tables with no FK either way | 0 |
 | Distinct error types | 1 |
 | Symbol names defined 3+ times | 1 |
-| ARDs on record | 20 (19 contributing to the diagram) |
-| Components declared by ARDs | 26 |
-| Features declared by ARDs | 17 |
+| ARDs on record | 21 (20 contributing to the diagram) |
+| Components declared by ARDs | 29 |
+| Features declared by ARDs | 20 |
 <!-- arch:end:counts -->
 
 | Component | Layer | Owns | Pattern (§6) |
@@ -240,6 +260,7 @@ flowchart TB
     admin_page["/admin page<br/><small>ARD 0012</small>"]
     share_view["/s/[token] page<br/><small>ARD 0013</small>"]
     _livecanvas_web["@livecanvas/web"]
+    view_grid["All-views grid<br/><small>ARD 0020</small>"]
     diagram_canvas["DiagramCanvas<br/><small>ARD 0011</small>"]
     keyword_rail["KeywordRail<br/><small>ARD 0012</small>"]
     diagram_layout["layoutDiagram<br/><small>ARD 0011</small>"]
@@ -259,10 +280,12 @@ flowchart TB
     flag_service["FlagService<br/><small>ARD 0012</small>"]
     fused_engine["Fused intent+patch engine — header-first, single in-flight<br/><small>ARD 0001</small><br/><small>TTFV-1 target ≤ 1,000 ms p50</small>"]
     share_api["GET /share/:token<br/><small>ARD 0013</small>"]
+    suggestions["Implied suggestions (rules + model)<br/><small>ARD 0020</small>"]
     jev_decisions["Jev decisions (phase 0)<br/><small>ARD 0017</small>"]
     client_lexicon["Lexicon — provisional nodes (gateway, M4)<br/><small>ARD 0009</small><br/><small>TTFV-0 target ≤ 400 ms p50</small>"]
     live_docs["live document registry<br/><small>ARD 0014</small>"]
     project_views["Project (4 views)<br/><small>ARD 0016</small>"]
+    project_library["Project library (/projects)<br/><small>ARD 0020</small>"]
     project_notes["project notes rewrite<br/><small>ARD 0016</small>"]
     stripe["Stripe metered billing (M5, planned)<br/><small>ARD 0004</small><br/><small>$20 incl. 200 speaking min · BYOK $10</small>"]
   end
@@ -311,16 +334,18 @@ flowchart TB
   doc_session -.->|"adjacent-pair questions (~90 ms) · ARD 0017"| jev_decisions
   jev_decisions -.->|"confident answers → ops · ARD 0017"| doc_session
   fluency_corpus -.->|"streams cases as partials, scores the design · ARD 0019"| doc_session
+  doc_session -.->|"nouns drawn → rule suggestions (~5 ms) · ARD 0020"| suggestions
+  project_library -.->|"open {documentId, open} / in_use · ARD 0020"| doc_session
   classDef declared stroke-dasharray:5 4,stroke-width:2px;
   classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef be fill:#eaf1ec,stroke:#2C6249,color:#12191B;
   classDef inf fill:#f4efe6,stroke:#8A6210,color:#12191B;
-  class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail,share_view,share_popover,version_timeline fe;
-  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,flag_service,admin_api,share_api,live_docs,project_views,project_notes,jev_decisions mw;
+  class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail,share_view,share_popover,version_timeline,view_grid fe;
+  class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,flag_service,admin_api,share_api,live_docs,project_views,project_notes,jev_decisions,suggestions,project_library mw;
   class postgres,redis be;
   class vercel,railway,fluency_corpus inf;
-  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover,live_docs,version_timeline,project_views,project_notes,jev_decisions,fluency_corpus declared;
+  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover,live_docs,version_timeline,project_views,project_notes,jev_decisions,fluency_corpus,suggestions,project_library,view_grid declared;
 ```
 <!-- arch:end:components -->
 
@@ -412,6 +437,7 @@ erDiagram
     design_versions ||--o{ exports : version_id
     feature_flags ||--o{ feature_events : feature_key
     sessions ||--o{ feature_events : session_id
+    feature_flags ||--o{ feature_flag_changes : feature_key
     users ||--o{ feature_flags : updated_by
     intents ||--o{ generation_jobs : intent_id
     sessions ||--o{ generation_jobs : session_id
@@ -495,8 +521,8 @@ Generated. Every item here is a candidate for consolidation — the goal is **fe
 
 | Measure | Count |
 |---|---|
-| Tables | 16 |
-| Foreign keys | 20 |
+| Tables | 17 |
+| Foreign keys | 21 |
 | Tables with no FK in or out | 0 |
 | Components (workspace members) | 4 |
 | Components nothing depends on | 0 |

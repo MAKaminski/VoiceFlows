@@ -11,6 +11,10 @@ import { useVoice } from "@/store/voice";
 import { KeywordRail } from "@/components/KeywordRail";
 import { SharePopover } from "@/components/SharePopover";
 import { VersionTimeline } from "@/components/VersionTimeline";
+import { ViewGrid } from "@/components/ViewGrid";
+import { SuggestionTray } from "@/components/SuggestionTray";
+import { ProjectsModal } from "@/components/ProjectsModal";
+import { FeaturesPopover } from "@/components/FeaturesPopover";
 import { useFeatures } from "@/store/features";
 import { kindFeature, viewCount, viewDoc, VIEWS } from "@livecanvas/dsl";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
@@ -32,6 +36,15 @@ export default function Studio() {
   const [prompt, setPrompt] = useState("");
   const [connError, setConnError] = useState<string | null>(null);
   const [hud, setHud] = useState(false);
+  // All views at once (ADR 0020): remembered per browser; default Grid on screens ≥ 1280 px wide.
+  const [layout, setLayout] = useState<"grid" | "focus">("focus");
+  useEffect(() => {
+    let saved: string | null = null;
+    try { saved = localStorage.getItem("lc.layout"); } catch {}
+    setLayout(saved === "grid" || saved === "focus" ? saved : window.innerWidth >= 1280 ? "grid" : "focus");
+  }, []);
+  const chooseLayout = (l: "grid" | "focus") => { setLayout(l); try { localStorage.setItem("lc.layout", l); } catch {} };
+  const [projectsOpen, setProjectsOpen] = useState(false);
 
   const start = useCallback(async () => {
     reset();
@@ -79,7 +92,13 @@ export default function Studio() {
   const kind = view;
   const projectTitle = String(project.root.props.title ?? "");
   const notes = project.root.props.notes as string | undefined;
-  const { flags, notice, takenOver } = useFeatures();
+  const { flags, notice, takenOver, project: library, inUse, documentId } = useFeatures();
+  const grid = flags.all_views && flags.projects && layout === "grid" && project.root.type === "Project";
+  const save = () => {
+    const t = (title ?? projectTitle).trim() || window.prompt("Name this project", "")?.trim();
+    if (t === undefined) return;
+    gateway.send({ type: "save_project", ...(t ? { title: t } : {}) });
+  };
   useEffect(() => { if (takenOver) stop(); }, [takenOver, stop]);
   const canCreate = flags.speak_to_create;
   const jobLabel = !job ? null
@@ -122,7 +141,25 @@ export default function Studio() {
             );
           })}
         </div>
+        {flags.all_views && flags.projects && (
+          <div role="group" aria-label="Layout" style={{ display: "flex", padding: 3, gap: 2, borderRadius: 999, border: "1px solid var(--lc-chrome-border)" }}>
+            {(["focus", "grid"] as const).map((l) => (
+              <button key={l} type="button" data-testid={`layout-${l}`} aria-pressed={layout === l} onClick={() => chooseLayout(l)}
+                style={{ font: "inherit", fontSize: 13, fontWeight: 600, padding: "6px 12px", borderRadius: 999, border: "none", cursor: "pointer",
+                  background: layout === l ? "#0f172a" : "transparent", color: layout === l ? "#fff" : "inherit" }}>{l === "grid" ? "All views" : "Focus"}</button>
+            ))}
+          </div>
+        )}
+        {flags.project_library && (
+          <>
+            <button type="button" data-testid="save" onClick={save} title={library.savedAt ? "Saved — every change autosaves" : "Save to the shared project list"} style={pill("transparent", "inherit")}>
+              {library.savedAt ? "Saved ✓" : "Save"}
+            </button>
+            <button type="button" data-testid="projects" onClick={() => setProjectsOpen(true)} style={pill("transparent", "inherit")}>Projects</button>
+          </>
+        )}
         <SharePopover />
+        <FeaturesPopover />
         {flags.remember_document && (
           <button type="button" data-testid="new-document" title="Start a new project (this one stays reachable from its share links)"
             onClick={() => { stop(); gateway.newDocument(); }} style={pill("transparent", "inherit")}>New</button>
@@ -149,8 +186,21 @@ export default function Studio() {
           <strong style={{ fontWeight: 600 }}>Understood so far:</strong> {notes}
         </div>
       )}
-      {kind !== "screen" && <KeywordRail kind={kind} />}
-      <div style={{ flex: 1 }}><Canvas doc={doc} /></div>
+      {inUse && (
+        <div role="alert" data-testid="in-use" style={{ padding: "10px 24px", background: "#fef3c7", color: "#92400e", display: "flex", gap: 12, alignItems: "center", fontSize: 14 }}>
+          That project is being edited in another tab right now.
+          <a href={`/p/${inUse}`} style={{ fontWeight: 600, color: "#92400e" }}>Open it read-only</a>
+          <button type="button" onClick={() => gateway.newDocument()} style={{ font: "inherit", fontWeight: 600, padding: "4px 12px", borderRadius: 999, border: "1px solid #d97706", background: "#fff", color: "#92400e", cursor: "pointer" }}>Start a new project</button>
+        </div>
+      )}
+      {kind !== "screen" && !grid && <KeywordRail kind={kind} />}
+      {grid ? <ViewGrid project={project} active={kind} /> : (
+        <>
+          <div style={{ flex: 1 }}><Canvas doc={doc} /></div>
+          <SuggestionTray view={kind} />
+        </>
+      )}
+      {projectsOpen && <ProjectsModal onClose={() => setProjectsOpen(false)} currentId={documentId ?? undefined} />}
       <TranscriptStrip />
       {hud && <Hud />}
     </main>

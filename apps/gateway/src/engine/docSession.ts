@@ -647,6 +647,11 @@ export class DocSession {
 
   // ── Typed prompts (M3 semantics) ─────────────────────────────────────────────────────────
   async run(text: string, source: "voice" | "typed", seq: number): Promise<void> {
+    // Typed "approve …" / "save the project" are the same commands as spoken ones (ADR 0020).
+    if (this.isCommand(text)) {
+      if (this.flagOn("suggestions") && isSuggestionCommand(text)) return this.suggestionCommand(text);
+      return this.saveProject(parseSave(text).title);
+    }
     this.abortActive();
     this.feature("speak_to_create", "used");
     this.remember(text);

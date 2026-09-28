@@ -4,6 +4,8 @@ import {
   Boxes, Cloud, Cog, Database, Globe, HardDrive, KeyRound, Layers, Link2, Monitor, Network, Server, Table2, User, Zap, type LucideIcon,
 } from "lucide-react";
 import { memo, useMemo, type CSSProperties } from "react";
+import { gateway } from "@/lib/gateway";
+import { useFeatures } from "@/store/features";
 
 /**
  * Renders the three diagram kinds (ADR 0011) from `layoutDiagram` — positions are computed, never
@@ -33,7 +35,9 @@ const INK = "#0f172a", MUTED = "#64748b", LINE = "#94a3b8", EDGE = "#475569";
 const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 
 export function DiagramCanvas({ doc }: { doc: DesignDoc }) {
-  const layout = useMemo(() => layoutDiagram(doc), [doc]);
+  // Keyed on the view root: viewDoc() builds a new wrapper object on every render, the root is shared (M8 grid).
+  const layout = useMemo(() => layoutDiagram(doc), [doc.root]); // eslint-disable-line react-hooks/exhaustive-deps
+  const suggested = useFeatures((s) => s.suggestions);
   if (!layout) return null;
   const byId = new Map<string, DesignNode>();
   const walk = (n: DesignNode) => { byId.set(n.id, n); n.children?.forEach(walk); };
@@ -42,7 +46,7 @@ export function DiagramCanvas({ doc }: { doc: DesignDoc }) {
   const empty = !Object.keys(layout.nodes).length;
 
   return (
-    <div data-node-id={doc.root.id} data-type="Diagram" data-view-root="" style={{ display: "contents" }}>
+    <div data-node-id={doc.root.id} data-type="Diagram" data-view-root="" data-view={String(doc.root.props.kind)} style={{ display: "contents" }}>
       <div style={{
         position: "relative", width: layout.width, height: layout.height, flex: "none",
         background: "#fff", borderRadius: 20, boxShadow: "0 1px 2px rgba(15,23,42,.06), 0 20px 50px rgba(15,23,42,.12)",
@@ -51,13 +55,16 @@ export function DiagramCanvas({ doc }: { doc: DesignDoc }) {
       }}>
         {title && <div style={{ position: "absolute", left: 24, top: -34, fontSize: 18, fontWeight: 650, letterSpacing: -0.2 }}>{title}</div>}
         {layout.lanes.map((l) => <Lane key={l.id} lane={l} count={byId.get(l.id)?.children?.length ?? 0} />)}
-        <Edges layout={layout} />
+        <Edges layout={layout} ns={doc.root.id} />
         <EdgeLabels layout={layout} />
         {Object.entries(layout.nodes).map(([id, r]) => {
           const n = byId.get(id);
           if (!n) return null;
           return layout.kind === "erd" ? <Entity key={id} node={n} rect={r} /> : <Box key={id} node={n} rect={r} tone={toneFor(n, byId, doc)} />;
         })}
+        {layout.kind === "erd" && suggested.filter((x) => x.cols && x.target && layout.nodes[x.target]).map((x) => (
+          <SuggestedCols key={x.id} id={x.id} cols={x.cols!} rect={layout.nodes[x.target!]!} />
+        ))}
         {empty && layout.kind !== "architecture" && (
           <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: MUTED, fontSize: 14 }}>
             {layout.kind === "erd" ? "Name your tables — “users, orders, products…”" : "Name who talks — “the user, the web app, the API…”"}
@@ -153,41 +160,42 @@ const Entity = memo(function Entity({ node, rect }: { node: DesignNode; rect: Re
 
 // ── Edges ────────────────────────────────────────────────────────────────────────────────────────
 
-function Edges({ layout }: { layout: DiagramLayout }) {
+/** Marker ids are namespaced per view: the all-views grid mounts three diagrams on one page (ADR 0020). */
+function Edges({ layout, ns }: { layout: DiagramLayout; ns: string }) {
   return (
     <svg width={layout.width} height={layout.height} style={{ position: "absolute", inset: 0, zIndex: 1, overflow: "visible", pointerEvents: "none" }}>
       <defs>
-        <marker id="lc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <marker id={`lc-arrow-${ns}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L10,5 L0,10 z" fill={EDGE} />
         </marker>
-        <marker id="lc-arrow-open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <marker id={`lc-arrow-open-${ns}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
           <path d="M1,1 L9,5 L1,9" fill="none" stroke={EDGE} strokeWidth="1.6" />
         </marker>
-        <marker id="lc-one" viewBox="0 0 16 16" refX="15" refY="8" markerWidth="14" markerHeight="14" orient="auto-start-reverse">
+        <marker id={`lc-one-${ns}`} viewBox="0 0 16 16" refX="15" refY="8" markerWidth="14" markerHeight="14" orient="auto-start-reverse">
           <path d="M9,2 V14 M13,2 V14" stroke={EDGE} strokeWidth="1.6" />
         </marker>
-        <marker id="lc-many" viewBox="0 0 16 16" refX="15" refY="8" markerWidth="16" markerHeight="16" orient="auto-start-reverse">
+        <marker id={`lc-many-${ns}`} viewBox="0 0 16 16" refX="15" refY="8" markerWidth="16" markerHeight="16" orient="auto-start-reverse">
           <path d="M15,1 L5,8 L15,15 M15,8 H3 M5,2 V14" fill="none" stroke={EDGE} strokeWidth="1.6" />
         </marker>
       </defs>
       {layout.lifelines.map((l) => <line key={l.id} x1={l.x} x2={l.x} y1={l.y1} y2={l.y2} stroke="#cbd5e1" strokeWidth={1.5} strokeDasharray="5 5" />)}
-      {layout.edges.map((e) => <EdgePath key={e.id} e={e} seq={layout.kind === "sequence"} />)}
+      {layout.edges.map((e) => <EdgePath key={e.id} e={e} seq={layout.kind === "sequence"} ns={ns} />)}
     </svg>
   );
 }
 
-const MARK: Record<string, string | undefined> = { arrow: "url(#lc-arrow)", one: "url(#lc-one)", many: "url(#lc-many)", none: undefined };
+const mark = (end: string, ns: string) => (end === "none" ? undefined : `url(#lc-${end}-${ns})`);
 
-const EdgePath = memo(function EdgePath({ e, seq }: { e: EdgeRoute; seq: boolean }) {
+const EdgePath = memo(function EdgePath({ e, seq, ns }: { e: EdgeRoute; seq: boolean; ns: string }) {
   const dashed = e.style !== "sync";
-  const end = e.end === "arrow" && e.style === "async" ? "url(#lc-arrow-open)" : MARK[e.end];
+  const end = e.end === "arrow" && e.style === "async" ? `url(#lc-arrow-open-${ns})` : mark(e.end, ns);
   const [sx, sy] = e.points[0]!;
   const self = e.from === e.to;
   const rightward = !self && (e.points[1]?.[0] ?? sx) >= sx;
   return (
     <g data-edge-id={e.id} style={{ animation: "lc-fade .2s ease-out" }}>
       <path d={e.d} fill="none" stroke={EDGE} strokeWidth={1.6} strokeDasharray={dashed ? "6 5" : undefined}
-        strokeLinecap="round" strokeLinejoin="round" markerStart={MARK[e.start]} markerEnd={end} />
+        strokeLinecap="round" strokeLinejoin="round" markerStart={mark(e.start, ns)} markerEnd={end} />
       {seq && e.step != null && (
         <g transform={`translate(${sx + (rightward ? 14 : -14)}, ${sy})`}>
           <circle r={9} fill="#2563eb" />
@@ -212,5 +220,33 @@ function EdgeLabels({ layout }: { layout: DiagramLayout }) {
         );
       })}
     </svg>
+  );
+}
+
+/**
+ * Suggested columns (ADR 0020): dimmed, dashed rows drawn just BELOW the table as an overlay — outside the
+ * layout, so nothing moves when they arrive — each with ✓ / ✕, plus the whole set.
+ */
+function SuggestedCols({ id, cols, rect }: { id: string; cols: string[]; rect: Rect }) {
+  const btn: CSSProperties = { font: "inherit", fontSize: 11, lineHeight: 1, padding: "2px 5px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer" };
+  return (
+    <div data-testid={`suggested-${id}`} style={{ position: "absolute", left: rect.x + 6, top: rect.y + rect.h - 2, width: rect.w - 12, zIndex: 4,
+      border: "1.5px dashed #94a3b8", borderTop: "none", borderRadius: "0 0 10px 10px", background: "rgba(248,250,252,.92)", fontFamily: MONO, fontSize: 12 }}>
+      {cols.map((c) => {
+        const [name, type] = c.split(":");
+        return (
+          <div key={c} className="lc-suggest-row" style={{ height: 24, display: "flex", alignItems: "center", gap: 6, padding: "0 8px", color: "#64748b", fontStyle: "italic" }}>
+            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>+ {name}</span>
+            <span style={{ opacity: 0.7 }}>{type}</span>
+            <button type="button" title={`Add ${name}`} style={btn} onClick={() => gateway.send({ type: "suggestion_approve", ids: [id], cols: { [id]: [c] } })}>✓</button>
+            <button type="button" title={`Not ${name}`} style={btn} onClick={() => gateway.send({ type: "suggestion_reject", ids: [id], cols: { [id]: [c] } })}>✕</button>
+          </div>
+        );
+      })}
+      <div style={{ display: "flex", gap: 6, padding: "4px 8px 6px", fontFamily: "inherit" }}>
+        <button type="button" data-testid={`approve-${id}`} style={{ ...btn, fontWeight: 600, color: "#166534" }} onClick={() => gateway.send({ type: "suggestion_approve", ids: [id] })}>✓ Add all</button>
+        <button type="button" style={btn} onClick={() => gateway.send({ type: "suggestion_reject", ids: [id] })}>Dismiss</button>
+      </div>
+    </div>
   );
 }

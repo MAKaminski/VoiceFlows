@@ -15,11 +15,13 @@ const STYLE: Record<WordMark["as"], CSSProperties> = {
   drawn: { background: "#dbeafe", color: "#1e40af", borderRadius: 4, boxShadow: "0 0 0 3px #dbeafe" },
   yours: { background: "#dcfce7", color: "#166534", borderRadius: 4, boxShadow: "0 0 0 3px #dcfce7" },
   model: { textDecoration: "underline dotted #7c3aed", textDecorationThickness: 2, textUnderlineOffset: 4 },
+  command: { background: "#fef3c7", color: "#92400e", borderRadius: 4, boxShadow: "0 0 0 3px #fef3c7", fontWeight: 600 },
 };
 const TIP: Record<WordMark["as"], (m: WordMark) => string> = {
   drawn: (m) => (m.label ? `Drew “${m.label}” instantly` : "Drawn instantly (sets the next element’s look)"),
   yours: (m) => `Your word → drew “${m.label ?? ""}”`,
   model: () => "Sent to the model — it adds connections, edits and placement",
+  command: () => "A command (approve / reject / save) — acted on, never drawn",
 };
 
 /** Splits display text into words and tags each with the occurrence keys of its lexicon tokens. */

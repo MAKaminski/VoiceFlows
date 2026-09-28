@@ -182,6 +182,15 @@ export const CASES: CorpusCase[] = [
     expect: { has: ["vehicles"], cols: [["vehicles", ["make", "model", "year"]]] } },
   { id: "e-grow-3", view: "erd", setup: ["tickets", "each ticket has many comments"], say: "comments have an author and a body", hears: ["author", "body"],
     expect: { cols: [["comments", ["author", "body"]]], edges: [["tickets", "comments"]] } },
+  // ── Implied suggestions (M8, ADR 0020): offered at once, applied only on "approve".
+  { id: "g-approve-cases", view: "erd", setup: ["customers and cases each customer has many cases"], say: "approve",
+    expect: { cols: [["cases", ["subject", "status", "priority"]], ["customers", ["email"]]] } },
+  { id: "g-approve-but", view: "erd", setup: ["cases"], say: "approve all but priority",
+    expect: { cols: [["cases", ["subject", "status"]]] } },
+  { id: "g-reject", view: "erd", setup: ["cases"], say: "reject",
+    expect: { has: ["cases"] } },
+  { id: "g-screen-forgot", view: "screen", setup: ["a login screen with email and password"], say: "approve",
+    expect: { has: ["*:forgot"] } },
   { id: "e-agents-skills", view: "erd", setup: ["agents and skills"], say: "agents have many skills and skills have many agents", hears: ["many"],
     expect: { minEdges: 2 } },
 

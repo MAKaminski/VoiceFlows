@@ -2,6 +2,7 @@
 import type { ServerMsg } from "@livecanvas/dsl";
 import { gateway } from "@/lib/gateway";
 import { dollarsFor, useMetrics } from "@/store/metrics";
+import { useDoc } from "@/store/doc";
 
 /**
  * Taps gateway messages for the HUD: TTFV per rendered batch (next animation frame, audio clock),
@@ -15,19 +16,23 @@ let utteranceSeq: number | null = null;
 let warned = false;
 /** Box positions are taken relative to the active view's surface, so page chrome or scrolling never counts. */
 function measureReflows() {
-  const rootWrap = document.querySelector<HTMLElement>("[data-view-root]");
+  // The active view only: the all-views grid mounts four roots (ADR 0020), and a change in one cell must not
+  // count as a reflow in another. Positions are divided by the cell's scale, so the 4 px rule stays in layout px.
+  const view = useDoc.getState().view;
+  const rootWrap = document.querySelector<HTMLElement>(`[data-view-root][data-view="${view}"]`) ?? document.querySelector<HTMLElement>("[data-view-root]");
+  const scale = Number(rootWrap?.closest<HTMLElement>("[data-scale]")?.dataset.scale ?? 1) || 1;
   const frame = (rootWrap?.firstElementChild as HTMLElement | null)?.getBoundingClientRect();
   if (!frame) {
     // ADR 0016 (plan-critic #2): a missing view root would silently zero TTFV/reflow — say so.
     if (!warned) { warned = true; console.error("metricsTap: no [data-view-root] on the page — reflow and TTFV are not being measured"); }
     return;
   }
-  document.querySelectorAll<HTMLElement>("[data-node-id]").forEach((wrap) => {
+  rootWrap!.querySelectorAll<HTMLElement>("[data-node-id]").forEach((wrap) => {
     const el = wrap.firstElementChild as HTMLElement | null;
     const id = wrap.dataset.nodeId!;
     if (!el || wrap === rootWrap) return;
     const b = el.getBoundingClientRect();
-    const r = new DOMRect(b.left - frame.left, b.top - frame.top, b.width, b.height);
+    const r = new DOMRect((b.left - frame.left) / scale, (b.top - frame.top) / scale, b.width / scale, b.height / scale);
     const prev = boxes.get(id);
     if (prev && (Math.abs(prev.top - r.top) > 4 || Math.abs(prev.left - r.left) > 4)) reflows.set(id, (reflows.get(id) ?? 0) + 1);
     boxes.set(id, r);

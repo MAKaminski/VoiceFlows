@@ -1,5 +1,5 @@
 "use client";
-import { defaultFlags, type Flags, type ServerMsg, type VersionSummary, type VocabTerm } from "@livecanvas/dsl";
+import { defaultFlags, type Flags, type ServerMsg, type Suggestion, type VersionSummary, type VocabTerm } from "@livecanvas/dsl";
 import { create } from "zustand";
 
 /**
@@ -16,6 +16,14 @@ interface FeatureState {
   takenOver: boolean;
   /** Version timeline (ADR 0015): summaries of every version and which one is on screen. */
   timeline: { current: number; path: number[]; items: VersionSummary[] };
+  /** Pending implied suggestions, all views (ADR 0020) — not in the doc until approved. */
+  suggestions: Suggestion[];
+  /** Library state of this project (ADR 0020). */
+  project: { savedAt: string | null; title?: string };
+  /** Opened from the library while another tab edits it: offered read-only (ADR 0020). */
+  inUse: string | null;
+  /** The project this tab has open (from `welcome`). */
+  documentId: string | null;
   applyServer(m: ServerMsg): void;
 }
 
@@ -28,7 +36,15 @@ export const useFeatures = create<FeatureState>((set) => ({
   notice: null,
   takenOver: false,
   timeline: { current: 0, path: [], items: [] },
+  suggestions: [],
+  project: { savedAt: null },
+  inUse: null,
+  documentId: null,
   applyServer: (m) => {
+    if (m.type === "welcome" && m.documentId) set({ documentId: m.documentId });
+    if (m.type === "suggestions") set({ suggestions: m.items });
+    if (m.type === "project") set({ project: { savedAt: m.savedAt, ...(m.title ? { title: m.title } : {}) } });
+    if (m.type === "in_use") set({ inUse: m.documentId });
     if (m.type === "taken_over") set({ takenOver: true });
     if (m.type === "versions") set({ timeline: { current: m.current, path: m.path, items: m.items } });
     if (m.type === "welcome" && m.flags) set({ flags: m.flags });

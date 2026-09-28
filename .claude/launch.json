@@ -45,6 +45,24 @@
         "NEXT_PUBLIC_GATEWAY_WS=ws://localhost:8788/ws pnpm --filter @livecanvas/web dev"
       ],
       "port": 3000
+    },
+    {
+      "name": "gateway-m8-8788",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "railway run --service gateway -- env -u DATABASE_URL -u REDIS_URL -u DATABASE_PUBLIC_URL CORS_ORIGINS=http://localhost:3001 ADMIN_ORIGINS=http://localhost:3001 ADMIN_TOKEN=lc-local-test-admin-token-0000000000 PORT=8788 HOST=127.0.0.1 apps/gateway/node_modules/.bin/tsx apps/gateway/src/server.ts"
+      ],
+      "port": 8788
+    },
+    {
+      "name": "web-m8-3001",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "NEXT_PUBLIC_GATEWAY_WS=ws://localhost:8788/ws pnpm --filter @livecanvas/web exec next dev -p 3001"
+      ],
+      "port": 3001
     }
   ]
 }

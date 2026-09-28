@@ -18,6 +18,9 @@ flowchart LR
     F_projects["Projects: Screen · Architecture · ERD · Sequence<br/><small>ARD 0016</small>"]
     F_jev_decisions_feature["Jev decisions<br/><small>ARD 0017</small>"]
     F_open_vocabulary["Speak freely (open vocabulary)<br/><small>ARD 0019</small>"]
+    F_all_views_feature["All views at once<br/><small>ARD 0020</small>"]
+    F_suggestions_feature["Implied suggestions<br/><small>ARD 0020</small>"]
+    F_library_feature["Save &amp; open projects<br/><small>ARD 0020</small>"]
   end
   subgraph uses["Components"]
     direction TB
@@ -89,6 +92,6 @@ flowchart LR
   classDef feat fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef comp fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef tab fill:#eaf1ec,stroke:#2C6249,color:#12191B;
-  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary,F_share_links,F_remember_document,F_version_timeline_feature,F_projects,F_jev_decisions_feature,F_open_vocabulary feat;
+  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary,F_share_links,F_remember_document,F_version_timeline_feature,F_projects,F_jev_decisions_feature,F_open_vocabulary,F_all_views_feature,F_suggestions_feature,F_library_feature feat;
   class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_doc_session,C_postgres,C_redis,C_stripe comp;
   class T_design_documents,T_design_versions,T_exports,T_generation_jobs,T_intents,T_latency_events,T_patch_ops,T_plans,T_primitives,T_provider_keys,T_sessions,T_token_sets,T_transcript_segments,T_usage_periods,T_users,T_utterances tab;

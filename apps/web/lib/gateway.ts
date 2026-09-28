@@ -9,6 +9,8 @@ export const HTTP_BASE = WS_URL.replace(/^ws/, "http").replace(/\/ws$/, "");
 const SESSION_KEY = "lc.sessionId";
 /** Per browser, not per tab: a new tab reopens the last document (ADR 0014). */
 const DOCUMENT_KEY = "lc.documentId";
+/** One-shot marker: the next hello opens this project from the library (ADR 0020). */
+const OPEN_KEY = "lc.openDocumentId";
 
 type Listener = (m: ServerMsg) => void;
 
@@ -43,7 +45,10 @@ class Gateway {
         let sessionId: string | undefined, documentId: string | undefined;
         try { sessionId = sessionStorage.getItem(SESSION_KEY) ?? undefined; } catch {}
         try { documentId = localStorage.getItem(DOCUMENT_KEY) ?? undefined; } catch {}
-        this.send({ type: "hello", sessionId, documentId });
+        // Opened from the library (ADR 0020): the picked project wins over this tab's previous session.
+        let open = false;
+        try { open = sessionStorage.getItem(OPEN_KEY) === documentId && !!documentId; sessionStorage.removeItem(OPEN_KEY); } catch {}
+        this.send({ type: "hello", sessionId, documentId, ...(open ? { open: true } : {}) });
       };
       ws.onerror = () => reject(new Error("gateway unreachable"));
       ws.onclose = () => { this.ready = null; this.ws = null; useDoc.getState().setConnected(false); };
@@ -79,6 +84,12 @@ class Gateway {
   newDocument() {
     try { sessionStorage.removeItem(SESSION_KEY); localStorage.removeItem(DOCUMENT_KEY); } catch {}
     location.reload();
+  }
+
+  /** Open a saved project from the library: forget this tab's session so the picked one wins (plan-critic M8 #6). */
+  openDocument(documentId: string) {
+    try { sessionStorage.removeItem(SESSION_KEY); sessionStorage.setItem(OPEN_KEY, documentId); localStorage.setItem(DOCUMENT_KEY, documentId); } catch {}
+    if (location.pathname.startsWith("/studio")) location.reload(); else location.assign("/studio");
   }
 
   send(m: ClientMsg) { if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(m)); }

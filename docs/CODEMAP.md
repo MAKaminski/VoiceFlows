@@ -4,10 +4,10 @@ _Generated from the TypeScript AST by `pnpm codemap` — do not edit by hand; CI
 
 | Measure | Count |
 |---|---|
-| Modules | 57 |
-| Lines | 6588 |
-| Top-level symbols | 481 |
-| Exported symbols | 223 |
+| Modules | 64 |
+| Lines | 7558 |
+| Top-level symbols | 515 |
+| Exported symbols | 241 |
 | Exported names defined in 2+ modules | 1 |
 
 ## Package dependency graph
@@ -28,7 +28,7 @@ flowchart LR
 | @livecanvas/dsl | `zod` |
 | @livecanvas/prompts | — |
 | @livecanvas/gateway | `@fastify/cors`, `@fastify/websocket`, `fastify`, `postgres`, `undici`, `ws`, `zod` |
-| @livecanvas/web | `@/lib`, `lucide-react`, `next`, `react`, `zustand` |
+| @livecanvas/web | `@/components`, `@/lib`, `lucide-react`, `next`, `react`, `zustand` |
 
 ## Modules and exported symbols
 
@@ -38,17 +38,18 @@ flowchart LR
 |---|---|---|
 | [compact.ts](../packages/dsl/src/compact.ts) | 162 | `SHORT_KEYS` const · `CompactContext` interface · `CompactParseError` class · `expandCompact` function · `serializeCompact` function |
 | [doc.ts](../packages/dsl/src/doc.ts) | 201 | `DesignNode` interface · `NodeId` const · `DesignNodeSchema` const · `DesignDocSchema` const · `DesignDoc` type · `DocKind` const · `DocKind` type · `docKind` const · `VIEWS` const · `viewIndex` const · `emptyView` const · `emptyProject` function · `toProject` function · `viewDoc` function · `withView` function · `toProjectPath` const · `fromProjectPath` function · `viewCount` function · `LANES` const · `emptyRoot` function · `emptyDoc` function · `isBlank` function · `findNode` function |
-| [features.ts](../packages/dsl/src/features.ts) | 36 | `FEATURES` const · `FeatureKey` const · `FeatureKey` type · `Flags` const · `Flags` type · `defaultFlags` const · `kindFeature` const |
+| [features.ts](../packages/dsl/src/features.ts) | 46 | `FEATURES` const · `FeatureKey` const · `FeatureKey` type · `Flags` const · `Flags` type · `defaultFlags` const · `kindFeature` const |
 | [fixtures.ts](../packages/dsl/src/fixtures.ts) | 99 | `kitchenSinkDoc` const · `architectureDoc` const · `erdDoc` const · `sequenceDoc` const |
-| [index.ts](../packages/dsl/src/index.ts) | 13 | — |
+| [index.ts](../packages/dsl/src/index.ts) | 14 | — |
 | [intent.ts](../packages/dsl/src/intent.ts) | 68 | `IntentAction` const · `Intent` const · `Intent` type · `IntentHeader` const · `IntentHeader` type · `DELTA_WEIGHTS` const · `deltaScore` function · `parseHeader` function |
 | [layout.ts](../packages/dsl/src/layout.ts) | 331 | `Rect` interface · `EdgeStyle` type · `EndMark` type · `EdgeRoute` interface · `LaneBox` interface · `Lifeline` interface · `DiagramLayout` interface · `ARCH` const · `ERD` const · `SEQ` const · `layoutDiagram` function · `simplify` function · `labelPoint` function · `roundedPath` function |
 | [lexicon.ts](../packages/dsl/src/lexicon.ts) | 533 | `LexiconResult` interface · `occurrenceKeys` function · `COLOR` const · `isModifier` const · `lexTokens` const · `kindKey` function · `lexicon` function · `requestedKind` function · `VocabEntry` interface · `diagramVocabulary` function · `refreshProvisional` function · `fixSpeech` function · `lexiconWords` function |
 | [ops.ts](../packages/dsl/src/ops.ts) | 116 | `PatchOp` const · `PatchOp` type · `applyOp` function · `invertOp` function · `mapOpPaths` function |
 | [primitives.ts](../packages/dsl/src/primitives.ts) | 134 | `SCREEN_TYPES` const · `DIAGRAM_TYPES` const · `PRIMITIVE_TYPES` const · `PrimitiveType` const · `PrimitiveType` type · `DiagramKind` const · `DiagramKind` type · `Tier` const · `Tier` type · `NodeKind` const · `NodeKind` type · `ColumnSpec` const · `propSchemas` const · `CONTAINER_TYPES` const · `PARENTS` const · `PRIMARY_TEXT_PROP` const · `ARRAY_PROPS` const |
+| [suggest.ts](../packages/dsl/src/suggest.ts) | 163 | `colType` function · `ruleSuggestions` function · `isSuggestionCommand` const · `isSaveCommand` const · `parseSave` function · `Resolution` interface · `resolveCommand` function |
 | [tokens.ts](../packages/dsl/src/tokens.ts) | 38 | `ColorToken` const · `LIGHT_FILLS` const · `SpaceToken` const · `RadiusToken` const · `ColorToken` type · `SpaceToken` type · `RadiusToken` type · `TokenSet` const · `TokenSet` type · `defaultTokens` const |
 | [vocabulary.ts](../packages/dsl/src/vocabulary.ts) | 57 | `VocabNode` const · `VocabNode` type · `VocabTerm` const · `VocabTerm` type · `KIND_WORDS` const · `parseDefine` function · `isVocabCommand` const · `isConfirm` const |
-| [ws.ts](../packages/dsl/src/ws.ts) | 120 | `SttGrant` const · `SttGrant` type · `PROTOCOL` const · `ShareToken` const · `SharedDoc` const · `SharedDoc` type · `ClientMsg` const · `ClientMsg` type · `OpOrigin` const · `OpOrigin` type · `WordMark` const · `WordMark` type · `VersionSummary` const · `VersionSummary` type · `ServerMsg` const · `ServerMsg` type |
+| [ws.ts](../packages/dsl/src/ws.ts) | 142 | `SttGrant` const · `SttGrant` type · `PROTOCOL` const · `ShareToken` const · `SharedDoc` const · `SharedDoc` type · `ClientMsg` const · `ClientMsg` type · `OpOrigin` const · `OpOrigin` type · `WordMark` const · `Suggestion` const · `Suggestion` type · `WordMark` type · `VersionSummary` const · `VersionSummary` type · `ServerMsg` const · `ServerMsg` type |
 
 ### @livecanvas/prompts — Middleware
 
@@ -66,13 +67,13 @@ flowchart LR
 | [config.ts](../apps/gateway/src/config.ts) | 39 | `Config` type · `loadConfig` const |
 | [db.ts](../apps/gateway/src/db.ts) | 11 | `getSql` function |
 | [engine/decisions.ts](../apps/gateway/src/engine/decisions.ts) | 250 | `CHOICE_MIN` const · `NOUL_YES` const · `NOUL_NO` const · `Mention` interface · `mentions` function · `Plan` interface · `ownedBy` const · `readable` const · `planDecisions` function · `Decided` interface · `decisionsToLines` function |
-| [engine/docSession.ts](../apps/gateway/src/engine/docSession.ts) | 992 | `EngineConfig` interface · `Tunables` interface · `DEFAULT_TUNABLES` const · `DocSession` class |
+| [engine/docSession.ts](../apps/gateway/src/engine/docSession.ts) | 1219 | `EngineConfig` interface · `Tunables` interface · `DEFAULT_TUNABLES` const · `DocSession` class |
 | [engine/jev.ts](../apps/gateway/src/engine/jev.ts) | 39 | `JevQuestion` type · `JevAnswer` type · `JevResult` interface · `JevClient` type · `typesafeJev` function |
 | [engine/model.ts](../apps/gateway/src/engine/model.ts) | 120 | `ModelLine` interface · `ModelStream` interface · `ModelClient` type · `anthropicClient` function · `hedgedClient` function |
-| [flags.ts](../apps/gateway/src/flags.ts) | 28 | `FlagService` class |
-| [migrate.ts](../apps/gateway/src/migrate.ts) | 70 | — |
-| [persist.ts](../apps/gateway/src/persist.ts) | 313 | `ANON_EMAIL` const · `Segment` interface · `VersionRow` interface · `OpenedSession` interface · `Persistence` interface · `FeatureAction` type · `memoryPersistence` function · `pgPersistence` function |
-| [server.ts](../apps/gateway/src/server.ts) | 392 | `Deps` interface · `defaultDeps` function · `buildServer` function |
+| [flags.ts](../apps/gateway/src/flags.ts) | 29 | `FlagService` class |
+| [migrate.ts](../apps/gateway/src/migrate.ts) | 72 | — |
+| [persist.ts](../apps/gateway/src/persist.ts) | 388 | `ANON_EMAIL` const · `Segment` interface · `VersionRow` interface · `OpenedSession` interface · `ProjectRow` interface · `FlagChange` interface · `projectMeta` function · `Persistence` interface · `FeatureAction` type · `memoryPersistence` function · `pgPersistence` function |
+| [server.ts](../apps/gateway/src/server.ts) | 467 | `Deps` interface · `defaultDeps` function · `buildServer` function |
 | [spike.ts](../apps/gateway/src/spike.ts) | 271 | — |
 | [stt/providers.ts](../apps/gateway/src/stt/providers.ts) | 161 | `SttMeta` interface · `SttSession` interface · `SttProvider` interface · `wsSession` function · `PROVIDERS` const |
 | [sttGrant.ts](../apps/gateway/src/sttGrant.ts) | 31 | `FLUX_BROWSER_URL` const · `createSttGrant` function |
@@ -82,30 +83,36 @@ flowchart LR
 | Module | LOC | Exports (kind) |
 |---|---|---|
 | [app/admin/layout.tsx](../apps/web/app/admin/layout.tsx) | 7 | `metadata` const · `AdminLayout` function |
-| [app/admin/page.tsx](../apps/web/app/admin/page.tsx) | 91 | `Admin` function |
+| [app/admin/page.tsx](../apps/web/app/admin/page.tsx) | 116 | `Admin` function |
 | [app/layout.tsx](../apps/web/app/layout.tsx) | 13 | `metadata` const · `RootLayout` function |
+| [app/p/[id]/page.tsx](../apps/web/app/p/[id]/page.tsx) | 39 | `ReadOnlyProject` function |
 | [app/page.tsx](../apps/web/app/page.tsx) | 6 | `Home` function |
 | [app/playground/page.tsx](../apps/web/app/playground/page.tsx) | 29 | `Playground` function |
 | [app/s/[token]/layout.tsx](../apps/web/app/s/[token]/layout.tsx) | 8 | `metadata` const · `SharedLayout` function |
-| [app/s/[token]/page.tsx](../apps/web/app/s/[token]/page.tsx) | 66 | `Shared` function |
-| [app/studio/page.tsx](../apps/web/app/studio/page.tsx) | 159 | `Studio` function |
+| [app/s/[token]/page.tsx](../apps/web/app/s/[token]/page.tsx) | 71 | `Shared` function |
+| [app/studio/page.tsx](../apps/web/app/studio/page.tsx) | 209 | `Studio` function |
+| [components/FeaturesPopover.tsx](../apps/web/components/FeaturesPopover.tsx) | 33 | `FeaturesPopover` function |
 | [components/Hud.tsx](../apps/web/components/Hud.tsx) | 60 | `Hud` function |
 | [components/KeywordRail.tsx](../apps/web/components/KeywordRail.tsx) | 80 | `KeywordRail` function |
+| [components/ProjectsModal.tsx](../apps/web/components/ProjectsModal.tsx) | 57 | `ProjectsModal` function |
 | [components/SharePopover.tsx](../apps/web/components/SharePopover.tsx) | 60 | `SharePopover` function |
-| [components/TranscriptStrip.tsx](../apps/web/components/TranscriptStrip.tsx) | 61 | `TranscriptStrip` function |
+| [components/SuggestionTray.tsx](../apps/web/components/SuggestionTray.tsx) | 35 | `SuggestionTray` function |
+| [components/TranscriptStrip.tsx](../apps/web/components/TranscriptStrip.tsx) | 63 | `TranscriptStrip` function |
 | [components/VersionTimeline.tsx](../apps/web/components/VersionTimeline.tsx) | 56 | `VersionTimeline` function |
-| [components/canvas/Canvas.tsx](../apps/web/components/canvas/Canvas.tsx) | 15 | `Canvas` function |
+| [components/ViewGrid.tsx](../apps/web/components/ViewGrid.tsx) | 46 | `ViewGrid` function |
+| [components/canvas/Canvas.tsx](../apps/web/components/canvas/Canvas.tsx) | 18 | `Canvas` function |
 | [components/canvas/CanvasNode.tsx](../apps/web/components/canvas/CanvasNode.tsx) | 19 | `CanvasNode` const |
+| [components/canvas/FitBox.tsx](../apps/web/components/canvas/FitBox.tsx) | 31 | `FitBox` function |
 | [components/canvas/primitives.tsx](../apps/web/components/canvas/primitives.tsx) | 112 | `renderers` const |
 | [components/canvas/tokens.ts](../apps/web/components/canvas/tokens.ts) | 16 | `tokenVars` function · `color` const · `space` const · `radius` const |
-| [components/diagram/DiagramCanvas.tsx](../apps/web/components/diagram/DiagramCanvas.tsx) | 217 | `DiagramCanvas` function |
-| [lib/gateway.ts](../apps/web/lib/gateway.ts) | 90 | `WS_URL` const · `HTTP_BASE` const · `gateway` const |
-| [lib/metricsTap.ts](../apps/web/lib/metricsTap.ts) | 84 | `currentMaxReflows` const · `installMetricsTap` function · `tapLocalTranscript` function |
+| [components/diagram/DiagramCanvas.tsx](../apps/web/components/diagram/DiagramCanvas.tsx) | 253 | `DiagramCanvas` function |
+| [lib/gateway.ts](../apps/web/lib/gateway.ts) | 101 | `WS_URL` const · `HTTP_BASE` const · `gateway` const |
+| [lib/metricsTap.ts](../apps/web/lib/metricsTap.ts) | 89 | `currentMaxReflows` const · `installMetricsTap` function · `tapLocalTranscript` function |
 | [lib/voice/capture.ts](../apps/web/lib/voice/capture.ts) | 26 | `Capture` interface · `startCapture` function |
 | [lib/voice/session.ts](../apps/web/lib/voice/session.ts) | 110 | `Transcript` interface · `VoiceEvents` interface · `startVoice` function |
 | [next.config.ts](../apps/web/next.config.ts) | 15 | — |
 | [store/doc.ts](../apps/web/store/doc.ts) | 55 | `JobState` interface · `useDoc` const |
-| [store/features.ts](../apps/web/store/features.ts) | 46 | `useFeatures` const |
+| [store/features.ts](../apps/web/store/features.ts) | 62 | `useFeatures` const |
 | [store/metrics.ts](../apps/web/store/metrics.ts) | 35 | `useMetrics` const · `pct` const · `dollarsFor` const |
 | [store/voice.ts](../apps/web/store/voice.ts) | 41 | `useVoice` const |
 

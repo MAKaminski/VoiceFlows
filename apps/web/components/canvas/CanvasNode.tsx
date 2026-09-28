@@ -11,7 +11,7 @@ import { renderers } from "./primitives";
 export const CanvasNode = memo(function CanvasNode({ node, viewRoot }: { node: DesignNode; viewRoot?: boolean }) {
   const children = node.children?.map((c) => <CanvasNode key={c.id} node={c} />);
   return (
-    <div data-node-id={node.id} data-type={node.type} {...(viewRoot ? { "data-view-root": "" } : {})} className={node.provisional ? "lc-provisional" : undefined} style={{ display: "contents" }}>
+    <div data-node-id={node.id} data-type={node.type} {...(viewRoot ? { "data-view-root": "", "data-view": "screen" } : {})} className={node.provisional ? "lc-provisional" : undefined} style={{ display: "contents" }}>
       {node.type in renderers ? renderers[node.type as keyof typeof renderers](node.props, children) : null}
     </div>
   );

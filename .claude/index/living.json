@@ -1,10 +1,10 @@
 {
-  "ards": 20,
-  "ards_contributing": 19,
+  "ards": 21,
+  "ards_contributing": 20,
   "components_from_code": 4,
-  "components_from_ards": 26,
-  "flows_from_ards": 34,
-  "features": 17,
+  "components_from_ards": 29,
+  "flows_from_ards": 36,
+  "features": 20,
   "notes": 10,
   "index": [
     {
@@ -144,6 +144,13 @@
       "num": "0019",
       "file": "0019-fluency.md",
       "title": "ADR 0019 \u2014 Fluency: open vocabulary at the end of a sentence, colours as tokens, a corpus that proves it",
+      "status": "accepted",
+      "contributes": true
+    },
+    {
+      "num": "0020",
+      "file": "0020-all-views-suggestions-library.md",
+      "title": "ADR 0020 \u2014 All views at once, implied suggestions, flag history, a shared project library",
       "status": "accepted",
       "contributes": true
     }

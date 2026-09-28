@@ -138,3 +138,17 @@
   customers 1:n orders with `customer_id` on orders, instantly and with no model call. It also covers "owned by",
   "part of", "assigned to", fan-out ("each comment and each ticket is owned by an agent"), and leaves
   negations to Jev. Corpus: 77 cases, all scored.
+
+## M8 — All views at once, implied suggestions, flag history, save/open (2026-09-28) — ADR 0020
+- **All views:** Focus | All views toggle; the 2×2 grid (Screen, Architecture, ERD, Sequence) updates live, each cell
+  scaled to fit; click a cell (or name a view) to speak to it. Share page gets the grid too.
+- **Implied suggestions:** a table arrives offering its typical columns (`cases` → subject, status, priority,
+  created_at) in the same partial, $0; screen and architecture rules too. "approve", "approve all but status",
+  "approve the case columns", "reject the auth one" by voice or typed; ✓/✕ per column or chip. One version per
+  approval, undoable. Model tier built and tested, **off by default** (+72% $/min would fail rule 7).
+- **Flags:** Features popover in the studio (what's on, read-only) + `/admin` last change per flag and a history
+  table (`feature_flag_changes`).
+- **Projects:** Save (button / "save it as …"), Projects list (shared workspace: open, remove/restore), open never
+  takes over someone editing — offered read-only at `/p/[id]`.
+- Tests: dsl 62, gateway 181 (new: 11 engine + 5 server incl. every plan-critic regression); corpus +4 suggestion
+  cases (82). Verified in the browser at 1440 px against a local gateway.

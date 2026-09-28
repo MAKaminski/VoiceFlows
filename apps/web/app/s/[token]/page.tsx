@@ -1,5 +1,6 @@
 "use client";
 import { Canvas } from "@/components/canvas/Canvas";
+import { ViewGrid } from "@/components/ViewGrid";
 import { HTTP_BASE } from "@/lib/gateway";
 import { toProject, viewCount, viewDoc, VIEWS, SharedDoc, type DocKind } from "@livecanvas/dsl";
 import { useParams } from "next/navigation";
@@ -8,7 +9,7 @@ import { useEffect, useState } from "react";
 /** Read-only view of a shared version (ADR 0013) — all four views of the project as tabs (ADR 0016). One GET. */
 export default function Shared() {
   const { token } = useParams<{ token: string }>();
-  const [tab, setTab] = useState<DocKind | null>(null);
+  const [tab, setTab] = useState<DocKind | "all" | null>(null);
   const [state, setState] = useState<{ status: "loading" } | { status: "ok"; data: SharedDoc } | { status: "gone" } | { status: "error" }>({ status: "loading" });
 
   useEffect(() => {
@@ -43,6 +44,9 @@ export default function Shared() {
                     </button>
                   );
                 })}
+                <button type="button" role="tab" aria-selected={tab === "all"} data-testid="share-all-views" onClick={() => setTab("all")}
+                  style={{ font: "inherit", fontSize: 13, fontWeight: 600, padding: "4px 12px", borderRadius: 999, border: "1px solid var(--lc-chrome-border)", cursor: "pointer",
+                    background: tab === "all" ? "#0f172a" : "transparent", color: tab === "all" ? "#fff" : "inherit" }}>All views</button>
               </span>
             </>
           );
@@ -50,6 +54,7 @@ export default function Shared() {
       </header>
       {state.status === "ok" && (() => {
         const p = toProject(state.data.doc);
+        if (tab === "all") return <ViewGrid project={p} active={null} readOnly />;
         const shown = tab ?? VIEWS.find((x) => viewCount(viewDoc(p, x.kind).root) > 0)?.kind ?? "screen";
         return <div style={{ flex: 1 }}><Canvas doc={viewDoc(p, shown)} /></div>;
       })()}
