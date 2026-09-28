@@ -75,7 +75,7 @@ export function ruleSuggestions(view: DesignDoc, kind: DocKind = docKind(view)):
   const out: Suggestion[] = [];
   if (kind === "erd") {
     for (const n of nodes) {
-      if (n.type !== "Node") continue;
+      if (n.type !== "Node" || n.inferred) continue; // scaffolded tables don't also fill the tray (critic M9)
       const typical = TYPICAL_COLS[tableKey(String(n.props.label ?? ""))];
       if (!typical) continue;
       const have = new Set(((n.props.cols as string[] | undefined) ?? []).map((c) => c.split(":")[0]!));

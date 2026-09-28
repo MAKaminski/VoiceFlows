@@ -11,3 +11,4 @@ export * from "./layout.js";
 export * from "./features.js";
 export * from "./vocabulary.js";
 export * from "./suggest.js";
+export * from "./scaffold.js";

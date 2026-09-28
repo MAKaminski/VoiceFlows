@@ -1,5 +1,5 @@
 import {
-  applyOp, COLOR, isSaveCommand, isSuggestionCommand, parseSave, resolveCommand, ruleSuggestions, type Suggestion, DesignDocSchema, docKind, fixSpeech, lexiconWords, refreshProvisional, emptyProject, emptyView, expandCompact, mapOpPaths, toProject, toProjectPath, viewDoc, VIEWS, viewCount, withView, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
+  applyOp, COLOR, scaffold, takeOver, isSaveCommand, isSuggestionCommand, parseSave, resolveCommand, ruleSuggestions, type Suggestion, DesignDocSchema, docKind, fixSpeech, lexiconWords, refreshProvisional, emptyProject, emptyView, expandCompact, mapOpPaths, toProject, toProjectPath, viewDoc, VIEWS, viewCount, withView, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
   lexTokens, occurrenceKeys, parseDefine, parseHeader, serializeCompact, type CompactContext, type DesignDoc, type DesignNode, type DocKind, type FeatureKey,
   type Flags, type IntentHeader, type VersionSummary, type WordMark, type OpOrigin, type PatchOp, type ServerMsg, type VocabNode, type VocabTerm,
 } from "@livecanvas/dsl";
@@ -25,6 +25,7 @@ interface ActiveJob {
   protectedIds: Set<string>; // nodes this job folded a re-add into — its later `-` lines must not delete them
   todo?: string[]; // the uncovered words (occurrence keys) that started this voice job
   started?: boolean; // generation_jobs row written (phase 0 and the model phase share one job)
+  baseProject?: DesignDoc; // the whole project when the job started (typed prompts scaffold against it, ADR 0021)
 }
 interface Utterance {
   seq: number; baseDoc: DesignDoc; text: string; lastWordEndMs?: number;
@@ -249,6 +250,48 @@ export class DocSession {
     if (this.active || (this.utt && !this.utt.settled)) { this.queuedResolves.push({ verb, picks }); return; }
     this.applyResolution(verb, picks);
   }
+  /**
+   * Cross-view scaffolding (ADR 0021): take-overs first (a real node replaces an inferred placeholder in its
+   * slot), then what `base → now` added fills in the other views, to a fixpoint (≤ 3 rounds). Inferred nodes
+   * whose name the user just said in their own view are confirmed. Ops go out with origin `scaffold`.
+   */
+  private applyScaffold(base: DesignDoc, said: string) {
+    if (!this.flagOn("cross_view_scaffold")) return;
+    const jobId = randomUUID();
+    let total = 0;
+    const run = (steps: Array<{ view: DocKind; lines: string[] }>) => {
+      for (const step of steps) {
+        const r = this.compileLines(step.view, step.lines, true);
+        if (r) { this.within(step.view, () => { this.doc = r.doc; this.emitOps(jobId, "scaffold", r.ops); total += r.ops.length; }); continue; }
+        for (const line of step.lines) { // one bad line must not sink the rest
+          const one = this.compileLines(step.view, [line], true);
+          if (one) this.within(step.view, () => { this.doc = one.doc; this.emitOps(jobId, "scaffold", one.ops); total += one.ops.length; });
+        }
+      }
+    };
+    // Take-overs FIRST: "the api gateway" must replace the inferred API, not confirm it by sharing the word.
+    run(takeOver(this.project, base).steps);
+    const words = new Set(lexTokens(said));
+    if (words.size) { // "…and the API" in the architecture: the inferred API there is confirmed
+      const clears: PatchOp[] = [];
+      const walk = (n: DesignNode, path: string) => {
+        if (n.inferred && n.type === "Node" && lexTokens(String(n.props.label ?? "")).every((w) => words.has(w))) clears.push({ op: "remove", path: `${path}/inferred` });
+        n.children?.forEach((c, i) => walk(c, `${path}/children/${i}`));
+      };
+      walk(viewDoc(this.project, this.activeView).root, "/root");
+      if (clears.length) this.within(this.activeView, () => { let d = this.doc; for (const op of clears) d = applyOp(d, op); this.doc = d; this.emitOps(jobId, "scaffold", clears); });
+    }
+    let prev = base;
+    for (let round = 0; round < 3; round++) {
+      const before = this.project;
+      const steps = scaffold(this.project, prev);
+      if (!steps.length) break;
+      run(steps);
+      prev = before;
+    }
+    if (total) this.feature("cross_view_scaffold", "used");
+  }
+
   private flushResolves() {
     if (this.active || (this.utt && !this.utt.settled)) return;
     const q = this.queuedResolves;
@@ -267,6 +310,7 @@ export class DocSession {
       return this.refreshSuggestions();
     }
     const jobId = randomUUID();
+    const pre = this.project;
     let applied = 0;
     for (const v of VIEWS) {
       for (const { p, s } of chosen.filter((x) => x.s.view === v.kind)) {
@@ -278,6 +322,7 @@ export class DocSession {
       }
     }
     if (!applied) return this.refreshSuggestions();
+    this.applyScaffold(pre, "");
     this.writeVersion(null);
     this.announceVersion(); // refreshes suggestions: approved ones no longer apply
   }
@@ -291,7 +336,7 @@ export class DocSession {
     return add.length ? [`~${target} cols=${[...current, ...add].join(",")}`] : [];
   }
   /** Compact lines → ops against a copy of a view, validated; null if any line fails (nothing applied). */
-  private compileLines(view: DocKind, lines: string[]): { ops: PatchOp[]; doc: DesignDoc } | null {
+  private compileLines(view: DocKind, lines: string[], mark = false): { ops: PatchOp[]; doc: DesignDoc } | null {
     return this.within(view, () => {
       let cand = this.doc;
       const aliases = new Map<string, string>();
@@ -308,7 +353,13 @@ export class DocSession {
       };
       const typeOf = (ref: string) => findNode(cand.root, aliases.get(ref) ?? ref)?.node.type ?? null;
       const ops: PatchOp[] = [];
-      try { for (const line of lines) for (const op of expandCompact(line, ctx, typeOf)) { cand = applyOp(cand, op); ops.push(op); } }
+      try {
+        for (const line of lines) for (const raw of expandCompact(line, ctx, typeOf)) {
+          // Scaffolded nodes are marked `inferred` (ADR 0021).
+          const op = mark && raw.op === "add" && typeof raw.value === "object" && raw.value && (raw.value as DesignNode).type === "Node" ? { ...raw, value: { ...(raw.value as DesignNode), inferred: true } } : raw;
+          cand = applyOp(cand, op); ops.push(op);
+        }
+      }
       catch { return null; }
       return ops.length && DesignDocSchema.safeParse(cand).success ? { ops, doc: cand } : null;
     });
@@ -638,6 +689,7 @@ export class DocSession {
     };
     walk(this.project.root, "/root"); // an utterance can span views: clear provisional flags project-wide
     if (clear.length) { for (const op of clear) this.project = applyOp(this.project, op); this.emitRaw(randomUUID(), "model", clear); }
+    this.applyScaffold(u.baseDoc, u.text); // the other views fill in — same version, one undo (ADR 0021)
     if (JSON.stringify(this.project) !== JSON.stringify(u.baseDoc)) {
       this.writeVersion(null);
       this.feature("speak_to_create", "used");
@@ -682,7 +734,7 @@ export class DocSession {
   private async runJob(kind: JobKind, text: string, seq: number, trigMs?: number, todo?: string[]): Promise<void> {
     const { persistence } = this.deps;
     const sid = this.sessionId;
-    const job: ActiveJob = { id: randomUUID(), kind, text, abort: new AbortController(), baseDoc: this.doc, applied: 0, lexOps: [], trigMs, protectedIds: new Set(), view: this.activeView, ...(todo ? { todo } : {}) };
+    const job: ActiveJob = { id: randomUUID(), kind, text, baseProject: this.project, abort: new AbortController(), baseDoc: this.doc, applied: 0, lexOps: [], trigMs, protectedIds: new Set(), view: this.activeView, ...(todo ? { todo } : {}) };
     this.active = job;
     const utteranceId = persistence.utterance(sid, seq, kind === "typed" ? "typed" : "voice", kind === "typed" ? text : undefined);
     this.deps.send({ type: "job", jobId: job.id, state: "running", kind, text });
@@ -890,6 +942,12 @@ export class DocSession {
           candidate = applyOp(candidate, clear);
           extra.push(clear);
         }
+        // This view's own speech touched a scaffolded node: it's the user's now (ADR 0021).
+        if (target?.node.inferred && !extra.some((x) => x.path === `${target.path}/inferred`)) {
+          const clear: PatchOp = { op: "remove", path: `${target.path}/inferred` };
+          candidate = applyOp(candidate, clear);
+          extra.push(clear);
+        }
       }
       // Removing a Node takes its edges with it (undo restores both via the version).
       for (const op of pruneDanglingEdges(candidate, edgeIds(this.doc))) { candidate = applyOp(candidate, op); extra.push(op); }
@@ -921,6 +979,7 @@ export class DocSession {
     if (job.kind === "speculative" && job.applied === 0 && this.utt && !this.utt.settled) job.todo?.forEach((k) => this.utt!.wasted.add(k));
     // Typed prompts version per job (M3); voice versions once per utterance at commit.
     if (state === "done" && job.kind === "typed" && job.applied > 0) {
+      if (job.baseProject) this.applyScaffold(job.baseProject, job.text);
       this.writeVersion(job.id);
       this.announceVersion();
     }

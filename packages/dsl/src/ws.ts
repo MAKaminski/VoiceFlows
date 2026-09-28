@@ -26,7 +26,7 @@ const Transcript = {
 };
 
 /** Bumped when the doc contract grows in a way an older web bundle can't parse (M7: colour tokens, Card fill). */
-export const PROTOCOL = 2;
+export const PROTOCOL = 3; // M9: six views, scaffold ops, inferred nodes
 
 /** 128-bit random, base64url — unguessable; the link is the only credential (ADR 0013). */
 export const ShareToken = z.string().regex(/^[A-Za-z0-9_-]{22}$/);
@@ -71,7 +71,7 @@ export const ClientMsg = z.discriminatedUnion("type", [
 export type ClientMsg = z.infer<typeof ClientMsg>;
 
 /** Who produced an op batch — M4's "keep ops that still validate" rule needs origin + jobId. */
-export const OpOrigin = z.enum(["model", "lexicon", "undo", "redo", "rollback", "goto", "jev", "approve"]);
+export const OpOrigin = z.enum(["model", "lexicon", "undo", "redo", "rollback", "goto", "jev", "approve", "scaffold"]);
 export type OpOrigin = z.infer<typeof OpOrigin>;
 
 /** drawn = the lexicon drew it (0 ms) · yours = drawn from the user's own word · model = sent to the model. */

@@ -338,7 +338,8 @@ describe("version timeline (ADR 0015)", () => {
     let tl = last(sent);
     expect(tl.items.map((v) => [v.version, v.parent, v.kind])).toEqual([[0, null, "screen"], [1, 0, "screen"], [2, 1, "screen"], [3, 2, "architecture"]]);
     expect(tl.items[2]).toMatchObject({ added: 1, removed: 0, nodes: 2 });
-    expect(tl.items[3]).toMatchObject({ added: 1, removed: 0, nodes: 3 }); // lanes and view roots don't count
+    // Stripe + its scaffolded copies in the sequence, constraints and cost-value views (ADR 0021); lanes and view roots don't count.
+    expect(tl.items[3]).toMatchObject({ added: 4, removed: 0, nodes: 6 });
 
     d.gotoVersion(1);
     tl = last(sent);
