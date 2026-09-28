@@ -338,13 +338,20 @@ function diagramLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<
   const occ = occurrenceKeys(words);
   const labels = new Set<string>();
   const kinds = new Set<string>();
+  const kindWords = new Map<string, Set<string>>(); // kind → every word of every label of that kind
   const ids = new Set<string>(reservedIds);
   const walk = (n: DesignNode) => {
     ids.add(n.id);
-    if (n.type === "Node") { labels.add(String(n.props.label).toLowerCase()); kinds.add(String(n.props.kind)); }
+    if (n.type === "Node") {
+      labels.add(String(n.props.label).toLowerCase()); kinds.add(String(n.props.kind));
+      const ws = kindWords.get(String(n.props.kind)) ?? new Set<string>();
+      lexTokens(String(n.props.label)).forEach((w) => ws.add(w));
+      kindWords.set(String(n.props.kind), ws);
+    }
     n.children?.forEach(walk);
   };
   walk(doc.root);
+  const remember = (noun: DiagramNoun) => { const ws = kindWords.get(noun.kind) ?? new Set<string>(); lexTokens(noun.label).forEach((w) => ws.add(w)); kindWords.set(noun.kind, ws); };
   const counts = new Map<string, number>(); // children per lane path, updated as we add
   const kidsOf = (path: string, n: DesignNode) => counts.get(path) ?? n.children?.length ?? 0;
   let nodeAt = (doc.root.children ?? []).map((c) => c.type).lastIndexOf("Node") + 1;
@@ -373,7 +380,9 @@ function diagramLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<
     // the words since the previous noun count — in "the ledger and postgres" the "the" is the ledger's.
     // Only a generic noun can refer back ("the app" = the web app); a named system is itself ("the genesys
     // bot" next to Genesys is a new component, M7).
-    if (definite && kinds.has(noun.kind) && GENERIC.has(noun.label)) continue;
+    // …and only to an element that shares a word with it: "the app" is the Web app, but "the api" is not a
+    // "Service" the model drew earlier (M7 live trace: API was never drawn).
+    if (definite && GENERIC.has(noun.label) && lexTokens(noun.label).some((w) => kindWords.get(noun.kind)?.has(w))) continue;
     const alias = noun.label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "node";
     let id = `n_p_${alias}`, n = 2;
     while (ids.has(id)) id = `n_p_${alias}_${n++}`;
@@ -388,13 +397,13 @@ function diagramLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<
       // Nodes before Edges: a new entity/actor goes right after the last Node, so edge order is untouched.
       ops.push({ op: "add", path: `/root/children/${nodeAt}`, value: node });
       nodeAt++;
-      ids.add(id); labels.add(noun.label.toLowerCase()); kinds.add(noun.kind); created.push({ id, word: words[i]!, kind: kindKey(node), key: keys[0]!, ...(hit.mine ? { mine: true } : {}) }); consumed.push(...keys);
+      ids.add(id); labels.add(noun.label.toLowerCase()); kinds.add(noun.kind); remember(noun); created.push({ id, word: words[i]!, kind: kindKey(node), key: keys[0]!, ...(hit.mine ? { mine: true } : {}) }); consumed.push(...keys);
       continue;
     }
     const at = kidsOf(parentPath, parent);
     ops.push({ op: "add", path: `${parentPath}/children/${at}`, value: node });
     counts.set(parentPath, at + 1);
-    ids.add(id); labels.add(noun.label.toLowerCase()); kinds.add(noun.kind); created.push({ id, word: words[i]!, kind: kindKey(node), key: keys[0]!, ...(hit.mine ? { mine: true } : {}) }); consumed.push(...keys);
+    ids.add(id); labels.add(noun.label.toLowerCase()); kinds.add(noun.kind); remember(noun); created.push({ id, word: words[i]!, kind: kindKey(node), key: keys[0]!, ...(hit.mine ? { mine: true } : {}) }); consumed.push(...keys);
   }
   return { ops, created, consumed };
 }

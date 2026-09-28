@@ -158,8 +158,8 @@ export const CASES: CorpusCase[] = [
     expect: { edges: [["agents", "comments"], ["agents", "tickets"]] } },
   { id: "e-assigned", view: "erd", setup: ["cases and agents"], say: "every case is assigned to an agent", instant: true,
     expect: { edges: [["agents", "cases"]], cols: [["cases", ["agent_id"]]] } },
-  { id: "e-not-belongs", view: "erd", setup: ["users and teams"], say: "a user does not belong to a team, teams have many users",
-    expect: { edges: [["teams", "users"]], hasNot: [] } },
+  { id: "e-not-belongs", view: "erd", setup: ["users and teams"], say: "users do not belong to teams",
+    expect: { noLinks: ["teams"] } }, // the negation guard: never drawn as a relationship
   { id: "e-one-to-one", view: "erd", setup: ["users"], say: "each user has one profile", hears: ["profile"],
     expect: { has: ["profile"], links: [["users", "profile"]] } },
   { id: "e-many-many", view: "erd", say: "students enroll in many courses and courses have many students", hears: ["enroll"],

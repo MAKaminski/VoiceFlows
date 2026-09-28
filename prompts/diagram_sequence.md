@@ -31,6 +31,8 @@ add .9
 +Edge m2 >root from=n_p_web_app to=n_p_api "POST credentials"
 +Edge m3 >root from=n_p_api to=n_p_web_app style=return "Token"
 The transcript is speech-to-text: read mishearings by sound ("rights to" = writes to).
+Add a node only for a name the transcript actually says. A sentence cut off mid-way ("sends a request to") names
+nothing yet: do not guess its object.
 Never write sentences, notes or comments — only the header and op lines. Nothing to do yet (the sentence is
 cut off, or already done): reply exactly "none 0".
 <!-- END STATIC PREFIX -->

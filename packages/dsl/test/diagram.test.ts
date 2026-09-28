@@ -310,6 +310,10 @@ describe("fluency (M7, ADR 0019)", () => {
     expect(r.created.map((c) => c.kind)).toEqual(["Node:genesys bot"]);
     doc = speak("a web app", emptyDoc({ kind: "architecture" }));
     expect(lexicon("the app calls it", doc).created).toEqual([]);
+    // "the api" is not a reference to an unrelated service the model drew ("Service"): it shares no word.
+    const seq = speak("the client", emptyDoc({ kind: "sequence" }));
+    const withService = applyOp(seq, { op: "add", path: "/root/children/1", value: { id: "n_p_service", type: "Node", props: { label: "Service", kind: "service" } } });
+    expect(lexicon("the gateway forwards it to the api", withService).created.map((c) => c.kind)).toContain("Node:api");
   });
 
   it("'the api' drawn at 'api' becomes 'API gateway' when the name completes (still provisional)", () => {
