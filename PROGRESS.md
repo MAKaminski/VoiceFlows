@@ -152,3 +152,7 @@
   takes over someone editing — offered read-only at `/p/[id]`.
 - Tests: dsl 62, gateway 181 (new: 11 engine + 5 server incl. every plan-critic regression); corpus +4 suggestion
   cases (82). Verified in the browser at 1440 px against a local gateway.
+- **Production (2026-09-28, after deploy; migration 005 applied, 4 flags seeded into the new history):** corpus
+  **82/82** (screen 25/25 · architecture 24/24 · ERD 25/25 · sequence 8/8; approvals settle in ~72 ms with no model
+  call). DoD acceptance 10/10 twice: first run right after the deploy TTFV-1 167 ms adj. (cold gateway), rerun
+  **TTFV-1 95 ms adj. · settle 680 ms · 1 reflow · $0/min** — unchanged from M7.
