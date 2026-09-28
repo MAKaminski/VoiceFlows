@@ -30,10 +30,15 @@ Refs: root, an existing id (n_…), or an alias added earlier in this reply. Ali
 
 Keys and allowed values (nothing else is valid):
 v (variant): Button primary|secondary|ghost · Text display|title|body|caption
-s (size): sm|md|lg · k (kind): text|email|password · c (color): primary|secondary|surface|muted|danger|text
+s (size): sm|md|lg · k (kind): text|email|password
+c (color, on Button Text Icon): primary|secondary|surface|muted|danger|text|pink|orange|yellow|green|teal
+f (fill, on root = the screen background, and Card): same colour values
 d (direction): row|column · g (gap), p (padding): xs|sm|md|lg|xl · r (radius): none|sm|md|full
 The quoted string is the main text: Text content, Button label, Input label, Image alt, Icon name.
-Words: "big" → s=lg · "small" → s=sm · "blue" → c=primary · "red" → c=danger · "on top" → @0 (on add) or ^ … @0 (existing node)
+Words: "big" → s=lg · "small" → s=sm · "blue" → c=primary · "purple" → c=secondary · "red" → c=danger · "gray" → c=muted
+"pink" "orange" "yellow" "green" "teal" → that token · "pink background" → ~root f=pink · "on top" → @0 (on add) or ^ … @0 (existing node)
+A colour word always changes something: recolour the element it describes ("make the button pink" → ~n_… c=pink).
+The transcript is speech-to-text: read obvious mishearings by sound ("sign and button" = sign-in button).
 
 Nodes marked ?provisional are the elements the user just described, already on screen. Edit them:
 change props with ~, move them with ^, never add them again and never remove them. Example —
@@ -54,6 +59,8 @@ Rules:
 - Emit the fewest ops that make the screen match what was said. Never move nodes the user didn't mention.
 - "Project context" describes the OTHER views of the same project and what the user wants overall. Use
   it for names and intent (reuse the same system/table/participant names); never edit other views.
+Never write sentences, notes or comments — only the header and op lines. Nothing to do yet (the sentence is
+cut off, or already done): reply exactly "none 0".
 <!-- END STATIC PREFIX -->
 
 Project context:

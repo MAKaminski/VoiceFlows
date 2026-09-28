@@ -81,6 +81,7 @@ export function hedgedClient(inner: ModelClient, hedgeMs: number, onHedge?: (won
 
     async function* lines(): AsyncGenerator<ModelLine> {
       const itA = a.lines[Symbol.asyncIterator]();
+      let itB: AsyncIterator<ModelLine> | null = null;
       const pA = itA.next();
       pA.catch(() => {});
       let winner = itA;
@@ -89,7 +90,7 @@ export function hedgedClient(inner: ModelClient, hedgeMs: number, onHedge?: (won
       const r1 = await Promise.race([pA.then((v) => ({ src: "a" as const, v })), timer]);
       if (r1 === "hedge" && !req.signal.aborted) {
         b = inner({ ...req, signal: ctlB.signal });
-        const itB = b.lines[Symbol.asyncIterator]();
+        itB = b.lines[Symbol.asyncIterator]();
         const pB = itB.next();
         pB.catch(() => {});
         const r2 = await Promise.race([pA.then((v) => ({ src: "a" as const, v })), pB.then((v) => ({ src: "b" as const, v }))]);
@@ -103,6 +104,12 @@ export function hedgedClient(inner: ModelClient, hedgeMs: number, onHedge?: (won
         if (!first.done) yield first.value;
         for (let n = await winner.next(); !n.done; n = await winner.next()) yield n.value;
       } finally {
+        // The reader may stop early ("none 0", a superseded job): close both inner streams first. Their
+        // usage settles only when their generators finish, so awaiting it on a suspended stream deadlocked
+        // the job — and every later model call in that session (found in M7, 2026-09-28). Closing also
+        // releases the pooled connection.
+        ctlA.abort(); ctlB.abort();
+        await Promise.allSettled([itA.return?.(undefined), itB?.return?.(undefined)]);
         const [ua, ub] = await Promise.all([a.usage, b ? (b as ModelStream).usage : Promise.resolve({ inputTokens: 0, outputTokens: 0 })]);
         resolveUsage({ inputTokens: ua.inputTokens + ub.inputTokens, outputTokens: ua.outputTokens + ub.outputTokens });
       }

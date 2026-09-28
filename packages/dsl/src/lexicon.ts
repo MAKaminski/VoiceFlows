@@ -37,7 +37,13 @@ const RANK: Partial<Record<PrimitiveType, number>> = { Nav: 0, Image: 1, Text: 2
 const rank = (t: PrimitiveType) => RANK[t] ?? 4;
 
 const SIZE: Record<string, string> = { big: "lg", large: "lg", huge: "lg", small: "sm", tiny: "sm" };
-const COLOR: Record<string, string> = { blue: "primary", purple: "secondary", red: "danger", gray: "muted", grey: "muted", white: "surface", black: "text", dark: "text" };
+/** Spoken colour → token (ADR 0019: named hues are tokens too, so "pink" is drawable). */
+export const COLOR: Record<string, string> = {
+  blue: "primary", navy: "primary", purple: "secondary", violet: "secondary", lavender: "secondary", red: "danger", crimson: "danger",
+  gray: "muted", grey: "muted", silver: "muted", white: "surface", black: "text", dark: "text",
+  pink: "pink", magenta: "pink", rose: "pink", fuchsia: "pink", orange: "orange", amber: "orange", coral: "orange",
+  yellow: "yellow", gold: "yellow", golden: "yellow", green: "green", lime: "green", emerald: "green", teal: "teal", turquoise: "teal", cyan: "teal", aqua: "teal",
+};
 const SCREEN_TITLES: Array<[string[], string]> = [
   [["log", "in"], "Log in"], [["login"], "Log in"], [["sign", "in"], "Sign in"], [["sign", "up"], "Sign up"], [["signup"], "Sign up"],
   [["register"], "Create account"], [["registration"], "Create account"], [["settings"], "Settings"], [["profile"], "Profile"],
@@ -60,7 +66,16 @@ const phraseBefore = (words: string[], i: number, table: Array<[string[], string
   }
   return null;
 };
-interface NounSpec { alias: string; type: PrimitiveType; props: (mods: Mods, words: string[], i: number) => Record<string, unknown>; children?: boolean }
+interface NounSpec { alias: string; type: PrimitiveType; props: (mods: Mods, words: string[], i: number) => Record<string, unknown>; children?: boolean; phrases?: Array<[string[], string]> }
+/** Positions of the label phrase the noun read ("sign in" before "button") — consumed with the noun, so
+ *  an end-of-turn open-vocabulary check never sends them to the model (plan-critic M7 #1). */
+const phraseSpan = (words: string[], i: number, table: Array<[string[], string]> = []): number[] => {
+  for (const [phrase] of table) {
+    const start = i - phrase.length;
+    if (start >= 0 && phrase.every((w, k) => words[start + k] === w)) return phrase.map((_, k) => start + k);
+  }
+  return [];
+};
 
 const NOUNS: Record<string, NounSpec> = {
   email: { alias: "email", type: "Input", props: () => ({ label: "Email", kind: "email", placeholder: "you@example.com" }) },
@@ -75,7 +90,7 @@ const NOUNS: Record<string, NounSpec> = {
   heading: { alias: "title", type: "Text", props: () => ({ content: "Title", variant: "title" }) },
   headline: { alias: "title", type: "Text", props: () => ({ content: "Title", variant: "title" }) },
   icon: { alias: "icon", type: "Icon", props: (m) => ({ name: "star", ...(m.size ? { size: m.size } : {}), ...(m.color ? { color: m.color } : {}) }) },
-  card: { alias: "card", type: "Card", props: () => ({ padding: "md", elevation: 1 }), children: true },
+  card: { alias: "card", type: "Card", props: (m) => ({ padding: "md", elevation: 1, ...(m.color ? { fill: m.color } : {}) }), children: true },
   list: { alias: "list", type: "List", props: () => ({ items: [{ title: "Item one" }, { title: "Item two" }, { title: "Item three" }] }) },
   nav: { alias: "nav", type: "Nav", props: () => ({ items: ["Home", "Search", "Profile"], position: "bottom" }) },
   navigation: { alias: "nav", type: "Nav", props: () => ({ items: ["Home", "Search", "Profile"], position: "bottom" }) },
@@ -83,11 +98,13 @@ const NOUNS: Record<string, NounSpec> = {
   table: { alias: "table", type: "Table", props: () => ({ columns: ["Name", "Value"], rows: [["—", "—"]] }) },
   chart: { alias: "chart", type: "Chart", props: () => ({ kind: "bar", series: [3, 5, 2, 6] }) },
   graph: { alias: "chart", type: "Chart", props: () => ({ kind: "line", series: [3, 5, 2, 6] }) },
+  // A screen named by itself ("a dashboard with a chart…") → its title (M7).
+  dashboard: { alias: "title", type: "Text", props: () => ({ content: "Dashboard", variant: "title" }) },
   // "a login screen" / "the settings page" → the screen's title (drawn first, so the model's title folds into it).
-  screen: { alias: "title", type: "Text", props: (_m, words, i) => ({ content: phraseBefore(words, i, SCREEN_TITLES) ?? "", variant: "title" }) },
-  page: { alias: "title", type: "Text", props: (_m, words, i) => ({ content: phraseBefore(words, i, SCREEN_TITLES) ?? "", variant: "title" }) },
+  screen: { alias: "title", type: "Text", phrases: SCREEN_TITLES, props: (_m, words, i) => ({ content: phraseBefore(words, i, SCREEN_TITLES) ?? "", variant: "title" }) },
+  page: { alias: "title", type: "Text", phrases: SCREEN_TITLES, props: (_m, words, i) => ({ content: phraseBefore(words, i, SCREEN_TITLES) ?? "", variant: "title" }) },
   button: {
-    alias: "button", type: "Button",
+    alias: "button", type: "Button", phrases: BUTTON_LABELS,
     props: (m, words, i) => {
       let label = "Button";
       for (const [phrase, text] of BUTTON_LABELS) {
@@ -169,7 +186,9 @@ function screenLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<s
     if (drawn.has(occ[i]!)) { mods = {}; modIdx = []; return; }
     const props = spec.props(mods, words, i);
     if (spec.type === "Text" && !props.content) return; // "a screen" with no recognisable name → no title
-    const usedMods = modIdx;
+    // Only a noun that takes a colour/size uses up the modifiers; otherwise they stay unhandled, so the
+    // model still hears "pink" in "make the button pink and add a logo" (M7).
+    const usedMods = ["Button", "Icon", "Card"].includes(spec.type) ? modIdx : [];
     mods = {}; modIdx = [];
     const node: DesignNode = { id: "", type: spec.type, props, provisional: true, ...(spec.children ? { children: [] } : {}) };
     const key = kindKey(node);
@@ -182,7 +201,7 @@ function screenLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<s
     rootKids.splice(index, 0, node);
     kinds.add(key); kinds.add(`type:${spec.type}`); ids.add(id);
     created.push({ id, word: w, kind: key, key: occ[i]! });
-    consumed.push(occ[i]!, ...usedMods.map((j) => occ[j]!));
+    consumed.push(occ[i]!, ...usedMods.map((j) => occ[j]!), ...phraseSpan(words, i, spec.phrases).map((j) => occ[j]!));
   });
   return { ops, created, consumed };
 }
@@ -198,11 +217,12 @@ function screenLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<s
 const STRONG_TRIGGERS: Array<[string[], DocKind]> = [
   [["architecture"], "architecture"], [["system", "diagram"], "architecture"], [["infrastructure", "diagram"], "architecture"],
   [["erd"], "erd"], [["e", "r", "d"], "erd"], [["entity", "relationship"], "erd"], [["data", "model"], "erd"],
+  [["er", "diagram"], "erd"], [["database", "diagram"], "erd"], [["entity", "diagram"], "erd"], [["table", "diagram"], "erd"],
   [["sequence", "diagram"], "sequence"], [["sequence", "flow"], "sequence"], [["flow", "diagram"], "sequence"],
   [["wireframe"], "screen"], [["the", "ui"], "screen"],
 ];
 const LOOSE_TRIGGERS: Array<[string[], DocKind]> = [
-  [["system", "design"], "architecture"], [["database", "schema"], "erd"], [["schema"], "erd"],
+  [["system", "design"], "architecture"], [["database", "schema"], "erd"], [["schema"], "erd"], [["the", "tables"], "erd"],
   [["sequence"], "sequence"], [["screen"], "screen"], [["page"], "screen"],
 ];
 
@@ -265,7 +285,12 @@ const ARCH_NOUNS: NounTable = [
 const ENTITY_WORDS = ["users", "accounts", "orders", "products", "payments", "customers", "sessions", "posts", "comments", "teams",
   "organizations", "invoices", "items", "subscriptions", "messages", "projects", "tasks", "documents", "events", "roles",
   "permissions", "tags", "categories", "carts", "reviews", "addresses", "transactions", "companies", "employees", "tickets",
-  "plans", "workspaces", "members", "files", "notifications", "bookings", "listings", "vendors", "shipments", "courses"];
+  "plans", "workspaces", "members", "files", "notifications", "bookings", "listings", "vendors", "shipments", "courses",
+  // M7: the domains people actually describe — CRM / contact center, commerce, health, education, ops.
+  "contacts", "leads", "opportunities", "cases", "agents", "calls", "interactions", "queues", "skills", "recordings", "transcripts",
+  "surveys", "campaigns", "conversations", "channels", "departments", "locations", "stores", "suppliers", "inventories", "warehouses",
+  "carriers", "refunds", "coupons", "appointments", "patients", "doctors", "providers", "prescriptions", "students", "teachers",
+  "enrollments", "grades", "assignments", "lessons", "schedules", "shifts", "devices", "assets", "contracts", "quotes", "deals", "notes"];
 const SINGULAR: Record<string, string> = Object.fromEntries(ENTITY_WORDS.map((w) => [w.replace(/ies$/, "y").replace(/(ss|sh|ch|x)es$/, "$1").replace(/s$/, ""), w]));
 const ERD_NOUNS: NounTable = [
   ...ENTITY_WORDS.map((w): [string[], DiagramNoun] => [[w], { label: w, kind: "entity" }]),
@@ -287,6 +312,10 @@ const SEQ_NOUNS: NounTable = [
 ];
 
 const NOUN_TABLES: Record<Exclude<DocKind, "screen">, NounTable> = { architecture: ARCH_NOUNS, erd: ERD_NOUNS, sequence: SEQ_NOUNS };
+
+/** Category nouns that a definite article can point back with ("the app", "the database"). */
+const GENERIC = new Set(["App", "API", "Database", "Server", "Client", "Backend", "Gateway", "Web app", "Mobile app", "Browser", "Queue",
+  "Cache", "Worker", "Auth", "Object storage", "CDN", "Load balancer", "API gateway", "User", "LLM", "Email service"]);
 
 /** `<word> table` in an ERD names an entity even when it isn't a common noun ("a leads table"). */
 const TABLE_WORD = new Set(["table", "tables", "entity"]);
@@ -342,7 +371,9 @@ function diagramLexicon(runningText: string, doc: DesignDoc, drawn: ReadonlySet<
     if (labels.has(noun.label.toLowerCase())) continue;
     // "the app" after "web app": a definite reference to something of that kind already drawn. Only
     // the words since the previous noun count — in "the ledger and postgres" the "the" is the ledger's.
-    if (definite && kinds.has(noun.kind)) continue;
+    // Only a generic noun can refer back ("the app" = the web app); a named system is itself ("the genesys
+    // bot" next to Genesys is a new component, M7).
+    if (definite && kinds.has(noun.kind) && GENERIC.has(noun.label)) continue;
     const alias = noun.label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "node";
     let id = `n_p_${alias}`, n = 2;
     while (ids.has(id)) id = `n_p_${alias}_${n++}`;
@@ -400,6 +431,7 @@ export function diagramVocabulary(kind: Exclude<DocKind, "screen">): { terms: Vo
  * model quietly fixed the label. `drawnAt` maps the noun's occurrence key → the node it drew.
  */
 export function refreshProvisional(runningText: string, doc: DesignDoc, drawnAt: ReadonlyMap<string, string>): PatchOp[] {
+  if (doc.root.type === "Diagram") return refreshDiagram(runningText, doc, drawnAt);
   if (doc.root.type !== "Frame") return [];
   const words = lexTokens(runningText);
   const occ = occurrenceKeys(words);
@@ -415,6 +447,73 @@ export function refreshProvisional(runningText: string, doc: DesignDoc, drawnAt:
     if (!prop) continue;
     const value = spec.props({}, words, i)[prop];
     if (typeof value === "string" && value && value !== node.props[prop]) ops.push({ op: "replace", path: `/root/children/${at}/props/${prop}`, value });
+  }
+  return ops;
+}
+
+// ── Speech repair (M7, ADR 0019) ──────────────────────────────────────────────────────────────────
+
+/**
+ * Known speech-to-text mishearings that change meaning, as [heard, meant, only-before]. Small and explicit:
+ * Flux writes "rights to" for "writes to" (live, 2026-09-28). Applied to what Jev and the model READ;
+ * the raw transcript (and its word keys, used for highlighting) is never rewritten.
+ */
+const SPOKEN_FIXES: Array<[string, string, ReadonlySet<string> | null]> = [
+  ["rights", "writes", new Set(["to", "into", "in", "data", "events", "records", "the", "a"])],
+  ["right", "writes", new Set(["to", "into"])],
+  ["rites", "writes", null], ["reeds", "reads", null], ["reids", "reads", null],
+];
+export function fixSpeech(text: string): string {
+  const words = text.split(/(\s+)/);
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]!.toLowerCase().replace(/[^a-z]/g, "");
+    const fix = SPOKEN_FIXES.find(([heard]) => heard === w);
+    if (!fix) continue;
+    const next = (words.slice(i + 1).find((x) => x.trim()) ?? "").toLowerCase().replace(/[^a-z]/g, "");
+    if (!fix[2] || fix[2].has(next)) words[i] = words[i]!.toLowerCase().replace(fix[0], fix[1]);
+  }
+  return words.join("");
+}
+
+/** Every word the lexicon itself understands in a view (nouns, view names) — never "unknown" to open vocabulary. */
+export function lexiconWords(kind: DocKind): Set<string> {
+  const out = new Set<string>(Object.keys(COLOR));
+  for (const [p] of [...STRONG_TRIGGERS, ...LOOSE_TRIGGERS]) p.forEach((w) => out.add(w));
+  if (kind === "screen") { Object.keys(NOUNS).forEach((w) => out.add(w)); Object.keys(SIZE).forEach((w) => out.add(w)); }
+  else NOUN_TABLES[kind].forEach(([p]) => p.forEach((w) => out.add(w)));
+  return out;
+}
+
+/**
+ * Diagrams: a noun drawn from the first word of a longer name is renamed when the name completes — "the api"
+ * is drawn at "api", then "gateway" arrives: the still-provisional node becomes "API gateway" (M7). Same lane
+ * only (a move would be a reflow); never onto a label that already exists.
+ */
+function refreshDiagram(runningText: string, doc: DesignDoc, drawnAt: ReadonlyMap<string, string>): PatchOp[] {
+  const kind = docKind(doc) as Exclude<DocKind, "screen">;
+  const words = lexTokens(runningText);
+  const occ = occurrenceKeys(words);
+  const nodes = new Map<string, { node: DesignNode; path: string; tier?: string }>();
+  const labels = new Set<string>();
+  const walk = (n: DesignNode, path: string, tier?: string) => {
+    if (n.type === "Node") { nodes.set(n.id, { node: n, path, ...(tier ? { tier } : {}) }); labels.add(String(n.props.label).toLowerCase()); }
+    n.children?.forEach((c, i) => walk(c, `${path}/children/${i}`, n.type === "Layer" ? String(n.props.tier) : tier));
+  };
+  walk(doc.root, "/root");
+  const ops: PatchOp[] = [];
+  for (const [key, id] of drawnAt) {
+    const i = occ.indexOf(key);
+    const hit = nodes.get(id);
+    if (i < 0 || !hit?.node.provisional) continue;
+    const longer = NOUN_TABLES[kind].find(([p]) => p.length > 1 && i + p.length <= words.length && p.every((w, k) => words[i + k] === w));
+    if (!longer) continue;
+    const [, noun] = longer;
+    if (noun.label === hit.node.props.label || labels.has(noun.label.toLowerCase())) continue;
+    if (kind === "architecture" && noun.tier !== hit.tier) continue;
+    ops.push({ op: "replace", path: `${hit.path}/props/label`, value: noun.label });
+    if (noun.tech) ops.push({ op: "add", path: `${hit.path}/props/tech`, value: noun.tech });
+    ops.push({ op: "replace", path: `${hit.path}/props/kind`, value: noun.kind });
+    labels.add(noun.label.toLowerCase());
   }
   return ops;
 }

@@ -113,3 +113,21 @@
   0/10, split sentences (4 then 2 versions). The DoD recording's pause after "button," is 640–800 ms of real
   silence — longer than Flux's end-of-turn (~685 ms). Silence rule kept as an OFF tunable; reopen-on-new-words
   fix kept; harness requires one version per utterance.
+- Confirmation after the final deploy (silence rule off, Railway, 10 runs): **10/10 · one version per sentence on
+  every run · TTFV-0 p50 −176 ms adj. · TTFV-1 p50 112 ms adj. · settle p50 695 ms · 1 reflow · $0/min**.
+
+## M7 — Fluency: speak freely (2026-09-28) — ADR 0019
+- Trigger: the user's first free-form session on production — connectors ("rights to"), growing the ERD and
+  colours (pink/orange) failed. Root cause #1: the model was only called for allowlisted words.
+- Built: open vocabulary at end of sentence (flag `open_vocabulary`); 5 hue tokens + ~30 colour words, Card
+  fill, background; speech repair ("rights to" → "writes to"); fan-out Jev pairs; retry of words sent too
+  early; re-ask of relations when a later component is named; prefix nouns renamed when the name completes;
+  named systems never mistaken for references; forced calls charged to the bucket; stale tabs reload on a
+  newer protocol.
+- **Bug found and fixed:** the hedged model client deadlocked when the reader stopped after "none 0". It awaited
+  usage from a suspended stream, which hung that job and every later model call in the session. Regression test
+  added.
+- **Fluency corpus: 73 cases** across Screen/Architecture/ERD/Sequence (fillers, mishearings, passives, fan-in/out,
+  negation, colours, growth over several sentences, view switches). Offline engine checks run in CI.
+  Live (local gateway, real Jev + Haiku): **62/73 → 72/73 (99%)**; screen 23/24, architecture 23/23, ERD 18/18,
+  sequence 8/8. Bar ≥ 90%.

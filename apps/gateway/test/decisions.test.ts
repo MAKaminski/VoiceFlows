@@ -32,6 +32,32 @@ describe("decisions planner (ADR 0017)", () => {
     expect(d.covered).toEqual(["calls#1"]);
   });
 
+  it("fan-in (M7): 'the studio and the gateway both write to postgres' asks BOTH pairs, labelled by the verb", () => {
+    const p = planDecisions(view(architectureDoc), "architecture", "the studio and the gateway both write to postgres")!;
+    expect(p.pairs.map((x) => [x.from.id, x.to.id])).toEqual([["n_studio", "n_pg"], ["n_gateway", "n_pg"]]);
+    const d = decisionsToLines(p, { "rel:0": pick("studio->postgres"), "rel:1": pick("gateway->postgres"), "style:0": pick("sync"), "style:1": pick("sync") });
+    expect(d.lines).toEqual(['+Edge jev1 >root from=n_studio to=n_pg "write to"', '+Edge jev2 >root from=n_gateway to=n_pg "write to"']);
+    expect(d.covered).not.toContain("gateway#1"); // a mention is not a verb
+  });
+
+  it("fan-out (M7): 'the gateway reads from redis and postgres' pairs the gateway with each", () => {
+    const p = planDecisions(view(architectureDoc), "architecture", "the gateway reads from redis and postgres")!;
+    expect(p.pairs.map((x) => [x.from.id, x.to.id])).toEqual([["n_gateway", "n_redis"], ["n_gateway", "n_pg"]]);
+  });
+
+  it("speech repair (M7): Flux's 'rights to' is read as 'writes to' by Jev and in the label; word keys stay raw", () => {
+    const p = planDecisions(view(architectureDoc), "architecture", "the gateway rights to postgres")!;
+    expect(p.state).toContain("gateway writes to postgres");
+    const d = decisionsToLines(p, { "rel:0": pick("gateway->postgres"), "style:0": pick("sync") });
+    expect(d.lines).toEqual(['+Edge jev1 >root from=n_gateway to=n_pg "writes to"']);
+    expect(d.covered).toContain("rights#1"); // highlight keys come from what the user saw
+  });
+
+  it("negation stays adjacent: 'calls redis but not postgres' never pairs the gateway with postgres", () => {
+    const p = planDecisions(view(architectureDoc), "architecture", "the gateway calls redis but not postgres")!;
+    expect(p.pairs.map((x) => [x.from.id, x.to.id])).toEqual([["n_gateway", "n_redis"], ["n_redis", "n_pg"]]);
+  });
+
   it("passive voice: 'postgres is read by redis' becomes redis → postgres labelled 'read'", () => {
     const p = planDecisions(view(architectureDoc), "architecture", "postgres is read by redis")!;
     const d = decisionsToLines(p, { "rel:0": pick("redis->postgres"), "style:0": pick("sync") });

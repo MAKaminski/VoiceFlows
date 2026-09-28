@@ -1,6 +1,6 @@
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
-import { ClientMsg, FEATURES, FeatureKey, kindFeature, ShareToken, toProject, type DocKind, type ServerMsg } from "@livecanvas/dsl";
+import { ClientMsg, FEATURES, FeatureKey, kindFeature, PROTOCOL, ShareToken, toProject, type DocKind, type ServerMsg } from "@livecanvas/dsl";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FlagService } from "./flags.js";
 import Fastify from "fastify";
@@ -263,7 +263,7 @@ export function buildServer(config: Config = loadConfig(), deps: Deps = defaultD
               entry = e;
               doc = e.doc;
               app.log.info({ sessionId: doc.sessionId, ms: Math.round(performance.now() - t0), resumed }, "session: opened");
-              send({ type: "welcome", sessionId: doc.sessionId, documentId: doc.documentId, version: doc.versionInfo().version, resumed, flags: flags.all() });
+              send({ type: "welcome", sessionId: doc.sessionId, documentId: doc.documentId, version: doc.versionInfo().version, resumed, flags: flags.all(), protocol: PROTOCOL });
               send(doc.snapshot());
               send(doc.viewMsg());
               send({ type: "vocab", terms: doc.terms });

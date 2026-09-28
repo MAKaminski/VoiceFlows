@@ -1,5 +1,5 @@
 "use client";
-import { ServerMsg, type ClientMsg } from "@livecanvas/dsl";
+import { PROTOCOL, ServerMsg, type ClientMsg } from "@livecanvas/dsl";
 import { useDoc } from "@/store/doc";
 import { useFeatures } from "@/store/features";
 import { useVoice } from "@/store/voice";
@@ -11,6 +11,17 @@ const SESSION_KEY = "lc.sessionId";
 const DOCUMENT_KEY = "lc.documentId";
 
 type Listener = (m: ServerMsg) => void;
+
+/** Reload at most once a minute per tab, so a real contract mismatch can't loop. */
+function reloadOnce() {
+  const KEY = "lc.protocolReloadAt";
+  try {
+    const at = Number(sessionStorage.getItem(KEY) ?? 0);
+    if (Date.now() - at < 60_000) return;
+    sessionStorage.setItem(KEY, String(Date.now()));
+  } catch { return; }
+  location.reload();
+}
 
 /**
  * The one gateway connection per tab. The gateway is the only writer of the doc (ADR 0009); this
@@ -38,7 +49,11 @@ class Gateway {
       ws.onclose = () => { this.ready = null; this.ws = null; useDoc.getState().setConnected(false); };
       ws.onmessage = (e) => {
         if (typeof e.data !== "string") return;
-        const parsed = ServerMsg.safeParse(JSON.parse(e.data));
+        const raw = JSON.parse(e.data) as { type?: string; protocol?: number };
+        const parsed = ServerMsg.safeParse(raw);
+        // The gateway speaks a newer contract than this bundle (new colours, props, flags): reload once to get
+        // the matching web build, instead of silently dropping the welcome and hanging (plan-critic M7).
+        if (raw.type === "welcome" && (!parsed.success || (raw.protocol ?? 0) > PROTOCOL)) { reloadOnce(); return; }
         if (!parsed.success) return;
         const m = parsed.data;
         if (m.type === "welcome") {

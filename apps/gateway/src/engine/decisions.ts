@@ -1,4 +1,4 @@
-import { lexTokens, occurrenceKeys, type DesignDoc, type DesignNode, type DocKind } from "@livecanvas/dsl";
+import { fixSpeech, lexTokens, occurrenceKeys, type DesignDoc, type DesignNode, type DocKind } from "@livecanvas/dsl";
 import type { JevAnswer, JevQuestion } from "./jev.js";
 
 /**
@@ -15,7 +15,9 @@ export const NOUL_YES = 0.85;
 export const NOUL_NO = 0.15;
 const MAX_MENTIONS = 5;          // 5 mentions → 20 ordered pairs → ≤ 40 questions in one request
 
-const STOP = new Set(["the", "a", "an", "and", "which", "that", "then", "it", "its", "their", "also", "so", "um", "uh", "like"]);
+const STOP = new Set(["the", "a", "an", "and", "which", "that", "then", "it", "its", "their", "also", "so", "um", "uh", "like", "both", "all", "or"]);
+/** Words that join mentions into one group: "the api AND the worker both write to postgres" (M7 fan-out). */
+const JOIN = new Set(["and", "or", "both", "the", "a", "an", "as", "well", "plus", "also", "um", "uh"]);
 const singular = (w: string) => w.replace(/ies$/, "y").replace(/(ss|sh|ch|x)es$/, "$1").replace(/s$/, "");
 const norm = (w: string) => singular(w.toLowerCase());
 
@@ -42,9 +44,12 @@ export interface Plan {
   view: DocKind;
   state: string;
   questions: Record<string, JevQuestion>;
-  pairs: Array<{ key: string; from: Mention; to: Mention }>;
+  /** gap: the token span between the two groups — the verb phrase and the words the answer covers. */
+  pairs: Array<{ key: string; from: Mention; to: Mention; gap: [number, number]; fan?: boolean }>;
   screen?: { targets: Mention[]; where: "first" | "last"; direct?: Mention };
   words: string[];
+  /** The same tokens after speech repair ("rights to" → "writes to"); index-aligned with `words`. */
+  said: string[];
 }
 
 const REL: Record<string, (a: string, b: string) => string> = {
@@ -65,8 +70,11 @@ const labelOf = (n: DesignNode): string => {
 };
 
 /** Questions for the active view — or null when there is nothing structural to decide. */
-export function planDecisions(view: DesignDoc, kind: DocKind, text: string): Plan | null {
-  const words = lexTokens(text);
+export function planDecisions(view: DesignDoc, kind: DocKind, raw: string): Plan | null {
+  const words = lexTokens(raw);
+  // Jev reads the repaired sentence; word keys (highlighting) stay on the raw one (plan-critic M7).
+  const text = fixSpeech(raw);
+  const said = lexTokens(text);
   const root = view.root;
   const kids = (root.children ?? []);
   const questions: Record<string, JevQuestion> = {};
@@ -90,7 +98,7 @@ export function planDecisions(view: DesignDoc, kind: DocKind, text: string): Pla
     // not a judgement; no network call (live: Jev picked it right every time but only at 0.59).
     const nearest = targets.at(-1)!;
     if (words.slice(nearest.end, at).every((w) => ["on", "at", "to", "the", "very", "of", "it"].includes(w))) {
-      return { view: kind, state: "", questions: {}, pairs: [], screen: { targets, where, direct: nearest }, words };
+      return { view: kind, state: "", questions: {}, pairs: [], screen: { targets, where, direct: nearest }, words, said };
     }
     const phrase = words.slice(lo, at + 1).join(" ");
     state = `Phone screen, top to bottom: ${els.map((e) => `${readable(e.label)} (${e.label})`).join(", ")}.`;
@@ -104,12 +112,19 @@ export function planDecisions(view: DesignDoc, kind: DocKind, text: string): Pla
     const ms = mentions(nodes, words);
     if (ms.length < 2) return null;
     state = `${kind === "erd" ? "Entity-relationship diagram" : kind === "sequence" ? "Sequence diagram" : "Architecture diagram"}. Elements mentioned: ${ms.map((m) => m.label).join(", ")}. Transcript: "${text}"`;
-    // One 3-way Choice per ADJACENT pair of mentions (a→b, b→a, none) — the format re-measured in the
-    // bake-off with multi-clause, passive and negative sentences (plan-critic M6 #2).
-    for (let i = 0; i + 1 < ms.length; i++) {
-      const a = ms[i]!, b = ms[i + 1]!;
-      const key = `${i}`;
-      pairs.push({ key, from: a, to: b });
+    // One 3-way Choice per pair of ADJACENT GROUPS of mentions (a→b, b→a, none) — the format re-measured in
+    // the bake-off (plan-critic M6 #2). Mentions joined only by and/or/both form a group, so "the api and the
+    // worker both write to postgres" asks api–postgres AND worker–postgres (M7: the api edge was lost).
+    const groups: Mention[][] = [];
+    for (const m of ms) {
+      const last = groups.at(-1)?.at(-1);
+      if (last && words.slice(last.end, m.start).every((w) => JOIN.has(w)) && words.slice(last.end, m.start).some((w) => w === "and" || w === "or" || w === "plus")) groups.at(-1)!.push(m);
+      else groups.push([m]);
+    }
+    for (let g = 0; g + 1 < groups.length; g++) for (const a of groups[g]!) for (const b of groups[g + 1]!) {
+      const key = `${pairs.length}`;
+      const fan = groups[g]!.length > 1 || groups[g + 1]!.length > 1;
+      pairs.push({ key, from: a, to: b, gap: [groups[g]!.at(-1)!.end, groups[g + 1]![0]!.start], ...(fan ? { fan } : {}) });
       const [ra, rb] = [readable(a.label), readable(b.label)]; // readable keys: ids halved Jev's confidence
       questions[`rel:${key}`] = { type: "choice", instructions: `Does the transcript connect ${a.label} and ${b.label}, and in which direction?`,
         criteria: { [`${ra}->${rb}`]: REL[kind]!(a.label, b.label), [`${rb}->${ra}`]: REL[kind]!(b.label, a.label), none: `No connection between ${a.label} and ${b.label} is described` } };
@@ -118,16 +133,15 @@ export function planDecisions(view: DesignDoc, kind: DocKind, text: string): Pla
     }
     if (!pairs.length) return null;
   }
-  return { view: kind, state, questions, pairs, ...(screen ? { screen } : {}), words };
+  return { view: kind, state, questions, pairs, ...(screen ? { screen } : {}), words, said };
 }
 
 export interface Decided { lines: string[]; covered: string[]; accepted: number; unsure: number }
 
 const AUX = new Set(["is", "are", "was", "were", "be", "been", "being", "gets", "get", "each", "every"]);
-/** Words between the two mentions as a short label: "writes to", "publishes jobs to", "read" (from "is read by"). */
-const verbPhrase = (words: string[], a: Mention, b: Mention): string => {
-  const [lo, hi] = a.start < b.start ? [a.end, b.start] : [b.end, a.start];
-  const mid = words.slice(lo, hi).filter((w) => !STOP.has(w) && !AUX.has(w));
+/** Words between the two groups as a short label: "writes to", "publishes jobs to", "read" (from "is read by"). */
+const verbPhrase = (words: string[], [lo, hi]: [number, number], names: string[]): string => {
+  const mid = words.slice(lo, hi).filter((w) => !STOP.has(w) && !AUX.has(w) && !names.includes(w));
   while (mid.length && ["to", "from", "with", "by", "in", "of", "on"].includes(mid[0]!)) mid.shift();
   while (mid.length && ["by", "with"].includes(mid[mid.length - 1]!)) mid.pop(); // passive "read by" → "read"
   return mid.slice(0, 3).join(" ");
@@ -149,7 +163,8 @@ export function decisionsToLines(plan: Plan, answers: Record<string, JevAnswer>,
     const target = plan.screen.direct ?? plan.screen.targets.find((m) => readable(m.label) === picked);
     if (target) {
       lines.push(plan.screen.where === "first" ? `^${target.id} >root @0` : `^${target.id} >root`);
-      plan.words.forEach((w, i) => { if (["top", "first", "bottom", "last", "above", "below", "on", "put", "move"].includes(w)) coveredIdx.add(i); });
+      plan.words.forEach((w, i) => { if (["top", "first", "bottom", "last", "above", "below", "on", "put", "move", "up", "down"].includes(w)) coveredIdx.add(i); });
+      for (let i = target.start; i < target.end; i++) coveredIdx.add(i); // "put THAT LOGO on top": the mention is handled too (M7)
       accepted++;
     } else unsure++;
   }
@@ -158,13 +173,16 @@ export function decisionsToLines(plan: Plan, answers: Record<string, JevAnswer>,
   for (const p of plan.pairs) {
     const rel = answers[`rel:${p.key}`];
     if (rel?.type !== "choice" || rel.confidence < CHOICE_MIN) { unsure++; continue; }
-    const [lo, hi] = p.from.start < p.to.start ? [p.from.end, p.to.start] : [p.to.end, p.from.start];
-    if (rel.choice === "none") { accepted++; continue; } // confidently not a connection: nothing to draw
+    const [lo, hi] = p.gap;
+    // Confidently not a connection: nothing to draw. Fan-out pairs were never in the bake-off, so there a
+    // "none" is left to the model instead of trusted (plan-critic M7).
+    if (rel.choice === "none") { if (p.fan) unsure++; else accepted++; continue; }
     const [ra, rb] = [readable(p.from.label), readable(p.to.label)];
     const from = rel.choice === `${ra}->${rb}` ? p.from : rel.choice === `${rb}->${ra}` ? p.to : null;
     if (!from) { unsure++; continue; }
     const to = from === p.from ? p.to : p.from;
-    const label = verbPhrase(plan.words, from, to);
+    const names = [...lexTokens(p.from.label), ...lexTokens(p.to.label)].map((w) => w.toLowerCase());
+    const label = verbPhrase(plan.said, p.gap, names);
     for (let i = lo; i < hi; i++) if (!STOP.has(plan.words[i]!) && !AUX.has(plan.words[i]!)) coveredIdx.add(i); // only words that mean something get highlighted
     n++;
     if (plan.view === "architecture") {

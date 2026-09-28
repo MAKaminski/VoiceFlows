@@ -44,6 +44,7 @@ flowchart LR
     F_version_timeline_feature["Version timeline<br/><small>ARD 0015</small>"]
     F_projects["Projects: Screen · Architecture · ERD · Sequence<br/><small>ARD 0016</small>"]
     F_jev_decisions_feature["Jev decisions<br/><small>ARD 0017</small>"]
+    F_open_vocabulary["Speak freely (open vocabulary)<br/><small>ARD 0019</small>"]
   end
   subgraph uses["Components"]
     direction TB
@@ -115,7 +116,7 @@ flowchart LR
   classDef feat fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef comp fill:#eef1ef,stroke:#5A686C,color:#12191B;
   classDef tab fill:#eaf1ec,stroke:#2C6249,color:#12191B;
-  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary,F_share_links,F_remember_document,F_version_timeline_feature,F_projects,F_jev_decisions_feature feat;
+  class F_voice_design,F_documents,F_vocabulary,F_accounts,F_export,F_latency,F_billing,F_documents,F_diagrams,F_feature_flags,F_vocabulary,F_share_links,F_remember_document,F_version_timeline_feature,F_projects,F_jev_decisions_feature,F_open_vocabulary feat;
   class C__livecanvas_dsl,C__livecanvas_gateway,C__livecanvas_web,C_anthropic,C_doc_session,C_postgres,C_redis,C_stripe comp;
   class T_design_documents,T_design_versions,T_exports,T_generation_jobs,T_intents,T_latency_events,T_patch_ops,T_plans,T_primitives,T_provider_keys,T_sessions,T_token_sets,T_transcript_segments,T_usage_periods,T_users,T_utterances tab;
 ```
@@ -151,6 +152,15 @@ tabs. **Owns no table**: a project is the `design_documents`/`design_versions` d
 ### 2.1b Jev decisions — ADR 0017
 Uses `engine/jev.ts` (TypeSafe client), `engine/decisions.ts` (questions ↔ compact ops, pure) and
 `DocSession.jevPhase`. **Owns no table**: logs intents with `path='jev'` in 2.1's `intents`.
+
+### 2.1c Speak freely: open vocabulary + fluency corpus — ADR 0019
+Uses `DocSession` (end-of-sentence open vocabulary behind flag `open_vocabulary`; retry of words sent before
+their object; re-ask of relations when a later component is named), `lexicon.ts` (`COLOR`, `fixSpeech`,
+`lexiconWords`, provisional diagram rename) and `decisions.ts` (fan-out pairs). Colour names are tokens
+(`ColorToken` + `pink orange yellow green teal`). **Owns no table.** The regression bar is the fluency corpus
+(`scripts/corpus/`): an offline engine check in CI, and live scoring of 73 cases (`scripts/e2e/corpus-live.mts`, ≥ 90%).
+Pattern P1: the tokens stay one zod enum. No new component kind: the corpus is test data plus a runner, like
+the other `scripts/e2e` harnesses.
 
 ### 2.2b Version timeline — ADR 0015
 Uses `DocSession` (`timelineMsg`, `gotoVersion`, redo hint) and `VersionTimeline` in the studio.
@@ -197,10 +207,10 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Foreign keys | 20 |
 | Tables with no FK either way | 0 |
 | Distinct error types | 1 |
-| Symbol names defined 3+ times | 0 |
-| ARDs on record | 19 (18 contributing to the diagram) |
-| Components declared by ARDs | 25 |
-| Features declared by ARDs | 16 |
+| Symbol names defined 3+ times | 1 |
+| ARDs on record | 20 (19 contributing to the diagram) |
+| Components declared by ARDs | 26 |
+| Features declared by ARDs | 17 |
 <!-- arch:end:counts -->
 
 | Component | Layer | Owns | Pattern (§6) |
@@ -263,6 +273,7 @@ flowchart TB
   end
   subgraph infrastructure["Infrastructure · container"]
     direction LR
+    fluency_corpus["Fluency corpus (73 cases)<br/><small>ARD 0019</small>"]
     railway["Railway US-East — gateway · Postgres · Redis<br/><small>ARD 0000</small>"]
     vercel["Vercel — hosts web<br/><small>ARD 0000</small>"]
   end
@@ -299,6 +310,7 @@ flowchart TB
   project_notes -.->|"notes → brief · ARD 0016"| project_views
   doc_session -.->|"adjacent-pair questions (~90 ms) · ARD 0017"| jev_decisions
   jev_decisions -.->|"confident answers → ops · ARD 0017"| doc_session
+  fluency_corpus -.->|"streams cases as partials, scores the design · ARD 0019"| doc_session
   classDef declared stroke-dasharray:5 4,stroke-width:2px;
   classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;
@@ -307,8 +319,8 @@ flowchart TB
   class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail,share_view,share_popover,version_timeline fe;
   class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,flag_service,admin_api,share_api,live_docs,project_views,project_notes,jev_decisions mw;
   class postgres,redis be;
-  class vercel,railway inf;
-  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover,live_docs,version_timeline,project_views,project_notes,jev_decisions declared;
+  class vercel,railway,fluency_corpus inf;
+  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover,live_docs,version_timeline,project_views,project_notes,jev_decisions,fluency_corpus declared;
 ```
 <!-- arch:end:components -->
 
@@ -489,8 +501,16 @@ Generated. Every item here is a candidate for consolidation — the goal is **fe
 | Components (workspace members) | 4 |
 | Components nothing depends on | 0 |
 | Distinct error types | 1 |
-| Client/Service/Manager/Handler/Provider types | 4 |
-| Symbol names defined 3+ times | 0 |
+| Client/Service/Manager/Handler/Provider types | 6 |
+| Symbol names defined 3+ times | 1 |
+
+## Symbol names defined three or more times
+
+Repetition of a *pattern* is good. Repetition of a *name* usually means the same idea was implemented several times.
+
+| Name | Definitions | Where |
+|---|---|---|
+| `metadata` | 3 | apps/web/app, apps/web/app/admin, apps/web/app/s/[token] |
 <!-- arch:end:sprawl -->
 
 ### 7.1 Findings

@@ -192,6 +192,27 @@ describe("speculative scheduling (M4)", () => {
     expect(aborted[0]).toBe(true);
   });
 
+  it("hedged client: the reader stopping after 'none 0' closes the stream — no deadlock (M7 live bug)", async () => {
+    // Like anthropicClient: usage settles only when the stream's generator finishes, and the SSE stream
+    // keeps going after the first line. Before the fix, breaking after the header awaited a usage that
+    // could never settle, so the job — and every later model call in that session — hung forever.
+    let closed = false;
+    const inner: ModelClient = () => {
+      let resolveUsage!: (u: { inputTokens: number; outputTokens: number }) => void;
+      const usage = new Promise<{ inputTokens: number; outputTokens: number }>((r) => (resolveUsage = r));
+      async function* gen() {
+        try { yield { line: "none 0", atMs: 5 }; await sleep(10_000); yield { line: "late", atMs: 10_005 }; }
+        finally { closed = true; resolveUsage({ inputTokens: 700, outputTokens: 3 }); }
+      }
+      return { lines: gen(), usage };
+    };
+    const s = hedgedClient(inner, 100)({ model: "m", system: "", user: "", signal: new AbortController().signal });
+    const done = (async () => { for await (const l of s.lines) { if (l.line === "none 0") break; } return s.usage; })();
+    const r = await Promise.race([done, sleep(500).then(() => "hung" as const)]);
+    expect(r).toEqual({ inputTokens: 700, outputTokens: 3 });
+    expect(closed).toBe(true);
+  });
+
   it("hedged client: a fast primary never starts a second call", async () => {
     let calls = 0;
     const inner: ModelClient = () => { calls++; async function* g() { await sleep(5); yield { line: "x", atMs: 5 }; } return { lines: g(), usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }) }; };

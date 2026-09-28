@@ -1,5 +1,5 @@
 "use client";
-import type { DesignNode, SCREEN_TYPES } from "@livecanvas/dsl";
+import { LIGHT_FILLS, type DesignNode, type SCREEN_TYPES } from "@livecanvas/dsl";
 import { DynamicIcon, type IconName } from "lucide-react/dynamic";
 import type { CSSProperties, ReactNode } from "react";
 import { color, radius, space } from "./tokens";
@@ -36,13 +36,14 @@ export const renderers: Record<(typeof SCREEN_TYPES)[number], Renderer> = {
   Text: (p) => <div style={{ ...textStyle[p.variant ?? "body"], color: color(p.color) }}>{p.content}</div>,
   Button: (p) => {
     const variant = p.variant ?? "primary";
-    const tone = color(p.color ?? (variant === "secondary" ? "secondary" : "primary"));
+    const token = p.color ?? (variant === "secondary" ? "secondary" : "primary");
+    const tone = color(token);
     return (
       <button type="button" style={{ padding: btnPad[(p.size ?? "md") as keyof typeof btnPad], borderRadius: radius(p.radius),
         font: "inherit", fontWeight: 600, fontSize: p.size === "lg" ? 16 : 14, cursor: "pointer",
         border: variant === "ghost" ? "none" : `1px solid ${tone}`,
         background: variant === "primary" ? tone : "transparent",
-        color: variant === "primary" ? color("surface") : tone }}>{p.label}</button>
+        color: variant === "primary" ? color(LIGHT_FILLS.has(token) ? "text" : "surface") : tone }}>{p.label}</button>
     );
   },
   Input: (p) => (
@@ -65,7 +66,7 @@ export const renderers: Record<(typeof SCREEN_TYPES)[number], Renderer> = {
   },
   Icon: (p) => <DynamicIcon name={p.name as IconName} size={iconPx[(p.size ?? "md") as keyof typeof iconPx]} color={color(p.color)} />,
   Card: (p, c) => (
-    <div style={{ padding: space(p.padding ?? "md"), borderRadius: radius("md"), background: color("surface"),
+    <div style={{ padding: space(p.padding ?? "md"), borderRadius: radius("md"), background: color(p.fill, "surface"),
       border: `1px solid ${color("muted")}`, boxShadow: `0 ${(p.elevation ?? 1) * 2}px ${(p.elevation ?? 1) * 8}px rgba(15,23,42,.08)` }}>{c}</div>
   ),
   List: (p) => (

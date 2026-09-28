@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyOp, architectureDoc, DesignDocSchema, docKind, emptyDoc, erdDoc, expandCompact, findNode, kitchenSinkDoc, layoutDiagram,
-  defaultFlags, emptyProject, fromProjectPath, isConfirm, kindFeature, lexicon, mapOpPaths, toProject, toProjectPath, viewDoc, withView, parseDefine, sequenceDoc, type CompactContext, type DesignDoc, type Rect, type VocabTerm,
+  defaultFlags, emptyProject, fixSpeech, COLOR, ColorToken, refreshProvisional, fromProjectPath, isConfirm, kindFeature, lexicon, mapOpPaths, toProject, toProjectPath, viewDoc, withView, parseDefine, sequenceDoc, type CompactContext, type DesignDoc, type Rect, type VocabTerm,
 } from "../src/index.js";
 
 const valid = (d: DesignDoc) => DesignDocSchema.safeParse(d);
@@ -272,5 +272,62 @@ describe("STT mishearings (2026-09-27)", () => {
   it("'sign and button' is a sign-in button", () => {
     const r = lexicon("a big blue sign and button", emptyDoc());
     expect((r.ops[0] as { value: { props: { label: string } } }).value.props.label).toBe("Sign in");
+  });
+});
+
+describe("fluency (M7, ADR 0019)", () => {
+  it("every spoken colour maps to a real token", () => {
+    for (const [word, token] of Object.entries(COLOR)) expect(ColorToken.safeParse(token).success, word).toBe(true);
+  });
+
+  it("'a big pink sign up button' is pink; 'a teal card' fills the card", () => {
+    const b = lexicon("a big pink sign up button", emptyDoc()).ops[0]!;
+    expect((b as { value: { props: object } }).value.props).toMatchObject({ label: "Sign up", color: "pink", size: "lg" });
+    const c = lexicon("a teal card", emptyDoc()).ops[0]!;
+    expect((c as { value: { props: object } }).value.props).toMatchObject({ fill: "teal" });
+  });
+
+  it("label phrases are consumed with their noun, so nothing is left for the model", () => {
+    const r = lexicon("a login screen with a big blue sign and button", emptyDoc());
+    expect(r.consumed).toEqual(expect.arrayContaining(["login#1", "screen#1", "sign#1", "and#1", "button#1", "big#1", "blue#1"]));
+  });
+
+  it("a colour before a noun that can't take it stays unhandled (the model still hears it)", () => {
+    const r = lexicon("pink and a logo", emptyDoc());
+    expect(r.consumed).not.toContain("pink#1");
+  });
+
+  it("speech repair fixes only the known mishearings, in context", () => {
+    expect(fixSpeech("the api rights to postgres")).toBe("the api writes to postgres");
+    expect(fixSpeech("the api right to redis")).toBe("the api writes to redis");
+    expect(fixSpeech("move it to the right")).toBe("move it to the right");
+    expect(fixSpeech("civil rights movement")).toBe("civil rights movement");
+  });
+
+  it("'the genesys bot' next to Genesys is a new component; 'the app' still refers back", () => {
+    let doc = speak("genesys and salesforce", emptyDoc({ kind: "architecture" }));
+    const r = lexicon("the genesys bot looks up the customer in salesforce", doc);
+    expect(r.created.map((c) => c.kind)).toEqual(["Node:genesys bot"]);
+    doc = speak("a web app", emptyDoc({ kind: "architecture" }));
+    expect(lexicon("the app calls it", doc).created).toEqual([]);
+  });
+
+  it("'the api' drawn at 'api' becomes 'API gateway' when the name completes (still provisional)", () => {
+    const doc = emptyDoc({ kind: "architecture" });
+    const first = lexicon("the mobile app talks to the api", doc);
+    let d = doc;
+    for (const op of first.ops) d = applyOp(d, op);
+    const drawnAt = new Map(first.created.map((c) => [c.key, c.id] as [string, string]));
+    const ops = refreshProvisional("the mobile app talks to the api gateway", d, drawnAt);
+    for (const op of ops) d = applyOp(d, op);
+    const labels = JSON.stringify(d).match(/"label":"[^"]+"/g);
+    expect(labels).toContain('"label":"API gateway"');
+    expect(labels).not.toContain('"label":"API"');
+  });
+
+  it("'ER diagram' and 'database diagram' open the ERD; domain nouns draw tables", () => {
+    for (const s of ["now the er diagram", "switch to the database diagram"]) expect(lexicon(s, emptyDoc()).view).toBe("erd");
+    const r = lexicon("agents and calls and cases", emptyDoc({ kind: "erd" }));
+    expect(r.created.map((c) => c.word)).toEqual(["agents", "calls", "cases"]);
   });
 });

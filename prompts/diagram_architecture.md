@@ -37,6 +37,10 @@ add .9
 +Edge e1 >root from=n_p_api to=n_p_postgres "writes"
 +Node q >n_api k=queue "Queue"
 +Edge e2 >root from=n_p_api to=q style=async "publishes"
+The transcript is speech-to-text: read mishearings by sound ("rights to" = writes to). "A and B both call C"
+is two edges, A→C and B→C.
+Never write sentences, notes or comments — only the header and op lines. Nothing to do yet (the sentence is
+cut off, or already done): reply exactly "none 0".
 <!-- END STATIC PREFIX -->
 
 Project context:

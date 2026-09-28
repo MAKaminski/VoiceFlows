@@ -37,6 +37,7 @@ flowchart TB
   end
   subgraph infrastructure["Infrastructure · container"]
     direction LR
+    fluency_corpus["Fluency corpus (73 cases)<br/><small>ARD 0019</small>"]
     railway["Railway US-East — gateway · Postgres · Redis<br/><small>ARD 0000</small>"]
     vercel["Vercel — hosts web<br/><small>ARD 0000</small>"]
   end
@@ -73,6 +74,7 @@ flowchart TB
   project_notes -.->|"notes → brief · ARD 0016"| project_views
   doc_session -.->|"adjacent-pair questions (~90 ms) · ARD 0017"| jev_decisions
   jev_decisions -.->|"confident answers → ops · ARD 0017"| doc_session
+  fluency_corpus -.->|"streams cases as partials, scores the design · ARD 0019"| doc_session
   classDef declared stroke-dasharray:5 4,stroke-width:2px;
   classDef fe fill:#e8f3f4,stroke:#1F6F78,color:#12191B;
   classDef mw fill:#eef1ef,stroke:#5A686C,color:#12191B;
@@ -81,5 +83,5 @@ flowchart TB
   class _livecanvas_web,diagram_layout,diagram_canvas,admin_page,keyword_rail,share_view,share_popover,version_timeline fe;
   class _livecanvas_prompts,_livecanvas_dsl,_livecanvas_gateway,anthropic,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,flag_service,admin_api,share_api,live_docs,project_views,project_notes,jev_decisions mw;
   class postgres,redis be;
-  class vercel,railway inf;
-  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover,live_docs,version_timeline,project_views,project_notes,jev_decisions declared;
+  class vercel,railway,fluency_corpus inf;
+  class anthropic,postgres,redis,vercel,railway,client_lexicon,fused_engine,compact_expander,deepgram,stripe,doc_session,diagram_layout,diagram_canvas,flag_service,admin_api,admin_page,keyword_rail,share_api,share_view,share_popover,live_docs,version_timeline,project_views,project_notes,jev_decisions,fluency_corpus declared;

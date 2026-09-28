@@ -25,6 +25,9 @@ const Transcript = {
   eager: z.boolean().optional(), // Flux EagerEndOfTurn: probably finished speaking (settle early)
 };
 
+/** Bumped when the doc contract grows in a way an older web bundle can't parse (M7: colour tokens, Card fill). */
+export const PROTOCOL = 2;
+
 /** 128-bit random, base64url — unguessable; the link is the only credential (ADR 0013). */
 export const ShareToken = z.string().regex(/^[A-Za-z0-9_-]{22}$/);
 /** Public payload of GET /share/:token. */
@@ -85,7 +88,8 @@ const VersionInfo = { version: z.number().int().nonnegative(), canUndo: z.boolea
 
 // Gateway → client. The gateway is the only writer of the doc (ADR 0009); the browser applies ops in order.
 export const ServerMsg = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("welcome"), sessionId: z.string(), documentId: z.string().optional(), version: z.number().int(), resumed: z.boolean().optional(), flags: Flags.optional() }),
+  // protocol: the gateway's PROTOCOL — a tab built for an older one reloads (new tokens/props would not parse there).
+  z.object({ type: z.literal("welcome"), sessionId: z.string(), documentId: z.string().optional(), version: z.number().int(), resumed: z.boolean().optional(), flags: Flags.optional(), protocol: z.number().int().optional() }),
   z.object({ type: z.literal("flags"), flags: Flags }), // an admin flipped a flag (ADR 0012)
   // This tab no longer owns the document: it was opened in another tab (ADR 0014). The socket stays open, idle.
   z.object({ type: z.literal("taken_over") }),

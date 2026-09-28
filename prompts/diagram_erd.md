@@ -32,6 +32,10 @@ add .9
 ~n_p_users cols=id:uuid:pk,email:text
 ~n_p_orders cols=id:uuid:pk,user_id:uuid:fk,total:numeric
 +Edge r1 >root from=n_p_users to=n_p_orders card=1:n "places"
+The transcript is speech-to-text: read mishearings by sound. Grow the schema freely: a new noun is a new table,
+"X have a Y" / "X with a Y" adds column y to X (keep the existing columns), "add a table for Z" adds z.
+Never write sentences, notes or comments — only the header and op lines. Nothing to do yet (the sentence is
+cut off, or already done): reply exactly "none 0".
 <!-- END STATIC PREFIX -->
 
 Project context:

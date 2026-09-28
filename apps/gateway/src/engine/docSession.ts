@@ -1,5 +1,5 @@
 import {
-  applyOp, DesignDocSchema, docKind, refreshProvisional, emptyProject, emptyView, expandCompact, mapOpPaths, toProject, toProjectPath, viewDoc, VIEWS, viewCount, withView, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
+  applyOp, COLOR, DesignDocSchema, docKind, fixSpeech, lexiconWords, refreshProvisional, emptyProject, emptyView, expandCompact, mapOpPaths, toProject, toProjectPath, viewDoc, VIEWS, viewCount, withView, findNode, isConfirm, isModifier, isVocabCommand, kindFeature, kindKey, lexicon,
   lexTokens, occurrenceKeys, parseDefine, parseHeader, serializeCompact, type CompactContext, type DesignDoc, type DesignNode, type DocKind, type FeatureKey,
   type Flags, type IntentHeader, type VersionSummary, type WordMark, type OpOrigin, type PatchOp, type ServerMsg, type VocabNode, type VocabTerm,
 } from "@livecanvas/dsl";
@@ -35,12 +35,38 @@ interface Utterance {
   drawnAt: Map<string, string>;
   settledWords?: number; // word count when it was committed — more words later means the speaker went on // noun occurrence key → the node the lexicon drew for it (label refresh, ADR 0017)
   lastCallAt: number; ending: boolean; settled: boolean;
+  endingWords?: number; // word count when Flux said the turn (probably) ended — more words later = still talking
+  wasted: Set<string>; // sent in a job that changed nothing ("the api reads from redis and" → none) — retried once at the end
+  sentAt: Map<string, number>; // word count of the text when each word was sent (diagram re-ask, M7)
+  reasked: Set<string>; // words already re-asked at the end of the sentence
 }
 
 // Content words: a new one since the last model call is what makes a speculative call worthwhile.
 const CONTENT = new Set(["button", "email", "password", "username", "logo", "image", "photo", "picture", "avatar", "title", "heading", "icon",
   "card", "list", "nav", "navigation", "menu", "table", "chart", "graph", "big", "large", "small", "blue", "red", "purple", "gray", "grey",
-  "white", "black", "top", "bottom", "left", "right", "center", "row", "column", "remove", "delete", "move", "bigger", "smaller", "undo", "reset", "form", "field", "input", "text", "header", "footer"]);
+  "white", "black", "top", "bottom", "left", "right", "center", "row", "column", "remove", "delete", "move", "bigger", "smaller", "undo", "reset", "form", "field", "input", "text", "header", "footer",
+  // M7 (ADR 0019): every colour name, and the restyle verbs people actually use ("make the button pink").
+  ...Object.keys(COLOR), "color", "colour", "background", "fill", "make", "change", "turn", "add", "also", "plus", "instead", "rename", "called", "label"]);
+/** Words that name an action but not yet its object: wait 3 words (or the end) before calling, like diagrams do. */
+const WAIT_WORDS = new Set(["make", "change", "turn", "add", "also", "plus", "color", "colour", "background", "fill", "rename", "called", "label", "instead",
+  "move", "remove", "delete", "put", "swap", "replace"]);
+const POSITION = new Set(["top", "bottom", "left", "right", "center", "first", "last", "above", "below"]);
+const DEFINITE = new Set(["the", "this", "that", "its", "your", "my"]);
+/**
+ * Open vocabulary (ADR 0019): at the end of a sentence, a word is worth one model call unless it is filler,
+ * grammar, or something the lexicon/Jev already understands. Deliberately generous on what counts as filler —
+ * a missed chit-chat word costs nothing, a missed "priority" column was the M7 complaint.
+ */
+const FILLER = new Set(["a", "an", "the", "and", "or", "but", "so", "then", "to", "of", "in", "on", "at", "by", "for", "with", "from", "into",
+  "onto", "as", "is", "are", "was", "were", "be", "been", "being", "am", "it", "its", "it's", "this", "that", "these", "those", "there", "here",
+  "i", "we", "you", "he", "she", "they", "me", "us", "them", "my", "our", "your", "their", "his", "her", "which", "who", "what", "where", "when",
+  "how", "why", "do", "does", "did", "done", "can", "could", "would", "should", "will", "shall", "may", "might", "must", "let", "lets", "let's",
+  "um", "uh", "umm", "uhh", "er", "erm", "ah", "oh", "hmm", "mm", "like", "okay", "ok", "yeah", "yes", "no", "not", "just", "really", "very",
+  "actually", "basically", "kind", "sort", "maybe", "probably", "please", "thanks", "thank", "want", "wanted", "need", "needs", "think", "guess",
+  "mean", "know", "see", "look", "looks", "go", "going", "gonna", "get", "got", "some", "any", "all", "each", "every", "both", "either", "one",
+  "two", "three", "also", "too", "well", "now", "again", "something", "thing", "things", "stuff", "etc", "good", "great", "nice", "fine",
+  "cool", "perfect", "awesome", "right", "alright", "sure", "hey", "hi", "hello", "wait", "hold", "on",
+  "up", "down", "over", "out", "off", "back", "there", "put", "s", "t", "ll", "ve", "re", "d", "m"]);
 /**
  * Diagram content words (ADR 0011): relationships, columns and edits — what the lexicon can't draw.
  * An allowlist, not "every non-stopword", so continuous speech can't drain the call budget (plan-critic #5).
@@ -48,16 +74,21 @@ const CONTENT = new Set(["button", "email", "password", "username", "logo", "ima
 const EDIT = ["remove", "delete", "rename", "move", "undo", "reset", "instead", "change", "replace", "label", "title", "called", "named"];
 const DIAGRAM_CONTENT: Record<Exclude<DocKind, "screen">, Set<string>> = {
   architecture: new Set([...EDIT, "calls", "call", "talks", "sends", "send", "reads", "writes", "queries", "hits", "connects", "connected",
+    // M7: every inflection ("both write to"), common integration verbs, and Flux's "rights to" (= writes to).
+    "write", "read", "query", "talk", "connect", "hit", "use", "publish", "subscribe", "consume", "store", "push", "pull", "stream",
+    "rights", "rites", "right", "integrates", "integrate", "triggers", "trigger", "notifies", "notify", "feeds", "feed", "loads", "load", "posts",
+    "post", "fetches", "fetch", "invokes", "invoke", "routes", "route", "forwards", "forward", "syncs", "handles", "sits", "between", "add",
     "uses", "through", "via", "behind", "proxies", "caches", "publishes", "subscribes", "consumes", "enqueues", "pushes", "pulls", "streams",
     "stores", "deployed", "deploy", "hosted", "hosts", "runs", "https", "grpc", "rest", "webhook", "webhooks", "events", "async", "sync",
     "service", "services", "lambda", "functions", "microservice", "search", "analytics", "cron", "scheduler", "email", "sms", "payments", "login"]),
-  erd: new Set([...EDIT, "has", "have", "many", "belongs", "references", "foreign", "key", "column", "columns", "field", "fields",
+  erd: new Set([...EDIT, "has", "have", "many", "belongs", "references", "foreign", "key", "column", "columns", "field", "fields", "add", "also", "plus", "contains", "includes", "holds", "stores", "tracks",
     "join", "between", "one", "id", "email", "name", "status", "price", "total", "amount", "created", "updated", "date", "timestamp",
     "type", "unique", "index", "nullable", "boolean", "count", "quantity", "role", "password", "url", "description", "slug", "owner"]),
   sequence: new Set([...EDIT, "calls", "call", "sends", "send", "requests", "request", "returns", "return", "responds", "replies", "then",
     "queries", "query", "checks", "validates", "verifies", "authenticates", "logs", "login", "signs", "submits", "clicks", "opens", "loads",
     "fetches", "saves", "stores", "writes", "reads", "creates", "updates", "deletes", "publishes", "enqueues", "notifies", "emails",
-    "redirects", "renders", "streams", "forwards", "caches", "error", "fails", "ok", "token", "jwt", "session", "webhook", "charge", "pays"]),
+    "redirects", "renders", "streams", "forwards", "caches", "error", "fails", "ok", "token", "jwt", "session", "webhook", "charge", "pays",
+    "rights", "right", "write", "read", "asks", "handles", "posts", "gets", "sends"]),
 };
 /**
  * Content-word positions the lexicon did NOT handle — the only words worth a model call (M4 timeline).
@@ -65,7 +96,7 @@ const DIAGRAM_CONTENT: Record<Exclude<DocKind, "screen">, Set<string>> = {
  * after that it is an edit the model must make ("make it blue").
  */
 const MODIFIER_WINDOW = 4;
-const uncovered = (text: string, handled: Set<string>, ending = false, kind: DocKind = "screen") => {
+const uncovered = (text: string, handled: Set<string>, ending = false, kind: DocKind = "screen", known?: ReadonlySet<string>) => {
   const toks = lexTokens(text);
   const occ = occurrenceKeys(toks);
   const content = kind === "screen" ? CONTENT : DIAGRAM_CONTENT[kind];
@@ -73,9 +104,17 @@ const uncovered = (text: string, handled: Set<string>, ending = false, kind: Doc
   // once the lexicon drew a node after it, 3 words have passed, or speech ended.
   const lastDrawn = Math.max(-1, ...toks.map((_, i) => (handled.has(occ[i]!) ? i : -1)));
   return toks.flatMap((w, i) => {
-    if (!content.has(w) || handled.has(occ[i]!)) return [];
-    if (kind !== "screen" && !ending && lastDrawn < i && toks.length - 1 - i < 3) return [];
-    if (isModifier(w) && !ending && toks.length - 1 - i < MODIFIER_WINDOW) return [];
+    if (handled.has(occ[i]!)) return [];
+    // Open vocabulary (ADR 0019): at the end of the sentence, any word nobody understood gets one call.
+    if (!content.has(w)) return ending && known && !FILLER.has(w) && !known.has(w) && w.length > 1 && !/^\d+$/.test(w) ? [occ[i]!] : [];
+    const tail = toks.length - 1 - i;
+    if (kind !== "screen" && !ending && lastDrawn < i && tail < 3) return [];
+    if (isModifier(w) && !ending && tail < MODIFIER_WINDOW) return [];
+    // Screen: a verb, or a reference to an element already on screen ("make THE BUTTON …"), waits for what
+    // follows — calling on "make the button" before "pink" arrives spent a call and missed the colour (M7).
+    if (kind === "screen" && !ending && tail < 3 && !POSITION.has(w) && (WAIT_WORDS.has(w) || toks.slice(Math.max(0, i - 3), i).some((x) => DEFINITE.has(x)))) return [];
+    // "move the logo to the bottom": a move is incomplete until its destination is said.
+    if (kind === "screen" && !ending && (w === "move" || w === "put") && tail < 6 && !toks.slice(i + 1).some((x) => POSITION.has(x))) return [];
     return [occ[i]!];
   });
 };
@@ -186,13 +225,15 @@ export class DocSession {
   }
 
   /** Token bucket: `callsPerMin` sustained, `burst` at once. Every started model call spends one. */
-  private takeCall(): boolean {
+  private takeCall(force = false): boolean {
     const now = performance.now();
     const perMs = this.tunables.callsPerMin / 60_000;
     this.bucket.tokens = Math.min(this.tunables.burst, this.bucket.tokens + (now - this.bucket.at) * perMs);
     this.bucket.at = now;
-    if (this.bucket.tokens < 1) return false;
-    this.bucket.tokens -= 1;
+    if (this.bucket.tokens < 1 && !force) return false;
+    // A forced end-of-sentence call is charged too (the bucket may go into debt, capped), so the long-run
+    // rate stays at callsPerMin — plan-critic M7 #3: forced calls used to bypass the cap entirely.
+    this.bucket.tokens = Math.max(-this.tunables.burst, this.bucket.tokens - 1);
     return true;
   }
 
@@ -201,12 +242,12 @@ export class DocSession {
     if (!text) return;
     if (!this.flagOn("speak_to_create")) {
       if (this.utt?.seq !== seq) { this.utt = null; this.feature("speak_to_create", "blocked"); this.deps.send({ type: "error", message: "Speaking to create is turned off" }); }
-      this.utt = { seq, baseDoc: this.project, text, handled: new Set(), lexIds: new Set(), calledFor: new Set(), labels: new Map(), drawnAt: new Map(), lastCallAt: -Infinity, ending: true, settled: true };
+      this.utt = { seq, baseDoc: this.project, text, handled: new Set(), lexIds: new Set(), calledFor: new Set(), wasted: new Set(), sentAt: new Map(), reasked: new Set(), labels: new Map(), drawnAt: new Map(), lastCallAt: -Infinity, ending: true, settled: true };
       return;
     }
     if (!this.utt || this.utt.seq !== seq) {
       if (this.utt && !this.utt.settled) this.commitUtterance();
-      this.utt = { seq, baseDoc: this.project, text: "", handled: new Set(), lexIds: new Set(), calledFor: new Set(), labels: new Map(), drawnAt: new Map(), lastCallAt: -Infinity, ending: false, settled: false };
+      this.utt = { seq, baseDoc: this.project, text: "", handled: new Set(), lexIds: new Set(), calledFor: new Set(), wasted: new Set(), sentAt: new Map(), reasked: new Set(), labels: new Map(), drawnAt: new Map(), lastCallAt: -Infinity, ending: false, settled: false };
     }
     const u = this.utt;
     // Speech resumed after an early settle (silence rule or Flux TurnResumed): reopen the utterance as a
@@ -219,6 +260,9 @@ export class DocSession {
     if (u.settled) return;
     u.text = text;
     u.lastWordEndMs = lastWordEndMs ?? u.lastWordEndMs;
+    // Flux said "probably done" but the speaker went on (TurnResumed): the sentence is open again, so a
+    // settle call finishing now must not commit half of it (plan-critic M7 #2 — one version per utterance).
+    if (u.ending && !isFinal && !eager && lexTokens(text).length > (u.endingWords ?? Infinity)) u.ending = false;
 
     // "define kafka as a queue" / "confirm": a vocabulary command — no drawing, no model call (ADR 0012).
     if (isVocabCommand(text)) {
@@ -239,7 +283,7 @@ export class DocSession {
     if (fixes.length) this.applyLexicon(fixes, seq, lastWordEndMs, []);
 
     // Final or Flux EagerEndOfTurn: the speaker (probably) stopped — settle as soon as nothing is pending.
-    if (isFinal || eager) { u.ending = true; this.settleIfReady(); return; }
+    if (isFinal || eager) { u.ending = true; u.endingWords = lexTokens(text).length; this.settleIfReady(); return; }
     this.maybeSpeculate();
   }
 
@@ -277,7 +321,40 @@ export class DocSession {
     return marks;
   }
 
-  private pending(u: Utterance) { return uncovered(u.text, u.handled, u.ending, docKind(this.doc)).filter((k) => !u.calledFor.has(k)); }
+  private pending(u: Utterance) {
+    const kind = docKind(this.doc);
+    // A word sent too early — its object wasn't spoken yet, so the call changed nothing — gets one more try
+    // with the whole sentence at the end (M7: "reads", "calls", "forwards" lost their second object).
+    const left = uncovered(u.text, u.handled, u.ending, kind, this.flagOn("open_vocabulary") ? this.knownWords(kind) : undefined)
+      .filter((k) => !u.calledFor.has(k) || (u.ending && u.wasted.has(k)));
+    return [...new Set([...left, ...this.reask(u, kind)])];
+  }
+
+  /**
+   * Diagrams, end of sentence: a relation word already handled is asked again when a component was named
+   * AFTER it was sent — "the api reads from redis and postgres" decided api→redis at "redis", and the late
+   * "postgres" was never connected (M7). Once per word.
+   */
+  private reask(u: Utterance, kind: DocKind): string[] {
+    if (!u.ending || kind === "screen" || !u.sentAt.size) return [];
+    const toks = lexTokens(u.text);
+    const names = new Set<string>();
+    const walk = (n: DesignNode) => { if (n.type === "Node") lexTokens(String(n.props.label ?? "")).forEach((w) => { if (!FILLER.has(w)) names.add(w); }); n.children?.forEach(walk); };
+    walk(this.doc.root);
+    return [...u.sentAt].filter(([k, at]) => !u.reasked.has(k) && toks.slice(at).some((w) => names.has(w))).map(([k]) => k);
+  }
+
+  /** Words the view already understands: the lexicon's own, and every word of every label on it ("the api"). */
+  private knownWords(kind: DocKind): Set<string> {
+    const known = lexiconWords(kind);
+    const walk = (n: DesignNode) => {
+      const p = n.props as Record<string, unknown>;
+      for (const v of [p.label, p.content, p.alt, p.name, p.tech, p.owner]) if (typeof v === "string") lexTokens(v).forEach((w) => known.add(w));
+      n.children?.forEach(walk);
+    };
+    walk(this.doc.root);
+    return known;
+  }
 
   private maybeSpeculate(force = false) {
     const u = this.utt;
@@ -285,8 +362,9 @@ export class DocSession {
     const todo = this.pending(u);
     if (!todo.length) return;
     if (!force && performance.now() - u.lastCallAt < this.tunables.minGapMs) return;
-    if (!this.takeCall() && !force) return; // the end-of-utterance call may overdraw by one
-    todo.forEach((k) => u.calledFor.add(k));
+    if (!this.takeCall(force)) return; // the end-of-utterance call may overdraw (charged as debt)
+    const at = lexTokens(u.text).length;
+    todo.forEach((k) => { if (u.sentAt.has(k)) u.reasked.add(k); u.calledFor.add(k); u.wasted.delete(k); u.sentAt.set(k, at); });
     u.lastCallAt = performance.now();
     void this.runJob(u.ending ? "settle" : "speculative", u.text, u.seq, u.lastWordEndMs, todo).then(() => this.afterVoiceJob());
   }
@@ -412,7 +490,7 @@ export class DocSession {
     const stream = this.deps.model({
       model: engine.model,
       system: engine.system,
-      user: engine.render({ project_brief: this.brief(), doc_compact: compactFor(this.doc) || `(empty ${dk === "screen" ? "screen" : "diagram"}: root)`, partial_text: text }),
+      user: engine.render({ project_brief: this.brief(), doc_compact: compactFor(this.doc) || `(empty ${dk === "screen" ? "screen" : "diagram"}: root)`, partial_text: fixSpeech(text) }),
       signal: job.abort.signal,
     });
 
@@ -482,7 +560,9 @@ export class DocSession {
     for (const k of d.covered) { u?.handled.add(k); u?.labels.set(k, { label: "a connection", mine: false }); }
     this.deps.log?.(`jev: ${Math.round(res.ms)} ms · ${d.accepted} decided · ${d.unsure} unsure · ${d.lines.length} ops`);
     const todo = job.todo ?? [];
-    const done = todo.length > 0 && todo.every((k) => d.covered.includes(k) || u?.handled.has(k));
+    // Any unsure answer leaves the job to the model — fan-out pairs share their verb, so a confident pair
+    // must not mark an unsure pair's words as handled (M7).
+    const done = d.unsure === 0 && todo.length > 0 && todo.every((k) => d.covered.includes(k) || u?.handled.has(k));
     return done ? "covered" : "partial";
   }
 
@@ -595,6 +675,7 @@ export class DocSession {
 
   private finish(job: ActiveJob, state: "done" | "failed", detail?: string, firstOpMs?: number, usage?: { inputTokens: number; outputTokens: number }) {
     if (this.active === job) this.active = null;
+    if (job.kind === "speculative" && job.applied === 0 && this.utt && !this.utt.settled) job.todo?.forEach((k) => this.utt!.wasted.add(k));
     // Typed prompts version per job (M3); voice versions once per utterance at commit.
     if (state === "done" && job.kind === "typed" && job.applied > 0) {
       this.writeVersion(job.id);

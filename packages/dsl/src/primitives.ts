@@ -74,6 +74,7 @@ export const propSchemas = {
   Card: z.object({
     padding: SpaceToken.optional(),
     elevation: z.number().int().min(0).max(3).optional(),
+    fill: ColorToken.optional(), // "an orange card" (M7)
   }),
   List: z.object({
     items: z.array(z.object({ title: z.string(), subtitle: z.string().optional() })),

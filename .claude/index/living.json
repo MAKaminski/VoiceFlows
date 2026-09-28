@@ -1,10 +1,10 @@
 {
-  "ards": 19,
-  "ards_contributing": 18,
+  "ards": 20,
+  "ards_contributing": 19,
   "components_from_code": 4,
-  "components_from_ards": 25,
-  "flows_from_ards": 33,
-  "features": 16,
+  "components_from_ards": 26,
+  "flows_from_ards": 34,
+  "features": 17,
   "notes": 10,
   "index": [
     {
@@ -139,6 +139,13 @@
       "title": "ADR 0018 \u2014 Settle: Flux's end-of-turn stays in charge; the silence rule ships OFF",
       "status": "accepted",
       "contributes": false
+    },
+    {
+      "num": "0019",
+      "file": "0019-fluency.md",
+      "title": "ADR 0019 \u2014 Fluency: open vocabulary at the end of a sentence, colours as tokens, a corpus that proves it",
+      "status": "accepted",
+      "contributes": true
     }
   ]
 }
