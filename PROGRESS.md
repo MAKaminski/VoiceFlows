@@ -182,3 +182,28 @@
     head-to-head, so that set was a slow patch upstream, not a regression.
 - Found and fixed on production: an inferred Database survived next to Postgres when the model edited the
   placeholder in the same sentence (takeover now keys on "inferred at sentence start").
+
+## M10 — Build it (code scaffolding across workers) + Bring your systems (import) (2026-09-28) — ADR 0022
+- **Build it:** a Build drawer turns the six views into a starter codebase. Eight workers run in the browser:
+  SQL, zod contracts, Fastify API, Next page, compose, k6, PRD/backlog, README. It costs $0, takes ms, and
+  downloads as a zip.
+  - **✨ AI fill** sends the source skeletons to 4 concurrent Haiku workers: ≤ $0.15 per build, ≤ 50/day, 45 s.
+    Any file that fails the checks keeps its skeleton.
+  - The demo now ends with "Build it" (deterministic only).
+- **Bring your systems:** Import takes a SQL schema or pg_dump, a Prisma schema, OpenAPI JSON or a package.json.
+  - It lands in the ERD and Architecture as one undoable version, and scaffolding fills the other views.
+  - Names are sanitised at the parser.
+- Tests: dsl 74, gateway 223. `pnpm test:codegen`:
+  - generated SQL applies to Postgres (PGlite), including our own 17-table schema round-tripped;
+  - generated API, contracts and page typecheck;
+  - the zip passes `unzip -t`, byte-identical.
+- **Production:**
+  - **Import** of `db/schema.sql`: 17 tables, 21 relations, 141 ms round trip.
+  - **Generate:** 34 files in 4.6 ms.
+  - **AI fill:** 12/12 files, 4 workers, **$0.049**, 10.4 s, 0 failures.
+  - **Demo → Build it:** 23 files, no AI fill.
+- **DoD (speech path unchanged by M10):**
+  - 10/10 runs, twice. TTFV-1 was 130 ms, then 178 ms adj. (bar ≤ 110), settle 710–766 ms, 1 reflow, $0/min.
+  - STT lag measured in the same runs was 44–165 ms, and TTFV-1 tracked it run for run: the engine adds ≈ 0 after
+    the transcript arrives (ADR 0021 attribution).
+  - **TTFV-1 fails its bar as measured today, because of Deepgram lag, not M10.**
