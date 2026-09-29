@@ -39,7 +39,7 @@ and refined on a canvas *while they are still talking*. The product's measure of
    one in flight per session) edits them in place. Never let a new partial abort a running call —
    only an intent-delta commit, a new prompt, or undo/redo may.
 7. **Latency and cost are features.** Every hop is timestamped. A change that regresses p50
-   TTFV-0 or TTFV-1 by > 15%, or raises $/speaking-minute by > 15%, is a failing change.
+   TTFV-0 by > 15%, pushes TTFV-1 *net* over 50 ms (ADR 0023), or raises $/speaking-minute by > 15%, is a failing change.
 8. **TypeScript end to end (ADR 0005).** Rust only for the gateway hot path, and only after a
    measured trigger (self-time > 20 ms p95, GC p99 > 10 ms, or gateway cost > $0.005/min).
 9. Secrets only via env vars. Never commit or print `.env` contents.
@@ -48,7 +48,9 @@ and refined on a canvas *while they are still talking*. The product's measure of
 | Metric | p50 target | Fails when |
 |---|---|---|
 | TTFV-0 first visible change | ≤ 400 ms | > 15% regression |
-| TTFV-1 first model-quality change | ≤ 1,000 ms | > 15% regression |
+| TTFV-1 first model-quality change (gross, incl. STT lag) | ≤ 1,000 ms | > 1,000 ms (reported; STT lag is Deepgram's) |
+| TTFV-1 net — after the transcript arrives (ADR 0023) | ≤ 50 ms adj. (measured 18 ms) | > 50 ms adj. p50 |
+| STT lag — word end → transcript at client | tracked, not ours | reported every acceptance run |
 | Settle after speech stops | ≤ 1,200 ms | > 1,500 ms |
 | Reflows per element per utterance | < 3 | ≥ 3 in > 2/10 runs |
 | Cost per speaking minute | ≤ $0.046 (measured M4: $0.0111) | > $0.013 (+15% on measured) |

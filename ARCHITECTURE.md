@@ -273,7 +273,7 @@ encrypted). Speaking minutes are derived from `transcript_segments` — no new t
 | Tables with no FK either way | 0 |
 | Distinct error types | 1 |
 | Symbol names defined 3+ times | 1 |
-| ARDs on record | 23 (22 contributing to the diagram) |
+| ARDs on record | 24 (22 contributing to the diagram) |
 | Components declared by ARDs | 36 |
 | Features declared by ARDs | 27 |
 <!-- arch:end:counts -->
@@ -470,7 +470,9 @@ row you plan to reach — both are account-specific.
 | Metric | Target p50 | Target p95 | **M0 measured p50** | Fails when | Measured by |
 |---|---|---|---|---|---|
 | TTFV-0 — first visible change | ≤ 400 ms | ≤ 600 ms | M0 607 ms ❌ → **M4 −192 ms ✅** (browser 168–620) | p50 regresses > 15% | client: Deepgram word-end → render |
-| TTFV-1 — first model change | ≤ 1,000 ms | ≤ 1,500 ms | M0 1,515 ms ❌ → **M4 756 ms ✅** (browser 862–1,349) | p50 regresses > 15% | client: word-end → render of model op |
+| TTFV-1 — first model change (gross) | ≤ 1,000 ms | ≤ 1,500 ms | M0 1,515 ms ❌ → M4 756 ms → M10 101 ms adj. | > 1,000 ms p50 | client: word-end → render of model op |
+| TTFV-1 net — ADR 0023 | ≤ 50 ms adj. | — | **M10 18 ms adj.** (2 ms + 16 render) | > 50 ms adj. p50 | client: transcript carrying the trigger word → model/Jev op |
+| STT lag (Deepgram Flux, relay) | tracked | — | M10 31–165 ms p50 per run | reported, not gated | client: word end → transcript arrival |
 | STT word-end → partial | ≤ 295 ms | — | 502 ms Nova-3 ❌ → **91 ms Flux ✅** (ADR 0007) | — | bake-off / client |
 | Haiku first valid op | ≤ 640 ms | — | **788 ms** | — | spike / `latency_events` first_op |
 | Settle after speech stops | ≤ 1,200 ms | ≤ 2,000 ms | **M4 697 ms ✅** | p50 > 1,500 ms | `latency_events` final → settled |

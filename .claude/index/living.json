@@ -1,5 +1,5 @@
 {
-  "ards": 23,
+  "ards": 24,
   "ards_contributing": 22,
   "components_from_code": 4,
   "components_from_ards": 36,
@@ -167,6 +167,13 @@
       "title": "ADR 0022 \u2014 Build it (code scaffolding across workers) and Bring your systems (context import)",
       "status": "accepted",
       "contributes": true
+    },
+    {
+      "num": "0023",
+      "file": "0023-ttfv1-net-of-stt-lag.md",
+      "title": "ADR 0023 \u2014 Gate TTFV-1 net of speech-to-text lag",
+      "status": "accepted",
+      "contributes": false
     }
   ]
 }

@@ -18,6 +18,8 @@ import { applyOp, ServerMsg, type DesignDoc, type DesignNode } from "../../packa
 const url = process.argv[2] ?? "ws://localhost:8787/ws";
 const RUNS = Number(process.argv[3] ?? 10);
 const CAPTURE_MS = 40, RENDER_MS = 16;
+/** ADR 0023: TTFV-1 net (after the transcript arrives) p50 + render must stay under this — measured baseline +15%. */
+const TTFV1_NET_BAR = Number(process.env.TTFV1_NET_BAR ?? 50);
 const root = resolve(import.meta.dirname, "../..");
 const wav = readFileSync(resolve(root, "scripts/fixtures/dod.wav"));
 const words: Array<{ word: string; end: number }> = JSON.parse(readFileSync(resolve(root, "scripts/fixtures/dod.words.json"), "utf8")).words;
@@ -106,6 +108,10 @@ async function run(i: number) {
   // Attribution: STT lag (transcript arrival − its newest word's audio end) vs everything after it.
   const sttLag = inbox.flatMap(({ m, at }) => (m.type === "transcript" && m.lastWordEndMs != null ? [Math.round(at - wallOf(m.lastWordEndMs))] : []));
   if (sttLag.length) console.log(`   stt lag p50 ${pct(sttLag, 50)} ms (n=${sttLag.length})`);
+  // TTFV-1 NET (ADR 0023): first model-quality op − arrival of the transcript that delivered its trigger word.
+  // Deepgram's lag is measured and reported separately (sttLag); the bar applies to what we control.
+  const heardAt = (trig: number) => inbox.find(({ m }) => m.type === "transcript" && m.lastWordEndMs != null && m.lastWordEndMs >= trig - 1)?.at;
+  const ttfv1Net = [...firstModel.values()].flatMap((x) => { const h = x.trig != null ? heardAt(x.trig) : undefined; return h != null ? [Math.round(x.at - h)] : []; });
   const version = inbox.find((x) => x.m.type === "version" && x.m.version > 0);
   // One version per utterance (ADR 0010): an early end-of-turn that commits mid-sentence splits it.
   const versions = new Set(inbox.flatMap((x) => (x.m.type === "version" && x.m.version > 0 ? [x.m.version] : []))).size;
@@ -122,11 +128,11 @@ async function run(i: number) {
     && has((n) => n.type === "Button" && /sign/i.test(String(n.props.label)) && n.props.size === "lg") && !anyProvisional;
   const formBeforeButtonEnds = lexArrival.email != null && lexArrival.password != null && Math.max(lexArrival.email, lexArrival.password) < wallOf(endOf("button"));
   const maxReflows = Math.max(0, ...moves.values());
-  const t0med = pct(Object.values(ttfv0), 50), t1med = pct(ttfv1, 50);
+  const t0med = pct(Object.values(ttfv0), 50), t1med = pct(ttfv1, 50), t1net = pct(ttfv1Net, 50);
   const pass = versions === 1 && layoutOk && formBeforeButtonEnds && maxReflows < 3
-    && t0med + CAPTURE_MS + RENDER_MS <= 400 && (Number.isNaN(t1med) || t1med + CAPTURE_MS + RENDER_MS <= 1000) && settle + CAPTURE_MS + RENDER_MS <= 1200;
+    && t0med + CAPTURE_MS + RENDER_MS <= 400 && (Number.isNaN(t1med) || t1med + CAPTURE_MS + RENDER_MS <= 1000) && (Number.isNaN(t1net) || t1net + RENDER_MS <= TTFV1_NET_BAR) && settle + CAPTURE_MS + RENDER_MS <= 1200;
   const dollars = (tokens.in * 1 + tokens.out * 5) / 1e6;
-  console.log(`run ${String(i + 1).padStart(2)}: ${pass ? "PASS" : "fail"} · TTFV-0 ${JSON.stringify(ttfv0)} · TTFV-1 [${ttfv1.join(", ")}] · settle ${settle} · versions ${versions} · reflows ${maxReflows} · form-before-button ${formBeforeButtonEnds} · layout ${layoutOk} · calls ${jobs.join("/")} · $${dollars.toFixed(4)}`);
+  console.log(`run ${String(i + 1).padStart(2)}: ${pass ? "PASS" : "fail"} · TTFV-0 ${JSON.stringify(ttfv0)} · TTFV-1 [${ttfv1.join(", ")}] net [${ttfv1Net.join(", ")}] · settle ${settle} · versions ${versions} · reflows ${maxReflows} · form-before-button ${formBeforeButtonEnds} · layout ${layoutOk} · calls ${jobs.join("/")} · $${dollars.toFixed(4)}`);
   if (process.env.TIMELINE) {
     const topWall = wallOf(endOf("top"));
     for (const { m, at } of inbox) {
@@ -137,17 +143,19 @@ async function run(i: number) {
     }
   }
   if (!layoutOk) console.log(`        layout: ${kids.map((n) => `${n.type}${n.props.label ? `(${n.props.label})` : n.props.kind ? `(${n.props.kind})` : ""}${n.provisional ? "*" : ""}${n.children?.length ? `[${n.children.map((c) => c.type).join(",")}]` : ""}`).join(" · ")}`);
-  return { pass, ttfv0, ttfv1, settle, maxReflows, formBeforeButtonEnds, layoutOk, calls: jobs.length, dollars, audioSec: total * 0.08 };
+  return { pass, ttfv0, ttfv1, ttfv1Net, sttLagP50: pct(sttLag, 50), settle, maxReflows, formBeforeButtonEnds, layoutOk, calls: jobs.length, dollars, audioSec: total * 0.08 };
 }
 
 const rs = [];
 for (let i = 0; i < RUNS; i++) { rs.push(await run(i)); await sleep(500); }
-const all0 = rs.flatMap((r) => Object.values(r.ttfv0)), all1 = rs.flatMap((r) => r.ttfv1), st = rs.map((r) => r.settle).filter((x) => !Number.isNaN(x));
+const all0 = rs.flatMap((r) => Object.values(r.ttfv0)), all1 = rs.flatMap((r) => r.ttfv1), all1n = rs.flatMap((r) => r.ttfv1Net), lags = rs.map((r) => r.sttLagP50).filter((x) => !Number.isNaN(x)), st = rs.map((r) => r.settle).filter((x) => !Number.isNaN(x));
 const speakingMin = rs.reduce((a, r) => a + 6.23, 0) / 60;
 const summary = {
   url, at: new Date().toISOString(), runs: RUNS, passes: rs.filter((r) => r.pass).length,
   ttfv0: { p50: pct(all0, 50), p95: pct(all0, 95), adjustedP50: pct(all0, 50) + CAPTURE_MS + RENDER_MS },
   ttfv1: { p50: pct(all1, 50), p95: pct(all1, 95), adjustedP50: pct(all1, 50) + CAPTURE_MS + RENDER_MS },
+  ttfv1Net: { p50: pct(all1n, 50), p95: pct(all1n, 95), adjustedP50: pct(all1n, 50) + RENDER_MS, bar: TTFV1_NET_BAR },
+  sttLag: { p50: pct(lags, 50), max: Math.max(...lags) },
   settle: { p50: pct(st, 50), p95: pct(st, 95), adjustedP50: pct(st, 50) + CAPTURE_MS + RENDER_MS },
   maxReflowsPerElement: Math.max(...rs.map((r) => r.maxReflows)),
   callsPerSpeakingMin: +(rs.reduce((a, r) => a + r.calls, 0) / speakingMin).toFixed(1),
@@ -155,5 +163,5 @@ const summary = {
   assumptions: { captureMs: CAPTURE_MS, renderMs: RENDER_MS },
   perRun: rs,
 };
-console.log(`\nM4: ${summary.passes}/${RUNS} runs pass (need 8) · TTFV-0 p50 ${summary.ttfv0.p50} (+56 → ${summary.ttfv0.adjustedP50}) · TTFV-1 p50 ${summary.ttfv1.p50} (+56 → ${summary.ttfv1.adjustedP50}) · settle p50 ${summary.settle.p50} · max reflows ${summary.maxReflowsPerElement} · ${summary.callsPerSpeakingMin} calls/min · $${summary.dollarsPerSpeakingMin}/min`);
+console.log(`\nM4: ${summary.passes}/${RUNS} runs pass (need 8) · TTFV-0 p50 ${summary.ttfv0.p50} (+56 → ${summary.ttfv0.adjustedP50}) · TTFV-1 p50 ${summary.ttfv1.p50} (+56 → ${summary.ttfv1.adjustedP50}) · TTFV-1 net p50 ${summary.ttfv1Net.p50} (+16 → ${summary.ttfv1Net.adjustedP50}, bar ${TTFV1_NET_BAR}) · STT lag p50 ${summary.sttLag.p50} · settle p50 ${summary.settle.p50} · max reflows ${summary.maxReflowsPerElement} · ${summary.callsPerSpeakingMin} calls/min · $${summary.dollarsPerSpeakingMin}/min`);
 console.log(`ACCEPT_RESULT ${JSON.stringify(summary)}`);

@@ -207,3 +207,9 @@
   - STT lag measured in the same runs was 44–165 ms, and TTFV-1 tracked it run for run: the engine adds ≈ 0 after
     the transcript arrives (ADR 0021 attribution).
   - **TTFV-1 fails its bar as measured today, because of Deepgram lag, not M10.**
+
+## TTFV-1 measured net of STT lag (2026-09-28) — ADR 0023
+- Harness reports gross TTFV-1, **TTFV-1 net** (after the transcript arrives) and STT lag per run.
+- Production baseline, 10/10: TTFV-1 gross 45 ms (101 adj.) · **net 2 ms (18 adj.)** · STT lag p50 74 ms.
+  Run 1 was 502 ms gross but 1 ms net: the whole spike was Deepgram.
+- New bar: net ≤ 50 ms adj. p50. Gross keeps the ≤ 1,000 ms product target.
